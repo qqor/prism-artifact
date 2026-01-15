@@ -1,0 +1,57 @@
+diff --git a/epan/dissectors/packet-netbios.c b/epan/dissectors/packet-netbios.c
+index 5ea85c7df4..25035f3e07 100644
+--- a/epan/dissectors/packet-netbios.c
++++ b/epan/dissectors/packet-netbios.c
+@@ -260,29 +260,41 @@ static const value_string status_vals[] = {
+ };
+ 
+ static const value_string max_frame_size_vals[] = {
+-	{ 0,	"516" },
+-	{ 1,	"1500" },
+-	{ 2,	"2052" },
+-	{ 3,	"4472" },
+-	{ 4,	"8144" },
+-	{ 5,	"11407" },
+-	{ 6,	"17800" },	/* 17800 in TR spec, 17749 in NBF spec */
+-	{ 7,	"65535" },
+-	{ 0,	NULL }
++	{ 0,   "516" },
++	{ 1,   "1500" },
++	{ 2,   "2052" },
++	{ 3,   "4472" },
++	{ 4,   "8144" },
++	{ 5,   "11407" },
++	{ 6,   "17800" },   /* 17800 in TR spec, 17749 in NBF spec */
++	{ 7,   "65535" },
++	{ 0,   NULL }
+ };
+ 
+ 
+ static bool
+ capture_netbios(const unsigned char *pd _U_, int offset _U_, int len _U_, capture_packet_info_t *cpinfo, const union wtap_pseudo_header *pseudo_header _U_)
+ {
++	/* Prevent reading past packet data: need at least 8 bytes for NetBIOS header fields */
++	if (len - offset < 8) {
++		/* Packet too short, skip dissecting NetBIOS to avoid OOB read */
++		return false;
++	}
+ 	capture_dissector_increment_count(cpinfo, proto_netbios);
+ 	return true;
+ }
+ 
+-
+-int
++// FIXME: Crash CWE-125: Out-of-bounds Read
++ int
+ process_netbios_name(const unsigned char *name_ptr, char *name_ret, int name_ret_len)
+ {
++	/* Rationale: ensure the input buffer contains at least NETBIOS_NAME_LEN bytes */
++	if (g_strnlen((const char *)name_ptr, NETBIOS_NAME_LEN) < NETBIOS_NAME_LEN) {
++		/* malformed: not enough data, abort parsing */
++		*name_ret = '\0';
++		return 0;
++	}
++
+ 	int    i;
+ 	int    name_type = *(name_ptr + NETBIOS_NAME_LEN - 1);
+ 	unsigned char name_char;

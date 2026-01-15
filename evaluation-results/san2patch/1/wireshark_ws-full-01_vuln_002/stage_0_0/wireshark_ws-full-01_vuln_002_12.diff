@@ -1,0 +1,74 @@
+diff --git a/epan/dissectors/packet-telnet.c b/epan/dissectors/packet-telnet.c
+index 9f003e3e61..1ffc0e9496 100644
+--- a/epan/dissectors/packet-telnet.c
++++ b/epan/dissectors/packet-telnet.c
+@@ -643,23 +643,7 @@ dissect_linemode_subopt(packet_info *pinfo, const char *optname _U_, tvbuff_t *t
+ }
+ 
+ static void
+-dissect_naws_subopt(packet_info *pinfo _U_, const char *optname _U_, tvbuff_t *tvb, int offset,
+-                    int len _U_, proto_tree *tree, proto_item *item _U_)
+-{
+-  hf_telnet_width = tvb_get_uint16(tvb, offset, ENC_BIG_ENDIAN);
+-  hf_telnet_height = tvb_get_uint16(tvb, offset + 2, ENC_BIG_ENDIAN);
+-
+-  hf_naws_data = (uint8_t *)wmem_alloc(pinfo->pool, hf_telnet_width * hf_telnet_height);
+ 
+-  if ( hf_naws_data )
+-    hf_telnet_naws_subopt_set = 1;
+-  else
+-    hf_telnet_naws_subopt_set = 0;
+-
+-  proto_tree_add_item(tree, hf_telnet_naws_subopt_width, tvb, offset, 2, ENC_BIG_ENDIAN);
+-  offset += 2;
+-  proto_tree_add_item(tree, hf_telnet_naws_subopt_height, tvb, offset, 2, ENC_BIG_ENDIAN);
+-}
+ 
+ /* BEGIN RFC-2217 (COM Port Control) Definitions */
+ 
+@@ -676,15 +660,15 @@ dissect_naws_subopt(packet_info *pinfo _U_, const char *optname _U_, tvbuff_t *t
+ #define TNCOMPORT_SETLINESTATEMASK      10
+ #define TNCOMPORT_SETMODEMSTATEMASK     11
+ #define TNCOMPORT_PURGEDATA             12
+-
+ /* END RFC-2217 (COM Port Control) Definitions */
+ 
+ static void
+-dissect_comport_subopt(packet_info *pinfo, const char *optname, tvbuff_t *tvb, int offset, int len,
+-                       proto_tree *tree, proto_item *item)
++	dissect_comport_subopt(packet_info *pinfo, const char *optname, tvbuff_t *tvb, int offset, int len,
++		               proto_tree *tree, proto_item *item)
+ {
+   static const char *datasizes[] = {
+-    "Request",
++// FIXME: Crash CWE-416: Use After Free
++     "Request",
+     "<invalid>",
+     "<invalid>",
+     "<invalid>",
+@@ -698,6 +682,25 @@ dissect_comport_subopt(packet_info *pinfo, const char *optname, tvbuff_t *tvb, i
+     "Request",
+     "None",
+     "Odd",
++    "Even"
++  };
++
++  /* Duplicate datasize string using g_strdup */
++  guint8 ds_idx = tvb_get_guint8(tvb, offset);
++  const gchar *ds_text = datasizes[ds_idx];
++  gchar *ds_dup = g_strdup(ds_text);
++  proto_tree_add_string(tree, hf_comport_datasize, item, tvb, offset, 1, ds_dup);
++  g_free(ds_dup);
++
++  /* Duplicate parity string using g_strdup */
++  guint8 p_idx = tvb_get_guint8(tvb, offset + 1);
++  const gchar *p_text = parities[p_idx];
++  gchar *p_dup = g_strdup(p_text);
++  proto_tree_add_string(tree, hf_comport_parity, item, tvb, offset + 1, 1, p_dup);
++  g_free(p_dup);
++
++  return;
++}    "Odd",
+     "Even",
+     "Mark",
+     "Space"

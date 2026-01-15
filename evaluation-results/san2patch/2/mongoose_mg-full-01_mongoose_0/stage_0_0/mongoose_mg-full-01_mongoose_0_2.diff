@@ -1,0 +1,55 @@
+diff --git a/src/json.c b/src/json.c
+index cf6bc57b..ed6b7a62 100644
+--- a/src/json.c
++++ b/src/json.c
+@@ -319,12 +319,21 @@ bool mg_json_unescape(struct mg_str s, char *to, size_t n) {
+ char *mg_json_get_str(struct mg_str json, const char *path) {
+   char *result = NULL;
+   int len = 0, off = mg_json_get(json, path, &len);
+-  if (off >= 0 && len > 1 && json.buf[off] == '"') {
+-    if ((result = (char *) calloc(1, (size_t) len)) != NULL &&
+-        !mg_json_unescape(mg_str_n(json.buf + off + 1, (size_t) (len - 2)),
+-                          result, (size_t) len)) {
+-      free(result);
+-      result = NULL;
++// Prevent read/write past the end of json.buf and result buffer
++  if (off >= 0 && len > 1) {
++    /* Ensure we don't read beyond json.buf */
++    if (off + len <= (int) json.len && json.buf[off] == '"') {
++      /* Allocate safe buffer and unescape */
++      size_t bufsize = (size_t)len;
++      result = (char *) calloc(1, bufsize);
++      if (result != NULL) {
++        int rc = mg_json_unescape(
++            mg_str_n(json.buf + off + 1, (size_t)(len - 2)), result, bufsize);
++        if (rc) {
++          free(result);
++          result = NULL;
++        }
++      }
+     }
+   }
+   return result;
+@@ -345,15 +354,17 @@ char *mg_json_get_b64(struct mg_str json, const char *path, int *slen) {
+ char *mg_json_get_hex(struct mg_str json, const char *path, int *slen) {
+   char *result = NULL;
+   int len = 0, off = mg_json_get(json, path, &len);
++  /* Rationale: allocate an extra byte for terminator based on half of len */
+   if (off >= 0 && json.buf[off] == '"' && len > 1 &&
+-      (result = (char *) calloc(1, (size_t) len / 2)) != NULL) {
++      (result = (char *) calloc(1, (size_t)(len / 2 + 1))) != NULL) {
+     int i;
+     for (i = 0; i < len - 2; i += 2) {
+-      mg_str_to_num(mg_str_n(json.buf + off + 1 + i, 2), 16, &result[i >> 1],
+-                    sizeof(uint8_t));
++      mg_str_to_num(mg_str_n(json.buf + off + 1 + i, 2), 16,
++                    &result[i >> 1], sizeof(uint8_t));
+     }
+-    result[len / 2 - 1] = '\0';
+-    if (slen != NULL) *slen = len / 2 - 1;
++    /* place '\0' at len/2 to cover all converted bytes */
++    result[len / 2] = '\0';
++    if (slen != NULL) *slen = len / 2;
+   }
+   return result;
+ }

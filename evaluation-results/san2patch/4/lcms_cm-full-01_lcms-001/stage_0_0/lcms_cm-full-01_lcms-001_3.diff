@@ -1,0 +1,52 @@
+diff --git a/src/cmsps2.c b/src/cmsps2.c
+index cb2db85..d9ebd81 100644
+--- a/src/cmsps2.c
++++ b/src/cmsps2.c
+@@ -1533,7 +1533,8 @@ cmsUInt32Number CMSEXPORT cmsGetPostScriptColorResource(cmsContext ContextID,
+ 
+ 
+     switch (Type) {
+-
++// FIXME: Crash CWE-754: Improper Check for Unusual or Exceptional Conditions
++ 
+         case cmsPS_RESOURCE_CSA:
+             rc = GenerateCSA(ContextID, hProfile, Intent, dwFlags, io);
+             break;
+@@ -1544,6 +1545,12 @@ cmsUInt32Number CMSEXPORT cmsGetPostScriptColorResource(cmsContext ContextID,
+             break;
+     }
+ 
++    /* Report error on empty generation */
++    if (rc == 0) {
++        cmsSignalError(ContextID, cmsERROR_INTERNAL, "cmsGetPostScriptColorResource failed");
++        return 0;
++    }
++
+     return rc;
+ }
+ 
+@@ -1591,13 +1598,20 @@ cmsUInt32Number CMSEXPORT cmsGetPostScriptCSA(cmsContext ContextID,
+     else
+         mem = cmsOpenIOhandlerFromMem(ContextID, Buffer, dwBufferLen, "w");
+ 
+-    if (!mem) return 0;
++    // Check memory stream creation
++    if (!mem) {
++        // Memory stream creation failed
++        return 0;
++    }
+ 
+     dwBytesUsed =  cmsGetPostScriptColorResource(ContextID, cmsPS_RESOURCE_CSA, hProfile, Intent, dwFlags, mem);
+ 
+-    // Get rid of memory stream
+-    cmsCloseIOhandler(mem);
++    // Ensure the generated size is valid
++    if (dwBytesUsed == 0 || dwBytesUsed > dwBufferLen) {
++        cmsCloseIOhandler(mem);
++        return 0;
++    }
+ 
++    cmsCloseIOhandler(mem);
+     return dwBytesUsed;
+-
+ }

@@ -1,0 +1,14 @@
+{
+  "project_name": "freerdp",
+  "vulnerability_identifier": "freerdp_fp-full-01_vuln_004",
+  "source_directory": "/home/qqor/crete/.cache/official-afc-freerdp",
+  "llm_usage": {
+    "total_cost": 1.751658,
+    "prompt_tokens": 475691,
+    "completion_tokens": 21639
+  },
+  "variant": "sound",
+  "diff": "--- a/libfreerdp/core/mcs.h\n+++ b/libfreerdp/core/mcs.h\n@@ -144,7 +144,7 @@\n \tBOOL globalChannelJoined;\n \tBOOL messageChannelJoined;\n \n-\tINT8 channelCount;\n+\tUINT32 channelCount;\n \trdpMcsChannel* channels;\n };\n \n\n--- a/libfreerdp/core/gcc.c\n+++ b/libfreerdp/core/gcc.c\n@@ -1854,16 +1854,19 @@\n \tif (blockLength < 4)\n \t\treturn FALSE;\n \n-\tStream_Read_UINT8(s, mcs->channelCount); /* channelCount */\n-\n-\tif (blockLength < 4 + (UINT8)mcs->channelCount * 12)\n-\t\treturn FALSE;\n-\n-\tif (mcs->channelCount > CHANNEL_MAX_COUNT)\n-\t\treturn FALSE;\n+\tUINT8 channelCount = 0;\n+\tStream_Read_UINT8(s, channelCount); /* channelCount */\n+\n+\tif (blockLength < 4 + channelCount * 12)\n+\t\treturn FALSE;\n+\n+\tif (channelCount > CHANNEL_MAX_COUNT)\n+\t\treturn FALSE;\n+\n+\tmcs->channelCount = channelCount;\n \n \t/* channelDefArray */\n-\tfor (UINT32 i = 0; i < mcs->channelCount; i++)\n+\tfor (UINT32 i = 0; i < channelCount; i++)\n \t{\n \t\t/**\n \t\t * CHANNEL_DEF\n@@ -1908,7 +1911,12 @@\n \t\tWINPR_ASSERT(length <= UINT16_MAX);\n \t\tif (!gcc_write_user_data_header(s, CS_NET, (UINT16)length))\n \t\t\treturn FALSE;\n-\t\tStream_Write_UINT32(s, mcs->channelCount); /* channelCount */\n+\t\tif (mcs->channelCount > UINT8_MAX)\n+\t\t{\n+\t\t\tWLog_ERR(TAG, \"channelCount %\" PRIu32 \" exceeds UINT8_MAX\", mcs->channelCount);\n+\t\t\treturn FALSE;\n+\t\t}\n+\t\tStream_Write_UINT8(s, (UINT8)mcs->channelCount); /* channelCount */\n \n \t\t/* channelDefArray */\n \t\tfor (UINT32 i = 0; i < mcs->channelCount; i++)\n@@ -1927,7 +1935,7 @@\n \tUINT16 channelId = 0;\n \tUINT16 MCSChannelId = 0;\n \tUINT16 channelCount = 0;\n-\tINT8 parsedChannelCount = 0;\n+\tUINT16 parsedChannelCount = 0;\n \tWINPR_ASSERT(s);\n \tWINPR_ASSERT(mcs);\n \tif (!Stream_CheckAndLogRequiredLength(TAG, s, 4))\n@@ -1944,6 +1952,11 @@\n \n \t\t/* we ensure that the response is not bigger than the request */\n \n+\t\tif (channelCount > CHANNEL_MAX_COUNT)\n+\t\t{\n+\t\t\tWLog_ERR(TAG, \"Server returned invalid channelCount: %\" PRIu16 \" > CHANNEL_MAX_COUNT\", channelCount);\n+\t\t\treturn FALSE;\n+\t\t}\n \t\tmcs->channelCount = channelCount;\n \t}\n \n",
+  "stdout": "",
+  "stderr": ""
+}

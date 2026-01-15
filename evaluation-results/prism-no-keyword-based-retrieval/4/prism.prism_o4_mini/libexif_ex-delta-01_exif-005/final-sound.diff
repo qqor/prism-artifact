@@ -1,0 +1,79 @@
+--- a/libexif/apple/exif-mnote-data-apple.c
++++ b/libexif/apple/exif-mnote-data-apple.c
+@@ -62,7 +62,7 @@
+ 
+     /*printf("%s\n", __FUNCTION__);*/
+ 
+-    if (!d || !buf || (buf_size < 6 + 16)) {
++    if (!d || !buf || buf_size < 6 + 16) {
+         exif_log(md->log, EXIF_LOG_CODE_CORRUPT_DATA,
+                  "ExifMnoteDataApple", "Short MakerNote");
+         return;
+@@ -70,6 +70,13 @@
+ 
+     /* Start of interesting data */
+     ofs = d->offset + 6;
++
++    /* Need at least 16 bytes after ofs for byte order and entry count */
++    if (buf_size < ofs + 16) {
++        exif_log(md->log, EXIF_LOG_CODE_CORRUPT_DATA,
++                 "ExifMnoteDataApple", "Short MakerNote");
++        return;
++    }
+ 
+     if ((buf[ofs + 12] == 'M') && (buf[ofs + 13] == 'M')) {
+         d->order = EXIF_BYTE_ORDER_MOTOROLA;
+@@ -78,17 +85,20 @@
+     } else {
+         exif_log(md->log, EXIF_LOG_CODE_CORRUPT_DATA,
+                 "ExifMnoteDataApple", "Unrecognized byte order");
+-        /*printf("%s(%d)\n", __FUNCTION__, __LINE__);*/
+-        return;
+-    }
+-
++        return;
++    }
++
++    /* Read number of entries */
+     tcount = (unsigned int) exif_get_short(buf + ofs + 14, d->order);
+ 
+-    /* Sanity check the offset */
+-    if (buf_size < 6 + 16 + tcount * 6 + 4) {
++    /* Define entry layout and check total size: header + entries + trailing */
++    const size_t ENTRY_SIZE = 12;
++    const size_t header_size = 6 + 16;
++    const size_t entries_offset = ofs + 16;
++    const size_t trailing = 4;
++    if (buf_size < header_size + (size_t)tcount * ENTRY_SIZE + trailing) {
+         exif_log(md->log, EXIF_LOG_CODE_CORRUPT_DATA,
+                  "ExifMnoteDataApple", "Short MakerNote");
+-        /*printf("%s(%d)\n", __FUNCTION__, __LINE__);*/
+         return;
+     }
+ 
+@@ -107,13 +117,21 @@
+     }
+ 
+     for (i = 0; i < tcount; i++) {
+-        d->entries[i].tag = exif_get_short(buf + ofs, d->order);
+-        d->entries[i].format = exif_get_short(buf + ofs + 2, d->order);
+-        d->entries[i].components = exif_get_long(buf + ofs + 4, d->order);
++        /* Bounds-check each 12-byte entry */
++        size_t this_entry_end = entries_offset + (i + 1) * ENTRY_SIZE;
++        if (this_entry_end > buf_size) {
++            exif_log(md->log, EXIF_LOG_CODE_CORRUPT_DATA,
++                     "ExifMnoteDataApple", "Corrupt MakerNote entry");
++            return;
++        }
++        unsigned char *p = buf + entries_offset + i * ENTRY_SIZE;
++        d->entries[i].tag = exif_get_short(p + 0, d->order);
++        d->entries[i].format = exif_get_short(p + 2, d->order);
++        d->entries[i].components = exif_get_long(p + 4, d->order);
+         d->entries[i].order = d->order;
+         dsize = exif_format_get_size(d->entries[i].format) * d->entries[i].components;
+         if (dsize > 4) {
+-            dofs = d->offset + exif_get_long(buf + ofs + 8, d->order);
++            dofs = d->offset + exif_get_long(p + 8, d->order);
+         } else {
+             dofs = ofs + 8;
+         }

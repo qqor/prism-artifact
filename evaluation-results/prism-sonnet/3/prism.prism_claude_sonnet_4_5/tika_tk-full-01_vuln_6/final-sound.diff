@@ -1,0 +1,57 @@
+--- a/tika-app/src/main/java/org/apache/tika/cli/TikaUntar.java
++++ b/tika-app/src/main/java/org/apache/tika/cli/TikaUntar.java
+@@ -24,11 +24,15 @@
+ 
+ import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
+ import org.apache.commons.compress.archivers.tar.TarArchiveInputStream;
++import org.slf4j.Logger;
++import org.slf4j.LoggerFactory;
+ 
+ /**
+  * Super simple utility class to untar a tar file
+  */
+ public class TikaUntar {
++
++    private static final Logger LOG = LoggerFactory.getLogger(TikaUntar.class);
+ 
+     public static void main(String[] args) throws IOException {
+         Path inputFile = Paths.get(args[0]);
+@@ -41,12 +45,37 @@
+             while (tae != null) {
+                 if (tae.isFile()) {
+                     Path target = extractDir.resolve(tae.getName()).normalize();
++                    
++                    // Security check: Validate normalized path is within extraction directory
++                    if (!target.startsWith(extractDir.toAbsolutePath().normalize())) {
++                        LOG.warn("Skipping tar entry with path traversal attempt: {}", tae.getName());
++                        tae = tais.getNextEntry();
++                        continue;
++                    }
++                    
+                     if (!Files.isDirectory(target.getParent())) {
+                         Files.createDirectories(target.getParent());
+                     }
++                    
++                    // Additional security check: Validate real path after directory creation (symlink protection)
++                    try {
++                        if (!target.toRealPath().startsWith(extractDir.toRealPath())) {
++                            LOG.warn("Skipping tar entry with potential symlink attack: {}", tae.getName());
++                            tae = tais.getNextEntry();
++                            continue;
++                        }
++                    } catch (IOException e) {
++                        // If toRealPath() fails, skip the entry to be safe
++                        LOG.warn("Skipping tar entry due to path resolution error: {}", tae.getName(), e);
++                        tae = tais.getNextEntry();
++                        continue;
++                    }
++                    
+                     Files.write(target, tais.readAllBytes());
++                    tae = tais.getNextEntry();
++                } else {
++                    tae = tais.getNextEntry();
+                 }
+-                tae = tais.getNextEntry();
+             }
+         }
+     }

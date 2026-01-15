@@ -1,0 +1,14 @@
+{
+  "project_name": "wireshark",
+  "vulnerability_identifier": "wireshark-ws-full-01-vuln_011",
+  "source_directory": "/tasks/e9b4dbe8-f3f6-4680-b8e2-363ef3b18918/official-afc-wireshark",
+  "llm_usage": {
+    "total_cost": 0.3827758000000001,
+    "prompt_tokens": 227582,
+    "completion_tokens": 30099
+  },
+  "variant": "sound",
+  "diff": "--- a/epan/dissectors/packet-aim.c\n+++ b/epan/dissectors/packet-aim.c\n@@ -583,14 +583,30 @@\n {\n \tuint16_t buddyname_length;\n \n-\t*name = wmem_alloc(pool, 256);\n-\n-\tbuddyname_length = tvb_get_ntohs(tvb, offset);\n-\n-\tif (pool)\n-\t\tmemcpy(*name, tvb_get_ptr(tvb,offset,1), buddyname_length);\n-\n-\treturn buddyname_length;\n+    buddyname_length = tvb_get_ntohs(tvb, offset);\n+    {\n+        guint32 total_len = tvb_reported_length(tvb);\n+        guint32 max_len;\n+        /* Validate that we have at least the length field and data */\n+        if ((guint32)(offset + 2) > total_len) {\n+            buddyname_length = 0;\n+        } else {\n+            max_len = total_len - (guint32)(offset + 2);\n+            if (buddyname_length > max_len) {\n+                buddyname_length = max_len;\n+            }\n+            /* Cap buddyname length to a safe maximum */\n+            if (buddyname_length > 256) {\n+                buddyname_length = 256;\n+            }\n+        }\n+    }\n+    if (pool) {\n+        *name = wmem_alloc(pool, buddyname_length + 1);\n+        memcpy(*name, tvb_get_ptr(tvb, offset + 2, buddyname_length), buddyname_length);\n+        (*name)[buddyname_length] = '\\0';\n+    }\n+    return buddyname_length;\n }\n \n \n@@ -1596,10 +1612,18 @@\n \toffset += 2;\n \thdr_data_field_length = tvb_get_ntohs(tvb, offset);\n \toffset += 2;\n-\n-/* In the interest of speed, if \"tree\" is NULL, don't do any work not\n-   necessary to generate protocol tree items. */\n-\tif (tree) {\n+    {\n+        guint32 avail = tvb_reported_length(tvb) - offset;\n+        guint32 data_len = hdr_data_field_length < avail ? hdr_data_field_length : avail;\n+        tvbuff_t *data_tvb = tvb_new_subset_length(tvb, offset, data_len);\n+        tvb = data_tvb;\n+        /* Reset offset since tvb is now limited to data field */\n+        offset = 0;\n+    }\n+\n+    /* In the interest of speed, if \"tree\" is NULL, don't do any work not\n+       necessary to generate protocol tree items. */\n+    if (tree) {\n \t\tti = proto_tree_add_item(tree, proto_aim, tvb, 0, -1, ENC_NA);\n \t\taim_tree = proto_item_add_subtree(ti, ett_aim);\n \t\tproto_tree_add_uint(aim_tree, hf_aim_cmd_start, tvb, 0, 1, '*');\n",
+  "stdout": "",
+  "stderr": ""
+}

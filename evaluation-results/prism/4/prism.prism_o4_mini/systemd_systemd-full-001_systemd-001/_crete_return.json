@@ -1,0 +1,14 @@
+{
+  "project_name": "systemd",
+  "vulnerability_identifier": "systemd_systemd-full-001_systemd-001",
+  "source_directory": "/tasks_new/systemd_systemd-full-001/official-afc-systemd",
+  "llm_usage": {
+    "total_cost": 0.7647013,
+    "prompt_tokens": 340811,
+    "completion_tokens": 88593
+  },
+  "variant": "sound",
+  "diff": "--- a/src/udev/udev-rules.c\n+++ b/src/udev/udev-rules.c\n@@ -1146,6 +1146,9 @@\n         assert(ret_value);\n         assert(ret_endpos);\n         assert(ret_is_case_insensitive);\n+        /* Save original buffer end to check capacity */\n+        char *orig = str;\n+        char *orig_end = orig + strlen(orig);\n \n         /* check if string is prefixed with:\n          * - \"e\" for escaped\n@@ -1184,7 +1187,13 @@\n                  * The return value must be terminated by two subsequent NULs\n                  * so it could be safely interpreted as nulstr.\n                  */\n-                if (is_prefix_match){\n+                {\n+                        size_t suffix_len = is_prefix_match ? 3 : 2;\n+                        /* Ensure we do not write past original buffer end */\n+                        if (j + suffix_len - 1 > orig_end)\n+                                return -ENOMEM;\n+                }\n+                if (is_prefix_match) {\n                         j[0] = '*';\n                         j[1] = '\\0';\n                         j[2] = '\\0';\n@@ -1215,14 +1224,22 @@\n                 * The return value must be terminated by two subsequent NULs\n                 * so it could be safely interpreted as nulstr.\n                 */\n-                if (is_prefix_match){\n+                {\n+                        char *write_base = is_prefix_match ? str + pos - 1 : m;\n+                        size_t mem_bytes = l + 1;\n+                        size_t suffix_len = is_prefix_match ? 3 : 2;\n+                        char *highest = write_base + (mem_bytes - 1) + (suffix_len - 1);\n+                        /* Ensure we do not write past original buffer end */\n+                        if (highest > orig_end)\n+                                return -ENOMEM;\n+                }\n+                if (is_prefix_match) {\n                         /* need more room to make rule glob match */\n                         memcpy(str + pos - 1, unescaped, l + 1);\n                         str[pos + l - 1] = '*';\n                         str[pos + l] = '\\0';\n                         str[pos + l + 1] = '\\0';\n                         m = str + pos - 1;\n-\n                 } else {\n                         memcpy(m, unescaped, l + 1);\n                         m[l] = '\\0';\n",
+  "stdout": "",
+  "stderr": ""
+}

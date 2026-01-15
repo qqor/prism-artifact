@@ -1,0 +1,335 @@
+--- a/fontbox/src/main/java/org/apache/fontbox/pfb/PfbParser.java
++++ b/fontbox/src/main/java/org/apache/fontbox/pfb/PfbParser.java
+@@ -1,20 +1,17 @@
+-/*
+- * Licensed to the Apache Software Foundation (ASF) under one or more
+- * contributor license agreements.  See the NOTICE file distributed with
+- * this work for additional information regarding copyright ownership.
+- * The ASF licenses this file to You under the Apache License, Version 2.0
+- * (the "License"); you may not use this file except in compliance with
+- * the License.  You may obtain a copy of the License at
+- *
+- *      http://www.apache.org/licenses/LICENSE-2.0
+- *
+- * Unless required by applicable law or agreed to in writing, software
+- * distributed under the License is distributed on an "AS IS" BASIS,
+- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+- * See the License for the specific language governing permissions and
+- * limitations under the License.
+- */
++// Licensed to the Apache Software Foundation (ASF) under one or more
++// contributor license agreements. See the NOTICE file distributed with
++// this work for additional information regarding copyright ownership.
++// SPDX-License-Identifier: Apache-2.0
+ package org.apache.fontbox.pfb;
++
++import java.io.ByteArrayInputStream;
++import java.io.EOFException;
++import java.io.IOException;
++import java.io.InputStream;
++import java.util.ArrayList;
++import java.util.List;
++import org.slf4j.Logger;
++import org.slf4j.LoggerFactory;
+ 
+ import java.io.ByteArrayInputStream;
+ import java.io.EOFException;
+@@ -73,12 +70,8 @@
+     /**
+      * the parsed pfb-data.
+      */
+-    private byte[] pfbdata;
+-
+-    /**
+-     * the lengths of the records (ASCII, BINARY, ASCII)
+-     */
+-    private final int[] lengths = new int[3];
++    private byte[] segment1;
++    private byte[] segment2;
+ 
+     // sample (pfb-file)
+     // 00000000 80 01 8b 15  00 00 25 21  50 53 2d 41  64 6f 62 65  
+@@ -90,20 +83,38 @@
+      * @param filename  the file name
+      * @throws IOException if an IO-error occurs.
+      */
+-    public PfbParser(final String filename) throws IOException 
+-    {
+-        this(Files.readAllBytes(Paths.get(filename)));
+-    }
+-
+-    /**
+-     * Create a new object.
+-     * @param in   The input.
++    /**
++     * Constructs a PfbParser from a byte array.
++     *
++     * @param bytes The PFB content.
+      * @throws IOException if an IO-error occurs.
+      */
+-    public PfbParser(final InputStream in) throws IOException 
+-    {
+-        byte[] pfb = in.readAllBytes();
+-        parsePfb(pfb);
++    public PfbParser(final byte[] bytes) throws IOException
++    {
++        parsePfbStream(new ByteArrayInputStream(bytes), MAX_LENGTH);
++    }
++
++    /**
++     * Streaming constructor: parses PFB from an InputStream with default size limit.
++     *
++     * @param pfbStream The PFB input stream.
++     * @throws IOException if an IO-error occurs or limit exceeded.
++     */
++    public PfbParser(final InputStream pfbStream) throws IOException
++    {
++        this(pfbStream, MAX_LENGTH);
++    }
++
++    /**
++     * Streaming constructor: parses PFB from an InputStream with specified size limit.
++     *
++     * @param pfbStream     The PFB input stream.
++     * @param maxTotalBytes Maximum combined bytes of segments.
++     * @throws IOException if an IO-error occurs or limit exceeded.
++     */
++    public PfbParser(final InputStream pfbStream, final long maxTotalBytes) throws IOException
++    {
++        parsePfbStream(pfbStream, maxTotalBytes);
+     }
+ 
+     /**
+@@ -121,25 +132,25 @@
+      * @param pfb   The pfb-Array
+      * @throws IOException in an IO-error occurs.
+      */
+-    private void parsePfb(final byte[] pfb) throws IOException 
+-    {
+-        if (pfb.length < PFB_HEADER_LENGTH)
+-        {
+-            throw new IOException("PFB header missing");
+-        }
+-        // read into segments and keep them
+-        List<Integer> typeList = new ArrayList<>(3);
+-        List<byte[]> barrList = new ArrayList<>(3);
+-        ByteArrayInputStream in = new ByteArrayInputStream(pfb);
++    private void parsePfb(final byte[] pfb) throws IOException
++    {
++        parsePfbStream(new ByteArrayInputStream(pfb), MAX_LENGTH);
++    }
++
++    /**
++     * Stream-based parsing of PFB format with a total byte limit.
++     */
++    private void parsePfbStream(final InputStream in, final long maxTotalBytes) throws IOException
++    {
+         int total = 0;
+-        do
+-        {
+-            int r = in.read();
+-            if (r == -1 && total > 0)
+-            {
+-                break; // EOF
+-            }
+-            if (r != START_MARKER) 
++        while (true)
++        {
++            int marker = in.read();
++            if (marker == -1)
++            {
++                break;
++            }
++            if (marker != START_MARKER)
+             {
+                 throw new IOException("Start marker missing");
+             }
+@@ -152,26 +163,60 @@
+             {
+                 throw new IOException("Incorrect record type: " + recordType);
+             }
+-
+             int size = in.read();
+-            size += in.read() << 8;
+-            size += in.read() << 16;
+-            size += in.read() << 24;
+-            LOG.debug("record type: {}, segment size: {}", recordType, size);
+-            long newTotal = total + size;
+-            if (newTotal > MAX_LENGTH) {
+-                throw new IOException("record size would be too large: " + newTotal);
+-            }
+-
++            size |= in.read() << 8;
++            size |= in.read() << 16;
++            size |= in.read() << 24;
++            if (size < 0)
++            {
++                throw new IOException("Negative segment size: " + size);
++            }
++            total += size;
++            if (total > maxTotalBytes)
++            {
++                throw new IOException("PFB stream exceeds maximum allowed size: " + total);
++            }
+             byte[] ar = new byte[size];
+-            int got = in.read(ar);
+-            if (got != size)
+-            {
+-                throw new EOFException("EOF while reading PFB font");
+-            }
+-            total += size;
+-            typeList.add(recordType);
+-            barrList.add(ar);
++            int offset = 0;
++            while (offset < size)
++            {
++                int r = in.read(ar, offset, size - offset);
++                if (r == -1)
++                {
++                    throw new EOFException("EOF while reading PFB segment");
++                }
++                offset += r;
++            }
++            if (recordType == ASCII_MARKER && segment1 == null)
++            {
++                segment1 = ar;
++            }
++            else if (recordType == BINARY_MARKER && segment2 == null)
++            {
++                segment2 = ar;
++            }
++        }
++        if (segment1 == null || segment2 == null)
++        {
++            throw new IOException("Incomplete PFB font: missing segments");
++        }
++    }
++
++    /**
++     * Returns first (ASCII) segment as InputStream.
++     */
++    public InputStream getSegment1Stream()
++    {
++        return new ByteArrayInputStream(segment1);
++    }
++
++    /**
++     * Returns second (binary) segment as InputStream.
++     */
++    public InputStream getSegment2Stream()
++    {
++        return new ByteArrayInputStream(segment2);
++    }
+         }
+         while (true);
+         
+
+--- a/fontbox/src/main/java/org/apache/fontbox/type1/Type1Parser.java
++++ b/fontbox/src/main/java/org/apache/fontbox/type1/Type1Parser.java
+@@ -1,21 +1,12 @@
+-/*
+- * Licensed to the Apache Software Foundation (ASF) under one or more
+- * contributor license agreements.  See the NOTICE file distributed with
+- * this work for additional information regarding copyright ownership.
+- * The ASF licenses this file to You under the Apache License, Version 2.0
+- * (the "License"); you may not use this file except in compliance with
+- * the License.  You may obtain a copy of the License at
+- *
+- *      http://www.apache.org/licenses/LICENSE-2.0
+- *
+- * Unless required by applicable law or agreed to in writing, software
+- * distributed under the License is distributed on an "AS IS" BASIS,
+- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+- * See the License for the specific language governing permissions and
+- * limitations under the License.
+- */
++// Licensed to the Apache Software Foundation (ASF) under one or more
++// contributor license agreements. See the NOTICE file distributed with
++// this work for additional information regarding copyright ownership.
++// SPDX-License-Identifier: Apache-2.0
+ 
+ package org.apache.fontbox.type1;
++
++import java.io.IOException;
++import java.io.InputStream;
+ 
+ import org.apache.fontbox.encoding.BuiltInEncoding;
+ import org.apache.fontbox.encoding.StandardEncoding;
+@@ -55,9 +46,25 @@
+      * @param segment2 Segment 2: Binary
+      * @throws IOException
+      */
++    /**
++     * Parses a Type1 font from separate PFB segments.
++     */
++    public Type1Font parse(InputStream asciiSegment, InputStream binarySegment)
++            throws IOException
++    {
++        byte[] seg1 = asciiSegment.readAllBytes();
++        byte[] seg2 = binarySegment.readAllBytes();
++        return parse(seg1, seg2);
++    }
++
++    /**
++     * Parses a Type1 font from byte arrays.
++     */
+     public Type1Font parse(byte[] segment1, byte[] segment2) throws IOException
+     {
+         font = new Type1Font(segment1, segment2);
++        return font;
++    }
+         try
+         {
+             parseASCII(segment1);
+
+--- a/pdfbox/src/main/java/org/apache/pdfbox/pdmodel/font/PDType1FontEmbedder.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/pdmodel/font/PDType1FontEmbedder.java
+@@ -1,20 +1,14 @@
+-/*
+- * Licensed to the Apache Software Foundation (ASF) under one or more
+- * contributor license agreements.  See the NOTICE file distributed with
+- * this work for additional information regarding copyright ownership.
+- * The ASF licenses this file to You under the Apache License, Version 2.0
+- * (the "License"); you may not use this file except in compliance with
+- * the License.  You may obtain a copy of the License at
+- *
+- *      http://www.apache.org/licenses/LICENSE-2.0
+- *
+- * Unless required by applicable law or agreed to in writing, software
+- * distributed under the License is distributed on an "AS IS" BASIS,
+- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+- * See the License for the specific language governing permissions and
+- * limitations under the License.
+- */
++// Licensed to the Apache Software Foundation (ASF) under one or more
++// contributor license agreements. See the NOTICE file distributed with
++// this work for additional information regarding copyright ownership.
++// SPDX-License-Identifier: Apache-2.0
+ package org.apache.pdfbox.pdmodel.font;
++
++import java.io.IOException;
++import java.io.InputStream;
++
++import org.apache.fontbox.pfb.PfbParser;
++import org.apache.fontbox.type1.Type1Parser;
+ 
+ import java.io.IOException;
+ import java.io.InputStream;
+@@ -58,10 +52,13 @@
+     {
+         dict.setItem(COSName.SUBTYPE, COSName.TYPE1);
+ 
+-        // read the pfb
+-        byte[] pfbBytes = pfbStream.readAllBytes();
+-        PfbParser pfbParser = new PfbParser(pfbBytes);
+-        type1 = Type1Font.createWithPFB(pfbBytes);
++    // stream-parse the pfb without full buffering
++    PfbParser pfbParser = new PfbParser(pfbStream);
++    Type1Parser parser = new Type1Parser();
++    type1 = parser.parse(
++        pfbParser.getSegment1Stream(),
++        pfbParser.getSegment2Stream()
++    );
+         
+         if (encoding == null)
+         {

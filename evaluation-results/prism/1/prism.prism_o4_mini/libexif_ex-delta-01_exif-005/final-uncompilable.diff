@@ -1,0 +1,38 @@
+--- a/libexif/apple/exif-mnote-data-apple.c
++++ b/libexif/apple/exif-mnote-data-apple.c
+@@ -107,15 +107,30 @@
+     }
+ 
+     for (i = 0; i < tcount; i++) {
+-        d->entries[i].tag = exif_get_short(buf + ofs, d->order);
+-        d->entries[i].format = exif_get_short(buf + ofs + 2, d->order);
+-        d->entries[i].components = exif_get_long(buf + ofs + 4, d->order);
++        unsigned int entry_ofs = ofs + i * 12;
++        /* Check full 12-byte entry header */
++        if (CHECKOVERFLOW(entry_ofs, buf_size, 12)) {
++            exif_log(md->log, EXIF_LOG_CODE_CORRUPT_DATA,
++                     "ExifMnoteDataApple", "MakerNote entry header overflow: offset %u, size 12, buffer %u",
++                     entry_ofs, buf_size);
++            break;
++        }
++        d->entries[i].tag = exif_get_short(buf + entry_ofs, d->order);
++        d->entries[i].format = exif_get_short(buf + entry_ofs + 2, d->order);
++        d->entries[i].components = exif_get_long(buf + entry_ofs + 4, d->order);
+         d->entries[i].order = d->order;
+         dsize = exif_format_get_size(d->entries[i].format) * d->entries[i].components;
+         if (dsize > 4) {
+-            dofs = d->offset + exif_get_long(buf + ofs + 8, d->order);
++            dofs = d->offset + exif_get_long(buf + entry_ofs + 8, d->order);
+         } else {
+-            dofs = ofs + 8;
++            dofs = entry_ofs + 8;
++        }
++        /* Check data block bounds */
++        if (CHECKOVERFLOW(dofs, buf_size, dsize)) {
++            exif_log(md->log, EXIF_LOG_CODE_CORRUPT_DATA,
++                     "ExifMnoteDataApple", "MakerNote data overflow: offset %u, size %u, buffer %u",
++                     dofs, dsize, buf_size);
++            continue;
+         }
+ 	if (dofs > buf_size) {
+ 		exif_log (md->log, EXIF_LOG_CODE_CORRUPT_DATA,

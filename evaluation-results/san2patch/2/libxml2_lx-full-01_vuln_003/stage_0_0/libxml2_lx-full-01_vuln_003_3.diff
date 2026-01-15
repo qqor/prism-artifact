@@ -1,0 +1,34 @@
+diff --git a/parser.c b/parser.c
+index 836b4a4f..2f8b2b8d 100644
+--- a/parser.c
++++ b/parser.c
+@@ -760,20 +760,18 @@ xmlSBufGrow(xmlSBuf *buf, unsigned len) {
+ 
+ static void
+ xmlSBufAddEntitySecure(xmlSBuf *buf, const xmlChar *str, unsigned len) {
+-    if (buf->max - buf->size < len) {
+-        if (buf->code == XML_ERR_OK)
+-            buf->code = XML_ERR_RESOURCE_LIMIT;
+-        return;
+-    }
+-
+-    if (buf->cap == 0) {
+-        // Ensure that the buffer is double the necessary size
+-        // This ensures no buffer overflow is possible
+-        if (xmlSBufGrow(buf, len * 2) < 0)
++    /* Rationale: Consolidate growth logic; compute grow amount based on cap or len. */
++    if (len > buf->max - buf->size) {
++        size_t grow = buf->cap ? buf->cap : len;
++        if (grow < len)
++            grow = len;
++        if (xmlSBufGrow(buf, grow) < 0) {
++            buf->code = (buf->code == XML_ERR_OK) ? XML_ERR_RESOURCE_LIMIT : buf->code;
+             return;
++        }
+     }
+ 
+-    if (len > 0)
++    if (len)
+         memcpy(buf->mem + buf->size, str, len);
+     buf->size += len;
+ }

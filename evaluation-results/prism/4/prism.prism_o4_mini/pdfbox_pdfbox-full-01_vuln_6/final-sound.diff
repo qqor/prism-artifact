@@ -1,0 +1,109 @@
+--- a/fontbox/src/main/java/org/apache/fontbox/pfb/PfbParser.java
++++ b/fontbox/src/main/java/org/apache/fontbox/pfb/PfbParser.java
+@@ -17,6 +17,7 @@
+ package org.apache.fontbox.pfb;
+ 
+ import java.io.ByteArrayInputStream;
++import java.io.ByteArrayOutputStream;
+ import java.io.EOFException;
+ import java.io.IOException;
+ import java.io.InputStream;
+@@ -70,6 +71,8 @@
+      */
+     private static final long MAX_LENGTH = 100_000_000;
+ 
++    /** Maximum allowable PFB input size (total file length), to prevent OOME. */
++    private static final long MAX_PFB_BYTES = 200_000_000L;
+     /**
+      * the parsed pfb-data.
+      */
+@@ -92,7 +95,7 @@
+      */
+     public PfbParser(final String filename) throws IOException 
+     {
+-        this(Files.readAllBytes(Paths.get(filename)));
++        this(Files.newInputStream(Paths.get(filename)));
+     }
+ 
+     /**
+@@ -102,8 +105,18 @@
+      */
+     public PfbParser(final InputStream in) throws IOException 
+     {
+-        byte[] pfb = in.readAllBytes();
+-        parsePfb(pfb);
++        ByteArrayOutputStream baos = new ByteArrayOutputStream();
++        byte[] buffer = new byte[8192];
++        int bytesRead;
++        long total = 0;
++        while ((bytesRead = in.read(buffer)) != -1) {
++            total += bytesRead;
++            if (total > MAX_PFB_BYTES) {
++                throw new IOException("PFB data too large: " + total + " bytes");
++            }
++            baos.write(buffer, 0, bytesRead);
++        }
++        parsePfb(baos.toByteArray());
+     }
+ 
+     /**
+@@ -123,6 +136,10 @@
+      */
+     private void parsePfb(final byte[] pfb) throws IOException 
+     {
++        if (pfb.length > MAX_PFB_BYTES)
++        {
++            throw new IOException("PFB data too large: " + pfb.length + " bytes");
++        }
+         if (pfb.length < PFB_HEADER_LENGTH)
+         {
+             throw new IOException("PFB header missing");
+@@ -158,12 +175,22 @@
+             size += in.read() << 16;
+             size += in.read() << 24;
+             LOG.debug("record type: {}, segment size: {}", recordType, size);
++            if (size < 0 || size > MAX_PFB_BYTES) {
++                throw new IOException("Segment size too large: " + size + " bytes");
++            }
+             long newTotal = total + size;
+-            if (newTotal > MAX_LENGTH) {
+-                throw new IOException("record size would be too large: " + newTotal);
+-            }
+-
+-            byte[] ar = new byte[size];
++            if (newTotal > MAX_PFB_BYTES) {
++                throw new IOException("record size would be too large: " + newTotal + " bytes");
++            }
++            if (size > Integer.MAX_VALUE) {
++                throw new IOException("Segment size too large to allocate: " + size + " bytes");
++            }
++            byte[] ar;
++            try {
++                ar = new byte[(int) size];
++            } catch (OutOfMemoryError e) {
++                throw new IOException("Segment too large: " + size + " bytes", e);
++            }
+             int got = in.read(ar);
+             if (got != size)
+             {
+@@ -179,7 +206,19 @@
+         // come first, then the binary segments, then the last ASCII segment if it is
+         // 0000... cleartomark
+         
+-        pfbdata = new byte[total];
++        if (total < 0 || total > MAX_PFB_BYTES) {
++            throw new IOException("PFB data too large: " + total + " bytes");
++        }
++        if (total > Integer.MAX_VALUE) {
++            throw new IOException("PFB data too large to allocate: " + total + " bytes");
++        }
++        byte[] tempData;
++        try {
++            tempData = new byte[(int) total];
++        } catch (OutOfMemoryError e) {
++            throw new IOException("PFB data too large: " + total + " bytes", e);
++        }
++        pfbdata = tempData;
+         byte[] cleartomarkSegment = null;
+         int dstPos = 0;
+         

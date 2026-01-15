@@ -1,0 +1,29 @@
+diff --git a/libfreerdp/core/freerdp.c b/libfreerdp/core/freerdp.c
+index 594a1a2b8..7a3ab246a 100644
+--- a/libfreerdp/core/freerdp.c
++++ b/libfreerdp/core/freerdp.c
+@@ -1449,13 +1449,20 @@ BOOL freerdp_is_valid_mcs_create_response(const BYTE* data, size_t size)
+ 	wStream sbuffer = { 0 };
+ 	wStream* s = Stream_StaticConstInit(&sbuffer, data, size);
+ 
+-	WINPR_ASSERT(data || (size == 0));
+-	WINPR_ASSERT(s);
++	/* Rationale: fail early on invalid input or stream */
++	if (!data || !s || size < 6)
++		return FALSE;
+ 
++	/* Rationale: allocate and bail out on failure, use goto for cleanup */
+ 	rdpMcs* mcs = test_mcs_new();
+-	WINPR_ASSERT(mcs);
++	if (!mcs)
++		return FALSE;
++
++	BOOL result = FALSE;
++	if (mcs_recv_connect_response(mcs, s))
++		result = TRUE;
+ 
+-	BOOL result = mcs_recv_connect_response(mcs, s);
++	/* Rationale: always free mcs before returning */
+ 	test_mcs_free(mcs);
+ 	return result;
+ }

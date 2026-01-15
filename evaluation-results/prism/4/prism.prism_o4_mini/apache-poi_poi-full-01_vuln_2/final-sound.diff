@@ -1,0 +1,43 @@
+--- a/poi/src/main/java/org/apache/poi/poifs/dev/POIFSDump.java
++++ b/poi/src/main/java/org/apache/poi/poifs/dev/POIFSDump.java
+@@ -105,13 +105,23 @@
+                 try (DocumentInputStream is = new DocumentInputStream(node)) {
+                    bytes = IOUtils.toByteArray(is);
+                 }
+-                try (OutputStream out = Files.newOutputStream(new File(parent, node.getName().trim()).toPath())) {
++                String rawName = node.getName().trim();
++                String safeName = rawName.replaceAll("[/\\\\]+", "_");
++                if (safeName.isEmpty() || safeName.equals(".") || safeName.equals("..")) {
++                    safeName = "_";
++                }
++                try (OutputStream out = Files.newOutputStream(new File(parent, safeName).toPath())) {
+                     out.write(bytes);
+                 }
+             } else if (entry instanceof DirectoryEntry){
+                 DirectoryEntry dir = (DirectoryEntry)entry;
+-                File file = new File(parent, entry.getName());
+-                if(!file.exists() && !file.mkdirs()) {
++                String rawDirName = entry.getName().trim();
++                String safeDirName = rawDirName.replaceAll("[/\\\\]+", "_");
++                if (safeDirName.isEmpty() || safeDirName.equals(".") || safeDirName.equals("..")) {
++                    safeDirName = "_";
++                }
++                File file = new File(parent, safeDirName);
++                if (!file.exists() && !file.mkdirs()) {
+                     throw new IOException("Could not create directory " + file);
+                 }
+                 dump(dir, file);
+@@ -121,7 +131,12 @@
+         }
+     }
+     public static void dump(POIFSFileSystem fs, int startBlock, String name, File parent) throws IOException {
+-        File file = new File(parent, name);
++        String rawName = name.trim();
++        String safeName = rawName.replaceAll("[/\\\\]+", "_");
++        if (safeName.isEmpty() || safeName.equals(".") || safeName.equals("..")) {
++            safeName = "_";
++        }
++        File file = new File(parent, safeName);
+         if (! Files.isDirectory(file.toPath().getParent())) {
+             Files.createDirectories(file.toPath().getParent());
+         }

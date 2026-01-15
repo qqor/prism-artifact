@@ -1,0 +1,43 @@
+--- a/pdfbox/src/main/java/org/apache/pdfbox/pdmodel/PDPageTree.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/pdmodel/PDPageTree.java
+@@ -180,6 +180,7 @@
+     private final class PageIterator implements Iterator<PDPage>
+     {
+         private final Queue<COSDictionary> queue = new ArrayDeque<>();
++        private final Set<COSDictionary> visited = new HashSet<>();
+ 
+         private PageIterator(COSDictionary node)
+         {
+@@ -205,13 +206,22 @@
+          */
+         private List<COSDictionary> enqueueKids(COSDictionary node)
+         {
++            if (node == null)
++            {
++                return Collections.emptyList();
++            }
+             if (isPageTreeNode(node))
+             {
++                // avoid cycles in malformed page trees
++                if (!visited.add(node))
++                {
++                    return Collections.emptyList();
++                }
+                 return getKids(node);
+             }
+             else
+             {
+-                if (node != null && COSName.PAGE.equals(node.getCOSName(COSName.TYPE)))
++                if (COSName.PAGE.equals(node.getCOSName(COSName.TYPE)))
+                 {
+                     queue.add(node);
+                 }
+@@ -221,7 +231,7 @@
+                             () -> (node == null ? "(null)" : node.getCOSName(COSName.TYPE)));
+                 }
+             }
+-            return Collections.EMPTY_LIST;
++            return Collections.emptyList();
+         }
+ 
+         @Override

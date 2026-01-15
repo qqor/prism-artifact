@@ -1,0 +1,14 @@
+{
+  "project_name": "tika",
+  "vulnerability_identifier": "tika_tk-delta-01_vuln_9",
+  "source_directory": "/home/qqor/aixcc/crete/.cache/official-afc-tika",
+  "llm_usage": {
+    "total_cost": 0.5800926999999999,
+    "prompt_tokens": 290029,
+    "completion_tokens": 59332
+  },
+  "variant": "sound",
+  "diff": "--- a/tika-core/src/main/java/org/apache/tika/parser/external/ExternalParser.java\n+++ b/tika-core/src/main/java/org/apache/tika/parser/external/ExternalParser.java\n@@ -308,11 +308,9 @@\n         // Execute\n         Process process = null;\n         try {\n-            if (cmd.length == 1) {\n-                process = Runtime.getRuntime().exec(cmd[0]);\n-            } else {\n-                process = Runtime.getRuntime().exec(cmd);\n-            }\n+            process = new ProcessBuilder(cmd)\n+                    .redirectErrorStream(false)\n+                    .start();\n         } catch (Exception e) {\n             LOG.warn(\"problem with process exec\", e);\n         }\n\n--- a/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-html-module/src/main/java/org/apache/tika/parser/html/HtmlHandler.java\n+++ b/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-html-module/src/main/java/org/apache/tika/parser/html/HtmlHandler.java\n@@ -23,6 +23,8 @@\n import java.util.Arrays;\n import java.util.HashMap;\n import java.util.HashSet;\n+import org.slf4j.Logger;\n+import org.slf4j.LoggerFactory;\n import java.util.List;\n import java.util.Locale;\n import java.util.Map;\n@@ -53,6 +55,7 @@\n import org.apache.tika.utils.StringUtils;\n \n class HtmlHandler extends TextContentHandler {\n+    private static final Logger LOG = LoggerFactory.getLogger(HtmlHandler.class);\n \n     // List of attributes that need to be resolved.\n     private static final Set<String> URI_ATTRIBUTES =\n@@ -383,6 +386,17 @@\n         }\n     }\n \n+    private static boolean isValidExecutablePath(String path) {\n+        if (path == null || path.isEmpty()) {\n+            return false;\n+        }\n+        if (path.matches(\".*[\\\\s;|&<>`].*\")) {\n+            return false;\n+        }\n+        java.io.File f = new java.io.File(path);\n+        return f.isFile() && f.canExecute();\n+    }\n+\n     private int configureExifTool(String path) {\n         ExternalParser exifToolParser = getExistingExifToolParser();\n         int retVal = 0;\n@@ -402,6 +416,10 @@\n         }\n         Set<MediaType> supported = new HashSet<>(exifToolParser.getSupportedTypes(context));\n         supported.add(JPEG);\n+        if (!isValidExecutablePath(path)) {\n+            LOG.warn(\"Ignored invalid exiftool path override via metadata: {}\", path);\n+            return retVal;\n+        }\n         exifToolParser.setCommand(path, \"${INPUT}\");\n         exifToolParser.setSupportedTypes(supported);\n         return retVal;\n",
+  "stdout": "",
+  "stderr": ""
+}

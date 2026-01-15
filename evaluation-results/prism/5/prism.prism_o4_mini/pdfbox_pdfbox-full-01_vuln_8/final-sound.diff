@@ -1,0 +1,87 @@
+--- a/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/BaseParser.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/BaseParser.java
+@@ -1053,10 +1053,15 @@
+     {
+         skipSpaces();
+         StringBuilder buffer = new StringBuilder();
++        int tokenLen = 0;
+         int c = source.read();
+         while (!isEndOfName(c))
+         {
+-            buffer.append( (char)c );
++            buffer.append((char)c);
++            if (++tokenLen > 4096)
++            {
++                throw new IOException("Token too long (> 4096)");
++            }
+             c = source.read();
+         }
+         if (c != -1)
+@@ -1163,11 +1168,12 @@
+     {
+         if (source.isEOF())
+         {
+-            throw new IOException( "Error: End-of-File, expected line at offset " +
++            throw new IOException("Error: End-of-File, expected line at offset " +
+                     source.getPosition());
+         }
+ 
+-        StringBuilder buffer = new StringBuilder( 11 );
++        StringBuilder buffer = new StringBuilder(11);
++        int lineLen = 0;
+ 
+         int c;
+         while ((c = source.read()) != -1)
+@@ -1177,7 +1183,11 @@
+             {
+                 break;
+             }
+-            buffer.append( (char)c );
++            if (++lineLen > 16384)
++            {
++                throw new IOException("Line too long (> 16384)");
++            }
++            buffer.append((char)c);
+         }
+         // CR+LF is also a valid EOL 
+         if (isCR(c) && isLF(source.peek()))
+
+--- a/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/XrefParser.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/XrefParser.java
+@@ -583,23 +583,26 @@
+             return false;
+         }
+         
+-        // check for trailer after xref
+-        String str = parser.readString();
+-        byte[] b = str.getBytes(StandardCharsets.ISO_8859_1);
+-        source.seek(source.getPosition() - b.length);
+-        
+         // signal start of new XRef
+-        xrefTrailerResolver.nextXrefObj( startByteOffset, XRefType.TABLE );
+-    
+-        if (str.startsWith("trailer"))
+-        {
++        xrefTrailerResolver.nextXrefObj(startByteOffset, XRefType.TABLE);
++
++        // detect empty xref table via 'trailer' keyword
++        if (parser.isString("trailer".toCharArray()))
++        {
++            // consume 'trailer'
++            parser.readString();
+             LOG.warn("skipping empty xref table");
+             return false;
+         }
+-        
++        int xrefLineCount = 0;
+         // Xref tables can have multiple sections. Each starts with a starting object id and a count.
+         while(true)
+         {
++            if (++xrefLineCount > 100000)
++            {
++                LOG.warn("XRef table too large (>{} lines), aborting parse", 100000);
++                return false;
++            }
+             String currentLine = parser.readLine();
+             String[] splitString = currentLine.split("\\s");
+             if (splitString.length != 2)

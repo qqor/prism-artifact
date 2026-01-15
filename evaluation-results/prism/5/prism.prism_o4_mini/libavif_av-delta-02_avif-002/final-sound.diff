@@ -1,0 +1,76 @@
+--- a/src/reformat.c
++++ b/src/reformat.c
+@@ -631,6 +631,7 @@
+                                               const avifReformatState * state,
+                                               avifAlphaMultiplyMode alphaMultiplyMode)
+ {
++    (void)alphaMultiplyMode;
+     // Aliases for some state
+     const float kr = state->yuv.kr;
+     const float kg = state->yuv.kg;
+@@ -770,14 +771,12 @@
+                     spill_Cr = AVIF_CLAMP(Cr - AVIF_CLAMP(Cr,minCr,maxCr),0.0f,1.0f);
+                     spill_Cb = AVIF_CLAMP(Cb - AVIF_CLAMP(Cb,minCb,maxCb),0.0f,1.0f);
+ 
+-                    // now we have generated the spill, get it's neigbors
+-                    int adjCol = (i%2) ? -1 : 1;
+-                    int adjRow = (j%2) ? -1 : 1;
+-                    // check the bounds
+-                    if (i + adjCol >= image->width){
++                    int adjCol = (i % 2) ? -1 : 1;
++                    if ((int)i + adjCol < 0 || (int)i + adjCol >= (int)image->width) {
+                         adjCol = 0;
+                     }
+-                    if (j + adjRow >= image->height){
++                    int adjRow = (j % 2) ? -1 : 1;
++                    if ((int)j + adjRow < 0 || (int)j + adjRow >= (int)image->height) {
+                         adjRow = 0;
+                     }
+                     float pSpillCb = spill_Cb/3;
+@@ -795,27 +794,25 @@
+                     total_spill += fabs(spill_Cb);
+                     total_spill += fabs(spill_Cr);
+                     // if spill too high, dampen
+-                    if ((image->height * image->width) >= 0x1000 && total_spill > ((image->height * image->width) * 3.8f)){
+-                        int a, b;
+-                        if (i % 2 == 0){
+-                            a = 1;
+-                        }else{
+-                            a = -1;
+-                        }
+-                        if (j % 2 == 0){
+-                            b = 1;
+-                        }else{
+-                            b = -1;
+-                        }
+-                        uspill_image[i][j] -= pSpillCb;
+-                        vspill_image[i][j] -= pSpillCb;
+-                        uspill_image[i+a][j] -= pSpillCb;
+-                        vspill_image[i+a][j] -= pSpillCr;
+-                        uspill_image[i][j+b] -= pSpillCb;
+-                        vspill_image[i][j+b] -= pSpillCr;
+-                        uspill_image[i+a][j+b] -= pSpillCb;
+-                        vspill_image[i+a][j+b] -= pSpillCr;
+-                    }   
++                    if ((image->height * image->width) >= 0x1000 && total_spill > ((image->height * image->width) * 3.8f)) {
++                        int a = (i % 2 == 0) ? 1 : -1;
++                        int b = (j % 2 == 0) ? 1 : -1;
++                        if ((int)i + a < 0 || (int)i + a >= (int)image->width) {
++                            a = 0;
++                        }
++                        if ((int)j + b < 0 || (int)j + b >= (int)image->height) {
++                            b = 0;
++                        }
++                        const int offsets[4][2] = {{0, 0}, {a, 0}, {0, b}, {a, b}};
++                        for (int k = 0; k < 4; ++k) {
++                            int xi = (int)i + offsets[k][0];
++                            int yj = (int)j + offsets[k][1];
++                            if (xi >= 0 && xi < (int)image->width && yj >= 0 && yj < (int)image->height) {
++                                uspill_image[xi][yj] -= pSpillCb;
++                                vspill_image[xi][yj] -= pSpillCr;
++                            }
++                        }
++                    }
+                 }
+             }
+             // break out of iteration if improvement is small compared to the size of the image

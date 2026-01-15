@@ -1,0 +1,111 @@
+--- a/lib/doh.h
++++ b/lib/doh.h
+@@ -82,10 +82,14 @@
+   /* for example */
+   /* #ifdef WANT_DOH_FOOBAR_TXT */
+   /*   DOH_PROBE_SLOT_FOOBAR_TXT, */
+-  /* #endif */
+-
+-  /* AFTER all slot definitions, establish how many we have */
+-  DOH_SLOT_COUNT
++/* This struct holds state for DoH probes */
++struct doh_probes {
++    bool initialized;     /* TRUE once fully set up */
++    const char *host;
++    int port;
++    struct curl_slist *req_hds;
++    size_t pending;
++    struct doh_probe probe[DOH_SLOT_COUNT];
+ };
+ 
+ struct doh_probes {
+
+--- a/lib/doh.c
++++ b/lib/doh.c
+@@ -424,12 +424,14 @@
+   DEBUGASSERT(conn);
+ 
+   /* start clean, consider allocating this struct on demand */
+-  dohp = data->req.doh = calloc(1, sizeof(struct doh_probes));
+-  if(!dohp)
+-    return NULL;
+-
+-  for(i = 0; i < DOH_SLOT_COUNT; ++i) {
+-    dohp->probe[i].easy_mid = -1;
++427:  dohp = data->req.doh = calloc(1, sizeof(struct doh_probes));
++428:  if(!dohp)
++429:    return NULL;
++430:  /* mark as initialized for safe cleanup */
++430.1:  dohp->initialized = TRUE;
++431:
++432:  for(i = 0; i < DOH_SLOT_COUNT; ++i) {
++433:    dohp->probe[i].easy_mid = -1;
+   }
+ 
+   conn->bits.doh = TRUE;
+@@ -1402,7 +1404,8 @@
+ void Curl_doh_close(struct Curl_easy *data)
+ {
+   struct doh_probes *doh = data->req.doh;
+-  if(doh && data->multi) {
++  if(!doh || !doh->initialized || !data->multi)
++    return;
+     struct Curl_easy *probe_data;
+     curl_off_t mid;
+     size_t slot;
+@@ -1431,12 +1434,16 @@
+ void Curl_doh_cleanup(struct Curl_easy *data)
+ {
+   struct doh_probes *doh = data->req.doh;
+-  if(doh) {
+-    Curl_doh_close(data);
+-    curl_slist_free_all(doh->req_hds);
+-    data->req.doh->req_hds = NULL;
+-    Curl_safefree(data->req.doh);
+-  }
++  if(!doh || !doh->initialized)
++    return;
++  /* close all probes */
++  Curl_doh_close(data);
++  /* prevent double-close */
++  doh->initialized = FALSE;
++  curl_slist_free_all(doh->req_hds);
++  doh->req_hds = NULL;
++  Curl_safefree(data->req.doh);
++  data->req.doh = NULL;
+ }
+ 
+ #endif /* CURL_DISABLE_DOH */
+
+--- a/lib/request.c
++++ b/lib/request.c
+@@ -105,7 +105,8 @@
+     (void)req_flush(data);
+   Curl_client_reset(data);
+ #ifndef CURL_DISABLE_DOH
+-  Curl_doh_close(data);
++  if(data->req.doh && data->req.doh->initialized)
++    Curl_doh_cleanup(data);
+ #endif
+   return CURLE_OK;
+ }
+@@ -123,7 +124,8 @@
+     Curl_bufq_reset(&req->sendbuf);
+ 
+ #ifndef CURL_DISABLE_DOH
+-  Curl_doh_close(data);
++  if(data->req.doh && data->req.doh->initialized)
++    Curl_doh_cleanup(data);
+ #endif
+   /* Can no longer memset() this struct as we need to keep some state */
+   req->size = -1;
+@@ -178,7 +180,8 @@
+   Curl_client_cleanup(data);
+ 
+ #ifndef CURL_DISABLE_DOH
+-  Curl_doh_cleanup(data);
++  if(data->req.doh && data->req.doh->initialized)
++    Curl_doh_cleanup(data);
+ #endif
+ }
+ 

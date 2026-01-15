@@ -1,0 +1,27 @@
+--- a/tika-app/src/main/java/org/apache/tika/cli/TikaCLI.java
++++ b/tika-app/src/main/java/org/apache/tika/cli/TikaCLI.java
+@@ -1125,7 +1125,10 @@
+             }
+         }
+ 
+-        private File getOutputFile(String name, Metadata metadata, MediaType contentType) {
++        private File getOutputFile(String name,
++                                   Metadata metadata,
++                                   MediaType contentType)
++                throws IOException {
+             String ext = getExtension(contentType);
+             if (name.indexOf('.') == -1 && contentType != null) {
+                 name += ext;
+@@ -1158,6 +1161,12 @@
+                 LOG.warn("couldn't url decode name {}", normalizedName);
+             }
+             File outputFile = new File(extractDir, normalizedName);
++            // Prevent directory traversal by validating canonical paths
++            String canonicalExtractDir = extractDir.getCanonicalPath();
++            String canonicalOutputPath = outputFile.getCanonicalPath();
++            if (!canonicalOutputPath.startsWith(canonicalExtractDir + File.separator)) {
++                throw new IOException("Invalid file name (path traversal): " + normalizedName);
++            }
+             //if file already exists, prepend uuid
+             if (outputFile.exists()) {
+                 String fileName = FilenameUtils.getName(normalizedName);

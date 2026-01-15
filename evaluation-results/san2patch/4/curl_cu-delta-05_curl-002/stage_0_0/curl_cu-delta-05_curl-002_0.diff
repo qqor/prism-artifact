@@ -1,0 +1,27 @@
+diff --git a/lib/ftp.c b/lib/ftp.c
+index cc5308791..2496fafde 100644
+--- a/lib/ftp.c
++++ b/lib/ftp.c
+@@ -2094,6 +2094,7 @@ static CURLcode ftp_state_mdtm_resp(struct Curl_easy *data,
+         if(result)
+           return result;
+ 
++        /* Rationale: inline-range check to prevent out-of-bounds read */
+         /* format: "Tue, 15 Nov 1994 12:45 and twenty-six seconds" */
+         headerbuflen =
+           msnprintf(headerbuf, sizeof(headerbuf),
+@@ -2102,9 +2103,12 @@ static CURLcode ftp_state_mdtm_resp(struct Curl_easy *data,
+                     tm->tm_mday,
+                     Curl_month[tm->tm_mon],
+                     tm->tm_year + 1900,
+-                    tm->tm_hour,
++                     tm->tm_hour,
+                     tm->tm_min,
+-                    Curl_seconds[tm->tm_sec]);
++                    /* safe inline ternary: allow only 0-59, fallback to "00" */
++                    ((unsigned)tm->tm_sec < 60
++                      ? Curl_seconds[tm->tm_sec]
++                      : "00"));
+         result = client_write_header(data, headerbuf, headerbuflen);
+         if(result)
+           return result;

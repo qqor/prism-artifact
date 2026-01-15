@@ -1,0 +1,65 @@
+--- a/poi/src/main/java/org/apache/poi/poifs/dev/POIFSDump.java
++++ b/poi/src/main/java/org/apache/poi/poifs/dev/POIFSDump.java
+@@ -72,7 +72,12 @@
+                 File dumpDir =
+                         Paths.get(filename).getParent()
+                                 .resolve(filenameWithoutPath + "_dump").toFile();
+-                File file = new File(dumpDir, root.getName());
++                java.nio.file.Path basePath = dumpDir.toPath().normalize();
++                java.nio.file.Path resolvedPath = basePath.resolve(root.getName()).normalize();
++                if (!resolvedPath.startsWith(basePath)) {
++                    throw new IOException("Invalid entry name: " + root.getName());
++                }
++                File file = resolvedPath.toFile();
+                 if (!file.exists() && !file.mkdirs()) {
+                     throw new IOException("Could not create directory " + file);
+                 }
+@@ -105,13 +110,24 @@
+                 try (DocumentInputStream is = new DocumentInputStream(node)) {
+                    bytes = IOUtils.toByteArray(is);
+                 }
+-                try (OutputStream out = Files.newOutputStream(new File(parent, node.getName().trim()).toPath())) {
++                java.nio.file.Path basePath = parent.toPath().normalize();
++                java.nio.file.Path resolvedPath = basePath.resolve(node.getName().trim()).normalize();
++                if (!resolvedPath.startsWith(basePath)) {
++                    throw new IOException("Invalid entry name: " + node.getName());
++                }
++                File outFile = resolvedPath.toFile();
++                try (OutputStream out = Files.newOutputStream(outFile.toPath())) {
+                     out.write(bytes);
+                 }
+             } else if (entry instanceof DirectoryEntry){
+                 DirectoryEntry dir = (DirectoryEntry)entry;
+-                File file = new File(parent, entry.getName());
+-                if(!file.exists() && !file.mkdirs()) {
++                java.nio.file.Path basePath = parent.toPath().normalize();
++                java.nio.file.Path resolvedPath = basePath.resolve(entry.getName()).normalize();
++                if (!resolvedPath.startsWith(basePath)) {
++                    throw new IOException("Invalid entry name: " + entry.getName());
++                }
++                File file = resolvedPath.toFile();
++                if (!file.exists() && !file.mkdirs()) {
+                     throw new IOException("Could not create directory " + file);
+                 }
+                 dump(dir, file);
+@@ -121,11 +137,16 @@
+         }
+     }
+     public static void dump(POIFSFileSystem fs, int startBlock, String name, File parent) throws IOException {
+-        File file = new File(parent, name);
+-        if (! Files.isDirectory(file.toPath().getParent())) {
+-            Files.createDirectories(file.toPath().getParent());
++        java.nio.file.Path basePath = parent.toPath().normalize();
++        java.nio.file.Path resolvedPath = basePath.resolve(name).normalize();
++        if (!resolvedPath.startsWith(basePath)) {
++            throw new IOException("Invalid entry name: " + name);
+         }
+-        try (OutputStream out = Files.newOutputStream(file.toPath())) {
++        File outFile = resolvedPath.toFile();
++        if (!Files.isDirectory(outFile.toPath().getParent())) {
++            Files.createDirectories(outFile.toPath().getParent());
++        }
++        try (OutputStream out = Files.newOutputStream(outFile.toPath())) {
+             POIFSStream stream = new POIFSStream(fs, startBlock);
+ 
+             byte[] b = IOUtils.safelyAllocate(fs.getBigBlockSize(), POIFSFileSystem.getMaxRecordLength());

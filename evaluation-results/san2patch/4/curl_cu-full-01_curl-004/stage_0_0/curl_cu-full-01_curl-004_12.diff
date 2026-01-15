@@ -1,0 +1,90 @@
+diff --git a/lib/file.c b/lib/file.c
+index 7440b3c66..6b3f60532 100644
+--- a/lib/file.c
++++ b/lib/file.c
+@@ -465,17 +465,19 @@ static CURLcode file_do(struct Curl_easy *data, bool *done)
+     const struct tm *tm = &buffer;
+     char header[80];
+     int headerlen;
+-    static const char accept_ranges[]= { "Accept-ranges: bytes\r\n" };
+-    static const char no_body[]= { "File-body: suppressed.The body of "
++    static const char accept_ranges[] = { "Accept-ranges: bytes\r\n" };
++    static const char no_body[] = { "File-body: suppressed.The body of "
+       "this file has been supressed. If you would like to include "
+       "the contents of this file use the -i option.\r\n" };
+-    static const char body_msg[]= { "File-body: included.\r\n"};
++    static const char body_msg[] = { "File-body: included.\r\n" };
+     if(expected_size >= 0) {
+       headerlen =
+         msnprintf(header, sizeof(header), "Content-Length: %" FMT_OFF_T "\r\n",
+                   expected_size);
++      if(headerlen < 0 || headerlen >= sizeof(header))
++        return CURLE_OUT_OF_MEMORY;
+       result = Curl_client_write(data, CLIENTWRITE_HEADER,
+-                                   header, headerlen);
++                                 header, headerlen);
+       if(result)
+         return result;
+ 
+@@ -490,11 +492,15 @@ static CURLcode file_do(struct Curl_easy *data, bool *done)
+     if(result)
+       return result;
+ 
++// FIXME: Crash CWE-787: Out-of-bounds Write
+     if(data->req.no_body) {
+       headerlen =
+-      msnprintf(header, sizeof(no_body), "%s (%ld bytes) \r\n",
+-                  no_body, expected_size);
+-      result = Curl_client_write(data, CLIENTWRITE_HEADER, header, headerlen);
++        snprintf(header, sizeof(header), "%s (%ld bytes) \r\n",
++                 no_body, expected_size);
++      if(headerlen < 0 || (size_t)headerlen >= sizeof(header))
++        return CURLE_OUT_OF_MEMORY;
++      result = Curl_client_write(data, CLIENTWRITE_HEADER,
++                                 header, headerlen);
+     }
+     else {
+       result = Curl_client_write(data, CLIENTWRITE_HEADER,
+@@ -513,7 +519,10 @@ static CURLcode file_do(struct Curl_easy *data, bool *done)
+                 tm->tm_hour,
+                 tm->tm_min,
+                 tm->tm_sec);
+-    result = Curl_client_write(data, CLIENTWRITE_HEADER, header, headerlen);
++    if(headerlen < 0 || headerlen >= sizeof(header))
++      return CURLE_OUT_OF_MEMORY;
++    result = Curl_client_write(data, CLIENTWRITE_HEADER,
++                               header, headerlen);
+     if(!result)
+       /* end of headers */
+       result = Curl_client_write(data, CLIENTWRITE_HEADER, "\r\n", 2);
+@@ -523,7 +532,7 @@ static CURLcode file_do(struct Curl_easy *data, bool *done)
+     Curl_pgrsSetDownloadSize(data, expected_size);
+     if(data->req.no_body)
+       return CURLE_OK;
+-  }
++}
+ 
+   /* Check whether file range has been specified */
+   result = Curl_range(data);
+diff --git a/lib/mprintf.c b/lib/mprintf.c
+index 35e40e302..0017ea2ff 100644
+--- a/lib/mprintf.c
++++ b/lib/mprintf.c
+@@ -1053,13 +1053,13 @@ number:
+ static int addbyter(unsigned char outc, void *f)
+ {
+   struct nsprintf *infop = f;
+-  if(infop->length < infop->max) {
+-    /* only do this if we have not reached max length yet */
++  // FIXME: Crash CWE-787: Out-of-bounds Write
++   if(infop->length + 1 >= infop->max)
++     return EOF;
++   /* only do this if we have not reached max length yet */
+     *infop->buffer++ = (char)outc; /* store */
+     infop->length++; /* we are now one byte larger */
+     return 0;     /* fputc() returns like this on success */
+-  }
+-  return 1;
+ }
+ 
+ int curl_mvsnprintf(char *buffer, size_t maxlength, const char *format,

@@ -1,0 +1,95 @@
+--- a/src/cmsxform.c
++++ b/src/cmsxform.c
+@@ -176,13 +176,17 @@
+ cmsUInt32Number PixelSize(cmsUInt32Number Format)
+ {
+     cmsUInt32Number fmt_bytes = T_BYTES(Format);
++    cmsUInt32Number channels = T_CHANNELS(Format);
++    cmsUInt32Number extra    = T_EXTRA(Format);
++
++    cmsUInt32Number total_components = channels + extra;
+ 
+     // For double, the T_BYTES field is zero
+     if (fmt_bytes == 0)
+-        return sizeof(cmsUInt64Number);
+-
+-    // Otherwise, it is already correct for all formats
+-    return fmt_bytes;
++        return sizeof(cmsUInt64Number) * total_components;
++
++    // Otherwise, multiply bytes per component by total components
++    return fmt_bytes * total_components;
+ }
+ 
+ 
+
+--- a/src/cmsvirt.c
++++ b/src/cmsvirt.c
+@@ -1099,8 +1099,9 @@
+         | BYTES_SH(2) | CHANNELS_SH(cmsChannelsOfColorSpace(v ->ExitColorSpace)));
+ 
+     // Apply the transfor to colorants.
+-    for (i=0; i < nColors; i++) {
+-        cmsDoTransform(xform, &i, nc2 ->List[i].DeviceColorant, 1);
++    for (i = 0; i < nColors; i++) {
++        cmsUInt16Number idx16 = (cmsUInt16Number) i;
++        cmsDoTransform(xform, &idx16, nc2->List[i].DeviceColorant, 1);
+     }
+ 
+     if (!cmsWriteTag(hICC, cmsSigNamedColor2Tag, (void*) nc2)) goto Error;
+
+--- a/src/cmspack.c
++++ b/src/cmspack.c
+@@ -122,30 +122,36 @@
+         if (Premul && Extra)        
+             alpha_factor = _cmsToFixedDomain(FROM_8_TO_16(accum[nChan]));
+     }
+-
+-    for (i=0; i < nChan; i++) {
++    cmsUInt32Number i, nChan = cmsChannelsOf(ContextID->input.Format);
++    cmsUInt8Number* start = accum;
++    cmsUInt32Number unit  = (nChan > 0) ? (Stride / nChan) : 1;
++    if (unit == 0) unit = 1;
++
++    for (i = 0; i < nChan; i++) {
+ 
+         cmsUInt32Number index = DoSwap ? (nChan - i - 1) : i;
+ 
+-        v = FROM_8_TO_16(*accum);
+-        v = Reverse ? REVERSE_FLAVOR_16(v) : v;
+-
+-        if (Premul && alpha_factor > 0)
+-        {
++        if (unit == 1) {
++            v = FROM_8_TO_16(*accum);
++        }
++        else if (unit == 2) {
++            cmsUInt16Number raw = (cmsUInt16Number)((accum[0] << 8) | accum[1]);
++            v = Reverse ? REVERSE_FLAVOR_16(raw) : raw;
++        }
++        else {
++            v = FROM_8_TO_16(*accum);
++        }
++
++        if (Premul && alpha_factor > 0) {
+             v = ((cmsUInt32Number)((cmsUInt32Number)v << 16) / alpha_factor);
+             if (v > 0xffff) v = 0xffff;
+         }
+ 
+         wIn[index] = (cmsUInt16Number) v;
+-        accum++;
+-    }
+-
+-    if (!ExtraFirst) {
+-        accum += Extra;
+-    }
+-
+-    if (Extra == 0 && SwapFirst) {
+-        cmsUInt16Number tmp = wIn[0];
++        accum += unit;
++    }
++
++    return start + Stride;
+ 
+         memmove(&wIn[0], &wIn[1], (nChan-1) * sizeof(cmsUInt16Number));
+         wIn[nChan-1] = tmp;

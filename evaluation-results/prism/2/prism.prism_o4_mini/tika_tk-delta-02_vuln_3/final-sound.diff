@@ -1,0 +1,49 @@
+--- a/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-audiovideo-module/src/main/java/org/apache/tika/parser/m3/M3U8Parser.java
++++ b/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-audiovideo-module/src/main/java/org/apache/tika/parser/m3/M3U8Parser.java
+@@ -40,6 +40,7 @@
+ import org.apache.tika.metadata.XMPDM;
+ import org.apache.tika.mime.MediaType;
+ import org.apache.tika.parser.ParseContext;
++import org.apache.tika.parser.m3.M3U8ParserConfig;
+ import org.apache.tika.parser.Parser;
+ import org.apache.tika.sax.BodyContentHandler;
+ import org.apache.tika.sax.EmbeddedContentHandler;
+@@ -161,7 +162,12 @@
+         // split on , then the first value is the length (can be -1),
+         // the last value is the title; intermediate values are key=value format
+         metadata.add(PLAY_LIST_LINK, nextLine);
+-        if (! nextLine.startsWith("http")) {
++        if (!nextLine.startsWith("http")) {
++            return;
++        }
++        // Guard against SSRF: only fetch external links if explicitly allowed
++        M3U8ParserConfig cfg = M3U8ParserConfig.from(context);
++        if (!cfg.isExternalLinksAllowed()) {
+             return;
+         }
+         EmbeddedDocumentExtractor ex = EmbeddedDocumentUtil.getEmbeddedDocumentExtractor(context);
+@@ -198,3 +204,24 @@
+         metadata.set(XMPDM.DURATION, df.format(durationInSeconds));
+     }
+ }
++class M3U8ParserConfig implements java.io.Serializable {
++    private static final long serialVersionUID = 1L;
++    private boolean externalLinksAllowed = false;
++
++    public boolean isExternalLinksAllowed() {
++        return externalLinksAllowed;
++    }
++
++    public void setExternalLinksAllowed(boolean externalLinksAllowed) {
++        this.externalLinksAllowed = externalLinksAllowed;
++    }
++
++    public static M3U8ParserConfig from(ParseContext context) {
++        M3U8ParserConfig cfg = context.get(M3U8ParserConfig.class);
++        if (cfg == null) {
++            cfg = new M3U8ParserConfig();
++            context.set(M3U8ParserConfig.class, cfg);
++        }
++        return cfg;
++    }
++}

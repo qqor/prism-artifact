@@ -1,0 +1,45 @@
+--- a/poi-ooxml/src/main/java/org/apache/poi/xssf/extractor/XSSFEventBasedExcelExtractor.java
++++ b/poi-ooxml/src/main/java/org/apache/poi/xssf/extractor/XSSFEventBasedExcelExtractor.java
+@@ -33,11 +33,19 @@
+ 
+ import org.apache.logging.log4j.Logger;
+ import org.apache.poi.logging.PoiLogManager;
++import org.apache.xmlbeans.XmlException;
++import org.xml.sax.SAXException;
+ import org.apache.poi.ooxml.POIXMLDocument;
+ import org.apache.poi.ooxml.POIXMLProperties;
+ import org.apache.poi.ooxml.POIXMLProperties.CoreProperties;
+ import org.apache.poi.ooxml.POIXMLProperties.CustomProperties;
+ import org.apache.poi.ooxml.POIXMLProperties.ExtendedProperties;
++import org.apache.poi.openxml4j.opc.OPCPackage;
++import org.apache.poi.openxml4j.exceptions.OpenXML4JException;
++import org.apache.poi.openxml4j.opc.PackagePart;
++import java.util.List;
++import java.util.Arrays;
++import org.apache.poi.util.XMLHelper;
+ import org.apache.poi.ooxml.extractor.POIXMLTextExtractor;
+ import org.apache.poi.openxml4j.exceptions.OpenXML4JException;
+ import org.apache.poi.openxml4j.opc.OPCPackage;
+@@ -312,7 +320,7 @@
+         }
+         PackagePart part = parts.get(0);
+         try (InputStream is = part.getInputStream()) {
+-            SAXParser parser = SAXParserFactory.newInstance().newSAXParser();
++            SAXParser parser = XMLHelper.getSaxParserFactory().newSAXParser();
+             parser.parse(is, new ExtendedPropertiesHandler(text));
+         } catch (ParserConfigurationException | SAXException | IOException e) {
+             //swallow
+@@ -335,7 +343,12 @@
+ 
+     @Override
+     public POIXMLDocument getDocument() {
+-        return null;
++        return new POIXMLDocument(container) {
++            @Override
++            public List<PackagePart> getAllEmbeddedParts() throws OpenXML4JException {
++                return Arrays.asList(container.getParts().toArray(new PackagePart[0]));
++            }
++        };
+     }
+ 
+     @Override

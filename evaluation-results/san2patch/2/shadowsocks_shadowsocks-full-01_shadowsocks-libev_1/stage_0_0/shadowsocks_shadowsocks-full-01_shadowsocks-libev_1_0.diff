@@ -1,0 +1,29 @@
+diff --git a/src/json.c b/src/json.c
+index 2a91900..fb1299b 100644
+--- a/src/json.c
++++ b/src/json.c
+@@ -318,9 +318,14 @@ json_value * json_parse_ex (json_settings * settings,
+                     uchar = (uc_b1 << 8) | uc_b2;
+ 
+                     if ((uchar & 0xF800) == 0xD800) {
++                        /* explicit boundary check for surrogate pair */
++                        size_t remaining = end - state.ptr;
++                        if (remaining < 6) {
++                            sprintf (error, "Invalid character value `%c` (at %d:%d)", b, line_and_col);
++                            goto e_failed;
++                        }
+                         json_uchar uchar2;
+-                        
+-                        if (end - state.ptr < 6 || (*++ state.ptr) != '\\' || (*++ state.ptr) != 'u' ||
++                        if ((*++ state.ptr) != '\\' || (*++ state.ptr) != 'u' ||
+                             (uc_b1 = hex_value (*++ state.ptr)) == 0xFF ||
+                             (uc_b2 = hex_value (*++ state.ptr)) == 0xFF ||
+                             (uc_b3 = hex_value (*++ state.ptr)) == 0xFF ||
+@@ -333,7 +338,6 @@ json_value * json_parse_ex (json_settings * settings,
+                         uc_b1 = (uc_b1 << 4) | uc_b2;
+                         uc_b2 = (uc_b3 << 4) | uc_b4;
+                         uchar2 = (uc_b1 << 8) | uc_b2;
+-                        
+                         uchar = 0x010000 | ((uchar & 0x3FF) << 10) | (uchar2 & 0x3FF);
+                     }
+ 

@@ -1,0 +1,122 @@
+diff --git a/src/libsystemd/sd-journal/catalog.c b/src/libsystemd/sd-journal/catalog.c
+index a8d65ea4bf..a70a8fe18f 100644
+--- a/src/libsystemd/sd-journal/catalog.c
++++ b/src/libsystemd/sd-journal/catalog.c
+@@ -276,24 +276,33 @@ int catalog_import_file(OrderedHashmap *h, const char *path) {
+                 log_debug("File %s has language %s.", path, deflang);
+ 
+         for (;;) {
+-                _cleanup_free_ char *line = NULL;
++                /* Removed automatic cleanup on line; manage free manually */
++                char *line = NULL;
+                 size_t line_len;
+ 
+                 r = read_line(f, LONG_LINE_MAX, &line);
+-                if (r < 0)
++// FIXME: Crash CWE-416: Use After Free
++                 if (r < 0) {
++                        free(line);
+                         return log_error_errno(r, "Failed to read file %s: %m", path);
+-                if (r == 0)
++                 }
++                if (r == 0) {
++                        free(line);
+                         break;
++                }
+ 
+                 n++;
+ 
+                 if (isempty(line)) {
+                         empty_line = true;
++                        free(line);
+                         continue;
+                 }
+ 
+-                if (strchr(COMMENTS, line[0]))
++                if (strchr(COMMENTS, line[0])) {
++                        free(line);
+                         continue;
++                }
+ 
+                 if (empty_line &&
+                     strlen(line) >= 2+1+32 &&
+@@ -305,54 +314,61 @@ int catalog_import_file(OrderedHashmap *h, const char *path) {
+                         bool with_language;
+                         sd_id128_t jd;
+ 
+-                        /* New entry */
+-
+                         with_language = line[2+1+32] != '\0';
+                         line[2+1+32] = '\0';
+ 
+                         if (sd_id128_from_string(line + 2 + 1, &jd) >= 0) {
+ 
+                                 if (got_id) {
+-                                        if (payload_size == 0)
++                                        if (payload_size == 0) {
++                                                free(line);
+                                                 return log_error_errno(SYNTHETIC_ERRNO(EINVAL),
+                                                                        "[%s:%u] No payload text.",
+                                                                        path,
+                                                                        n);
++                                        }
+ 
+                                         r = finish_item(h, id, lang ?: deflang, payload, payload_size);
+-                                        if (r < 0)
++                                        if (r < 0) {
++                                                free(line);
+                                                 return r;
++                                        }
+ 
+                                         lang = mfree(lang);
+                                         payload_size = 0;
+                                 }
+ 
+                                 if (with_language) {
+-                                        char *t;
+-
+-                                        t = strstrip(line + 2 + 1 + 32 + 1);
++                                        char *t = strstrip(line + 2 + 1 + 32 + 1);
+                                         r = catalog_entry_lang(path, n, t, deflang, &lang);
+-                                        if (r < 0)
++                                        if (r < 0) {
++                                                free(line);
+                                                 return r;
++                                        }
+                                 }
+ 
+                                 got_id = true;
+                                 empty_line = false;
+                                 id = jd;
+ 
++                                free(line);
+                                 continue;
+                         }
+                 }
+ 
+                 /* Payload */
+-                if (!got_id)
++                if (!got_id) {
++                        free(line);
+                         return log_error_errno(SYNTHETIC_ERRNO(EINVAL),
+                                                "[%s:%u] Got payload before ID.",
+                                                path, n);
++                }
+ 
+                 line_len = strlen(line);
+-                if (!GREEDY_REALLOC(payload, payload_size + (empty_line ? 1 : 0) + line_len + 1 + 1))
++                if (!GREEDY_REALLOC(payload, payload_size + (empty_line ? 1 : 0) + line_len + 1 + 1)) {
++                        free(line);
+                         return log_oom();
++                }
+ 
+                 if (empty_line)
+                         payload[payload_size++] = '\n';
+@@ -362,6 +378,7 @@ int catalog_import_file(OrderedHashmap *h, const char *path) {
+                 payload[payload_size] = '\0';
+ 
+                 empty_line = false;
++                free(line);
+         }
+ 
+         if (got_id) {

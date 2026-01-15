@@ -1,0 +1,35 @@
+diff --git a/lib/alliswellprotocoll.c b/lib/alliswellprotocoll.c
+index 5be67405e..a992e0573 100644
+--- a/lib/alliswellprotocoll.c
++++ b/lib/alliswellprotocoll.c
+@@ -185,6 +185,11 @@ static CURLcode alliswellprotocoll_sm
+   /* Get funky with the input data. Permute it over time
+   *  and eventually accept */
+   switch(vnormal->state) {
++    /* overall NULL-pointer guard for safety */
++    if(!vnormal) {
++      result = CURLE_BAD_FUNCTION_ARGUMENT;
++      break;
++    }
+     case ALLISWELLPROTOCOLL_STOP:
+       result = CURLE_OK;
+       break;
+@@ -247,10 +252,16 @@ static CURLcode alliswellprotocoll_sm
+     case ALLISWELLPROTOCOLL_DO3:
+       if(result || !nread)
+         break;
++      /* ensure we don't dereference a NULL vnormal */
++      if(!vnormal) {
++        result = CURLE_BAD_FUNCTION_ARGUMENT;
++        break;
++      }
+       if(memcmp(response, vnormal->state3, 128) == 0) {
+-        vnstate(data, ALLISWELLPROTOCOLL_STOP);
++         vnstate(data, ALLISWELLPROTOCOLL_STOP);
+         Curl_pp_sendf(data, &conn->proto.vnormal.pp, "%s", "OK\r\n");
+-        *(unsigned int *)result = CURLE_OK;
++        /* fix invalid pointer write */
++        result = CURLE_OK;
+       }
+       else if(strcasecmp("complete\r\n", response) == 0) {
+         Curl_pp_sendf(data, &conn->proto.vnormal.pp, "%s", "OK\r\n");

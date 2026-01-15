@@ -1,0 +1,53 @@
+diff --git a/src/cmspack.c b/src/cmspack.c
+index 3e9d23f..5814bb6 100644
+--- a/src/cmspack.c
++++ b/src/cmspack.c
+@@ -123,8 +123,10 @@ cmsUInt8Number* UnrollChunkyBytes(CMSREGISTER _cmsTRANSFORM* info,
+             alpha_factor = _cmsToFixedDomain(FROM_8_TO_16(accum[nChan]));
+     }
+ 
+-    for (i=0; i < nChan; i++) {
++    /* Rationale: use VLA to match nChan dynamically and prevent overflow */
++    cmsUInt16Number wIn_local[nChan];
+ 
++    for (i=0; i < nChan; i++) {
+         cmsUInt32Number index = DoSwap ? (nChan - i - 1) : i;
+ 
+         v = FROM_8_TO_16(*accum);
+@@ -136,7 +138,7 @@ cmsUInt8Number* UnrollChunkyBytes(CMSREGISTER _cmsTRANSFORM* info,
+             if (v > 0xffff) v = 0xffff;
+         }
+ 
+-        wIn[index] = (cmsUInt16Number) v;
++        wIn_local[index] = (cmsUInt16Number) v;
+         accum++;
+     }
+ 
+@@ -145,20 +147,23 @@ cmsUInt8Number* UnrollChunkyBytes(CMSREGISTER _cmsTRANSFORM* info,
+     }
+ 
+     if (Extra == 0 && SwapFirst) {
+-        cmsUInt16Number tmp = wIn[0];
++        cmsUInt16Number tmp = wIn_local[0];
+ 
+-        memmove(&wIn[0], &wIn[1], (nChan-1) * sizeof(cmsUInt16Number));
+-        wIn[nChan-1] = tmp;
++        memmove(&wIn_local[0], &wIn_local[1], (nChan-1) * sizeof(cmsUInt16Number));
++        wIn_local[nChan-1] = tmp;
+     }
+ 
++    /* Copy back from temporary buffer */
++    memmove(wIn, wIn_local, nChan * sizeof(cmsUInt16Number));
++
+     return accum;
+ 
+     cmsUNUSED_PARAMETER(info);
+     cmsUNUSED_PARAMETER(Stride);
+-
+ }
+ 
+ 
++
+ // Extra channels are just ignored because come in the next planes
+ static
+ cmsUInt8Number* UnrollPlanarBytes(CMSREGISTER _cmsTRANSFORM* info,

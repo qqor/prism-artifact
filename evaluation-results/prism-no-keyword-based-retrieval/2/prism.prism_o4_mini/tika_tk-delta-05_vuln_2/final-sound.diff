@@ -1,0 +1,65 @@
+--- a/tika-app/src/main/java/org/apache/tika/cli/TikaCLI.java
++++ b/tika-app/src/main/java/org/apache/tika/cli/TikaCLI.java
+@@ -448,6 +448,11 @@
+                 dirPath = ".";
+             }
+             extractDir = new File(dirPath);
++            try {
++                extractDir = extractDir.getCanonicalFile();
++            } catch (IOException e) {
++                throw new IllegalArgumentException("Invalid extract directory: " + dirPath, e);
++            }
+         } else if (arg.equals("-z") || arg.equals("--extract")) {
+             type = NO_OUTPUT;
+             context.set(EmbeddedDocumentExtractor.class, new FileEmbeddedDocumentExtractor());
+@@ -1157,15 +1162,41 @@
+             } catch (IllegalArgumentException e) {
+                 LOG.warn("couldn't url decode name {}", normalizedName);
+             }
+-            File outputFile = new File(extractDir, normalizedName);
+-            //if file already exists, prepend uuid
+-            if (outputFile.exists()) {
+-                String fileName = FilenameUtils.getName(normalizedName);
+-                outputFile = new File(extractDir, UUID
+-                        .randomUUID()
+-                        .toString() + "-" + fileName);
+-            }
+-            return outputFile;
++            // Resolve base directory to canonical form
++            File baseDir;
++            try {
++                baseDir = extractDir.getCanonicalFile();
++            } catch (IOException e) {
++                baseDir = extractDir;
++                LOG.warn("Could not canonicalize extractDir {}; proceeding non-canonical", extractDir, e);
++            }
++            // Build initial candidate under baseDir
++            File candidate = new File(baseDir, normalizedName);
++            File safeFile;
++            try {
++                File canonicalCandidate = candidate.getCanonicalFile();
++                String basePath = baseDir.getPath() + File.separator;
++                if (!canonicalCandidate.getPath().startsWith(basePath)) {
++                    // Traversal detected: strip path, use only the filename
++                    String safeName = FilenameUtils.getName(normalizedName);
++                    safeFile = new File(baseDir, safeName).getCanonicalFile();
++                } else {
++                    safeFile = canonicalCandidate;
++                }
++            } catch (IOException ioe) {
++                LOG.warn("Could not canonicalize output file {}; using raw path", candidate, ioe);
++                safeFile = candidate;
++            }
++            if (safeFile.exists()) {
++                String fileName = safeFile.getName();
++                try {
++                    safeFile = new File(baseDir, UUID.randomUUID().toString() + "-" + fileName).getCanonicalFile();
++                } catch (IOException e) {
++                    safeFile = new File(baseDir, UUID.randomUUID().toString() + "-" + fileName);
++                    LOG.warn("Could not canonicalize UUID-prefixed file; using raw path", e);
++                }
++            }
++            return safeFile;
+         }
+ 
+         private String getExtension(MediaType contentType) {

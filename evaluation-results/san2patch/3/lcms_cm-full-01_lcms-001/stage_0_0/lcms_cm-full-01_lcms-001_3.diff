@@ -1,0 +1,35 @@
+diff --git a/src/cmsps2.c b/src/cmsps2.c
+index cb2db85..b716a80 100644
+--- a/src/cmsps2.c
++++ b/src/cmsps2.c
+@@ -1049,7 +1049,6 @@ cmsUInt32Number GenerateCSA(cmsContext ContextID,
+     }
+     else {
+ 
+-
+         // Any profile class are allowed (including devicelink), but
+         // output (PCS) colorspace must be XYZ or Lab
+         cmsColorSpaceSignature ColorSpace = cmsGetPCS(hProfile);
+@@ -1066,15 +1065,18 @@ cmsUInt32Number GenerateCSA(cmsContext ContextID,
+         lut = _cmsReadInputLUT(hProfile, Intent);
+         if (lut == NULL) goto Error;
+ 
+-
+-        // Tone curves + matrix can be implemented without any LUT
+-        if (cmsPipelineCheckAndRetreiveStages(lut, 2, cmsSigCurveSetElemType, cmsSigMatrixElemType, &Shaper, &Matrix)) {
++        // Combined condition: only optimize if stages are retrieved and valid
++        if (cmsPipelineCheckAndRetreiveStages(lut, 2,
++                                             cmsSigCurveSetElemType,
++                                             cmsSigMatrixElemType,
++                                             &Shaper, &Matrix) &&
++            Shaper && Matrix) {
+ 
+             if (!WriteInputMatrixShaper(mem, hProfile, Matrix, Shaper)) goto Error;
+ 
+         }
+         else {
+-           // We need a LUT for the rest
++           // Fallback to writing entire LUT
+            if (!WriteInputLUT(mem, hProfile, Intent, dwFlags)) goto Error;
+         }
+     }

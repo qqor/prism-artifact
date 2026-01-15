@@ -1,0 +1,80 @@
+--- a/poi/src/main/java/org/apache/poi/poifs/dev/POIFSDump.java
++++ b/poi/src/main/java/org/apache/poi/poifs/dev/POIFSDump.java
+@@ -42,6 +42,57 @@
+ public final class POIFSDump {
+ 
+     private POIFSDump() {}
++
++    /**
++     * Sanitizes an entry name to prevent path traversal attacks.
++     * Removes or replaces characters that could allow escaping the intended directory structure.
++     *
++     * @param entryName the entry name from POIFS file
++     * @return sanitized name safe for filesystem operations
++     */
++    private static String sanitizeEntryName(String entryName) {
++        if (entryName == null || entryName.trim().isEmpty()) {
++            return "unnamed_entry";
++        }
++        
++        String sanitized = entryName.trim();
++        
++        // Replace path separators
++        sanitized = sanitized.replaceAll("[/\\\\]", "_");
++        
++        // Replace relative path components (., .., etc)
++        sanitized = sanitized.replaceAll("^\\.+$|^\\.+(?=[^.])|(?<=[^.])\\.+$", "_");
++        
++        // Replace problematic filesystem characters
++        sanitized = sanitized.replaceAll("[:\\*\"?|<>]", "_");
++        
++        // Replace control characters
++        sanitized = sanitized.replaceAll("[\\p{Cntrl}]", "_");
++        
++        // If after sanitization the name is empty, use default
++        if (sanitized.isEmpty()) {
++            return "unnamed_entry";
++        }
++        
++        return sanitized;
++    }
++
++    /**
++     * Validates that a file path stays within the intended parent directory.
++     *
++     * @param file the file to validate
++     * @param parent the expected parent directory
++     * @throws IOException if the file would be outside the parent directory
++     */
++    private static void validatePath(File file, File parent) throws IOException {
++        String canonicalFilePath = file.getCanonicalPath();
++        String canonicalParentPath = parent.getCanonicalPath();
++        
++        if (!canonicalFilePath.startsWith(canonicalParentPath + File.separator) && 
++            !canonicalFilePath.equals(canonicalParentPath)) {
++            throw new IOException("Security violation: Entry would create path outside intended directory structure");
++        }
++    }
+ 
+     public static void main(String[] args) throws IOException {
+         if (args.length == 0) {
+@@ -105,12 +156,17 @@
+                 try (DocumentInputStream is = new DocumentInputStream(node)) {
+                    bytes = IOUtils.toByteArray(is);
+                 }
+-                try (OutputStream out = Files.newOutputStream(new File(parent, node.getName().trim()).toPath())) {
++                String safeName = sanitizeEntryName(node.getName());
++                File outputFile = new File(parent, safeName);
++                validatePath(outputFile, parent);
++                try (OutputStream out = Files.newOutputStream(outputFile.toPath())) {
+                     out.write(bytes);
+                 }
+             } else if (entry instanceof DirectoryEntry){
+                 DirectoryEntry dir = (DirectoryEntry)entry;
+-                File file = new File(parent, entry.getName());
++                String safeName = sanitizeEntryName(entry.getName());
++                File file = new File(parent, safeName);
++                validatePath(file, parent);
+                 if(!file.exists() && !file.mkdirs()) {
+                     throw new IOException("Could not create directory " + file);
+                 }

@@ -1,0 +1,23 @@
+--- a/epan/dissectors/packet-aim.c
++++ b/epan/dissectors/packet-aim.c
+@@ -587,8 +587,18 @@
+ 
+ 	buddyname_length = tvb_get_ntohs(tvb, offset);
+ 
+-	if (pool)
+-		memcpy(*name, tvb_get_ptr(tvb,offset,1), buddyname_length);
++	/* Validate length doesn't exceed buffer size (255 + 1 for null terminator) */
++	if (buddyname_length > 255) {
++		buddyname_length = 255;
++	}
++
++	/* Use safe tvb_memcpy which validates source bounds, skip 2-byte length field */
++	if (buddyname_length > 0) {
++		tvb_memcpy(tvb, *name, offset + 2, buddyname_length);
++	}
++
++	/* Ensure null termination */
++	(*name)[buddyname_length] = '\0';
+ 
+ 	return buddyname_length;
+ }

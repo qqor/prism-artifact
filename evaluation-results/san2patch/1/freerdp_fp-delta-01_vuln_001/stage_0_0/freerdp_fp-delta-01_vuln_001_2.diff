@@ -1,0 +1,59 @@
+diff --git a/libfreerdp/crypto/certificate.c b/libfreerdp/crypto/certificate.c
+index 30820bbc4..087347368 100644
+--- a/libfreerdp/crypto/certificate.c
++++ b/libfreerdp/crypto/certificate.c
+@@ -1592,10 +1592,6 @@ char* freerdp_certificate_get_pem_ex(const rdpCertificate* cert, size_t* pLength
+ 	if (!cert->x509)
+ 		return NULL;
+ 
+-	/**
+-	 * Don't manage certificates internally, leave it up entirely to the external client
+-	 * implementation
+-	 */
+ 	BIO* bio = BIO_new(BIO_s_mem());
+ 
+ 	if (!bio)
+@@ -1605,6 +1601,7 @@ char* freerdp_certificate_get_pem_ex(const rdpCertificate* cert, size_t* pLength
+ 	}
+ 
+ 	char* pem = NULL;
++	size_t len = 0;
+ 
+ 	const int status = PEM_write_bio_X509(bio, cert->x509);
+ 	if (status < 0)
+@@ -1629,13 +1626,31 @@ char* freerdp_certificate_get_pem_ex(const rdpCertificate* cert, size_t* pLength
+ 	}
+ 
+ 	// Updated rfc to handle specific policy issues
+-	// https://datatracker.ietf.org/doc/html/rfc7299
+-	if ( freerdp_certificate_policies(cert, "2.23.140.1.2.1") ) {
+-		(void)freerdp_bio_read_pem_with_policy(bio, &pem, pLength);
++	//https://datatracker.ietf.org/doc/html/rfc7299
++	if (freerdp_certificate_policies(cert, "2.23.140.1.2.1")) {
++		(void)freerdp_bio_read_pem_with_policy(bio, &pem, &len);
+ 	} else {
+-		(void)bio_read_pem(bio, &pem, pLength);
++		(void)bio_read_pem(bio, &pem, &len);
++	}
++
++	if (pem)
++	{
++		char* safe_pem = strndup(pem, len);
++		if (!safe_pem)
++		{
++			WLog_ERR(TAG, "strndup failure");
++			free(pem);
++			pem = NULL;
++			len = 0;
++		}
++		else
++		{
++			free(pem);
++			pem = safe_pem;
++		}
+ 	}
+ 
++	*pLength = len;
+ fail:
+ 	BIO_free_all(bio);
+ 	return pem;

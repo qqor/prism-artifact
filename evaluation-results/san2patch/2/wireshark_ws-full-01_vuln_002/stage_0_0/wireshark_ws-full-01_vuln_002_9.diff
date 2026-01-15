@@ -1,0 +1,37 @@
+diff --git a/epan/dissectors/packet-telnet.c b/epan/dissectors/packet-telnet.c
+index 9f003e3e61..c26c8527a1 100644
+--- a/epan/dissectors/packet-telnet.c
++++ b/epan/dissectors/packet-telnet.c
+@@ -2094,8 +2094,15 @@ telnet_sub_option(packet_info *pinfo, proto_tree *option_tree, proto_item *optio
+       if (iac_data > 0) {
+         /* Data is escaped, we have to unescape it. */
+         unescaped_tvb = unescape_and_tvbuffify_telnet_option(pinfo, tvb, start_offset, subneg_len);
++        /* Only free if this isn't the NAWS negotiation itself */
++        if (opt->name != TELNET_NAWS) {
++          wmem_simple_free(hf_naws_data);
++        }
+         (*opt->dissect)(pinfo, opt->name, unescaped_tvb, 0, subneg_len - iac_data, option_tree, option_item);
+       } else {
++        if (opt->name != TELNET_NAWS) {
++          wmem_simple_free(hf_naws_data);
++        }
+         (*opt->dissect)(pinfo, opt->name, tvb, start_offset, subneg_len, option_tree, option_item);
+       }
+     } else {
+@@ -2206,10 +2213,15 @@ telnet_add_text(proto_tree *tree, tvbuff_t *tvb, int offset, int len)
+        If this subopt is set then a method for storing the data in a given window
+        is necessary.
+     */
+-   if ( hf_telnet_naws_subopt_set ) {
++// FIXME: Crash CWE-416: Use After Free
++    if ( hf_telnet_naws_subopt_set ) {
+     int start_offset = hf_telnet_width * hf_telnet_line;
+     tvb_get_raw_bytes_as_stringz(tvb, offset, (linelen < hf_telnet_width) ? linelen : hf_telnet_width, hf_naws_data + start_offset);
++    /* free NAWS buffer and exit loop */
++    wmem_simple_free(hf_naws_data);
++    hf_telnet_naws_subopt_set = FALSE;
+     hf_telnet_line = (hf_telnet_line + 1) % hf_telnet_height;
++    break;
+   }
+ 
+     /*

@@ -1,0 +1,91 @@
+--- a/epan/dissectors/packet-telnet.c
++++ b/epan/dissectors/packet-telnet.c
+@@ -49,7 +49,6 @@
+ static int hf_telnet_string_subopt_value;
+ static int hf_telnet_naws_subopt_width;
+ static int hf_telnet_naws_subopt_height;
+-static int hf_telnet_naws_subopt_set;
+ static int hf_telnet_outmark_subopt_cmd;
+ static int hf_telnet_outmark_subopt_banner;
+ static int hf_telnet_comport_subopt_signature;
+@@ -67,9 +66,6 @@
+ static int hf_telnet_comport_subopt_purge;
+ static int hf_telnet_rfc_subopt_cmd;
+ static int hf_telnet_tabstop;
+-static int hf_telnet_width;
+-static int hf_telnet_height;
+-static int hf_telnet_line;
+ 
+ static int hf_telnet_enc_cmd;
+ static int hf_telnet_enc_type;
+@@ -91,7 +87,6 @@
+ 
+ static int hf_telnet_starttls;
+ 
+-static uint8_t *hf_naws_data;
+ static int hf_telnet_vmware_cmd;
+ static int hf_telnet_vmware_known_suboption_code;
+ static int hf_telnet_vmware_unknown_subopt_code;
+@@ -633,12 +628,9 @@
+ }
+ 
+ static void
+-dissect_linemode_subopt(packet_info *pinfo, const char *optname _U_, tvbuff_t *tvb _U_, int offset _U_,
++dissect_linemode_subopt(packet_info *pinfo _U_, const char *optname _U_, tvbuff_t *tvb _U_, int offset _U_,
+                     int len _U_, proto_tree *tree _U_, proto_item *item _U_)
+ {
+-  if ( hf_telnet_naws_subopt_set )
+-    wmem_free(pinfo->pool, hf_naws_data);
+-
+   return;
+ }
+ 
+@@ -646,16 +638,6 @@
+ dissect_naws_subopt(packet_info *pinfo _U_, const char *optname _U_, tvbuff_t *tvb, int offset,
+                     int len _U_, proto_tree *tree, proto_item *item _U_)
+ {
+-  hf_telnet_width = tvb_get_uint16(tvb, offset, ENC_BIG_ENDIAN);
+-  hf_telnet_height = tvb_get_uint16(tvb, offset + 2, ENC_BIG_ENDIAN);
+-
+-  hf_naws_data = (uint8_t *)wmem_alloc(pinfo->pool, hf_telnet_width * hf_telnet_height);
+-
+-  if ( hf_naws_data )
+-    hf_telnet_naws_subopt_set = 1;
+-  else
+-    hf_telnet_naws_subopt_set = 0;
+-
+   proto_tree_add_item(tree, hf_telnet_naws_subopt_width, tvb, offset, 2, ENC_BIG_ENDIAN);
+   offset += 2;
+   proto_tree_add_item(tree, hf_telnet_naws_subopt_height, tvb, offset, 2, ENC_BIG_ENDIAN);
+@@ -2202,16 +2184,6 @@
+     linelen = tvb_find_line_end(tvb, offset, len, &next_offset, false);
+     len -= next_offset - offset;        /* subtract out the line's characters */
+ 
+-    /* Telnet RFC 1184 allows for specifying window size via columns and height.
+-       If this subopt is set then a method for storing the data in a given window
+-       is necessary.
+-    */
+-   if ( hf_telnet_naws_subopt_set ) {
+-    int start_offset = hf_telnet_width * hf_telnet_line;
+-    tvb_get_raw_bytes_as_stringz(tvb, offset, (linelen < hf_telnet_width) ? linelen : hf_telnet_width, hf_naws_data + start_offset);
+-    hf_telnet_line = (hf_telnet_line + 1) % hf_telnet_height;
+-  }
+-
+     /*
+      * In Telnet, CR NUL is the way you send a CR by itself in the
+      * default ASCII mode; don't treat CR by itself as a line ending,
+@@ -2344,14 +2316,10 @@
+ 
+ static void telnet_init_protocol(void)
+ {
+-    hf_telnet_naws_subopt_set = 0;
+-    hf_naws_data = NULL;
+ }
+ 
+ static void telnet_cleanup_protocol(void)
+ {
+-    hf_telnet_naws_subopt_set = 0;
+-    hf_naws_data = NULL;
+ }
+ 
+ void

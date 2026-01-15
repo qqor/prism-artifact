@@ -1,0 +1,162 @@
+diff --git a/HTMLparser.c b/HTMLparser.c
+index 9c34e9e8..f4e56e7f 100644
+--- a/HTMLparser.c
++++ b/HTMLparser.c
+@@ -2604,7 +2604,7 @@ htmlParseData(htmlParserCtxtPtr ctxt, htmlAsciiMask mask,
+     xmlChar *buffer;
+     xmlChar utf8Char[4];
+     size_t buffer_size;
+-    size_t used;
++size_t used;
+     int eof = PARSER_PROGRESSIVE(ctxt);
+     int line, col;
+     int termSkip = -1;
+@@ -2612,8 +2612,10 @@ htmlParseData(htmlParserCtxtPtr ctxt, htmlAsciiMask mask,
+     used = 0;
+     buffer_size = ctxt->spaceMax;
+     buffer = (xmlChar *) ctxt->spaceTab;
+-    if (buffer == NULL) {
+-        buffer_size = 500;
++// Patched: use maxLength to size initial buffer to avoid heap overflow
++     if (buffer == NULL) {
++        /* if maxLength provided, use it, otherwise fall back to 500 */
++        buffer_size = (maxLength > 0) ? (size_t)maxLength : 500;
+         buffer = xmlMalloc(buffer_size + 1);
+         if (buffer == NULL) {
+             htmlErrMemory(ctxt);
+@@ -2624,8 +2626,7 @@ htmlParseData(htmlParserCtxtPtr ctxt, htmlAsciiMask mask,
+     line = input->line;
+     col = input->col;
+ 
+-    while (!PARSER_STOPPED(ctxt)) {
+-        const xmlChar *chunk, *in, *repl;
++    while (!PARSER_STOPPED(ctxt)) {        const xmlChar *chunk, *in, *repl;
+         size_t avail, chunkSize, extraSize;
+         int replSize;
+         int skip = 0;
+@@ -2845,7 +2846,20 @@ next_chunk:
+             buffer_size = newSize;
+         }
+ 
+-        if (chunkSize > 0) {
++        // FIXME: Crash CWE-787: Out-of-bounds Write
++         if (chunkSize > 0) {
++            // ensure buffer has enough space for chunk
++            if ((size_t)used + chunkSize > buffer_size) {
++                size_t required = used + chunkSize;
++                size_t newBufSize = buffer_size * 2 > required ? buffer_size * 2 : required;
++                xmlChar *tmp2 = (xmlChar *)xmlRealloc(buffer, newBufSize);
++                if (tmp2 == NULL) {
++                    htmlErrMemory(ctxt);
++                    goto error;
++                }
++                buffer = tmp2;
++                buffer_size = newBufSize;
++            }
+             input->cur += chunkSize;
+             memcpy(buffer + used, chunk, chunkSize);
+             used += chunkSize;
+@@ -2853,12 +2867,23 @@ next_chunk:
+ 
+         input->cur += skip;
+         if (replSize > 0) {
++            // ensure buffer has enough space for repl
++            if ((size_t)used + replSize > buffer_size) {
++                size_t required = used + replSize;
++                size_t newBufSize = buffer_size * 2 > required ? buffer_size * 2 : required;
++                xmlChar *tmp2 = (xmlChar *)xmlRealloc(buffer, newBufSize);
++                if (tmp2 == NULL) {
++                    htmlErrMemory(ctxt);
++                    goto error;
++                }
++                buffer = tmp2;
++                buffer_size = newBufSize;
++            }
+             memcpy(buffer + used, repl, replSize);
+             used += replSize;
+         }
+ 
+         SHRINK;
+-
+         if (termSkip >= 0)
+             break;
+ 
+@@ -3322,7 +3347,7 @@ htmlSecureComment(htmlParserCtxtPtr ctxt, htmlAsciiMask mask,
+     xmlChar *buffer;
+     xmlChar utf8Char[4];
+     size_t buffer_size;
+-    size_t used;
++size_t used;
+     int eof = PARSER_PROGRESSIVE(ctxt);
+     int line, col;
+     int termSkip = -1;
+@@ -3330,8 +3355,10 @@ htmlSecureComment(htmlParserCtxtPtr ctxt, htmlAsciiMask mask,
+     used = 0;
+     buffer_size = ctxt->spaceMax;
+     buffer = (xmlChar *) ctxt->spaceTab;
+-    if (buffer == NULL) {
+-        buffer_size = 500;
++// Patched: use maxLength to size initial buffer to avoid heap overflow
++     if (buffer == NULL) {
++        /* if maxLength provided, use it, otherwise fall back to 500 */
++        buffer_size = (maxLength > 0) ? (size_t)maxLength : 500;
+         buffer = xmlMalloc(buffer_size + 1);
+         if (buffer == NULL) {
+             htmlErrMemory(ctxt);
+@@ -3342,8 +3369,7 @@ htmlSecureComment(htmlParserCtxtPtr ctxt, htmlAsciiMask mask,
+     line = input->line;
+     col = input->col;
+ 
+-    while (!PARSER_STOPPED(ctxt)) {
+-        const xmlChar *chunk, *in, *repl;
++    while (!PARSER_STOPPED(ctxt)) {        const xmlChar *chunk, *in, *repl;
+         size_t avail, chunkSize, extraSize;
+         int replSize;
+         int skip = 0;
+@@ -3586,7 +3612,20 @@ next_chunk:
+             buffer_size = newSize;
+         }
+ 
+-        if (chunkSize > 0) {
++        // FIXME: Crash CWE-787: Out-of-bounds Write
++         if (chunkSize > 0) {
++            // ensure buffer has enough space for chunk
++            if ((size_t)used + chunkSize > buffer_size) {
++                size_t required = used + chunkSize;
++                size_t newBufSize = buffer_size * 2 > required ? buffer_size * 2 : required;
++                xmlChar *tmp2 = (xmlChar *)xmlRealloc(buffer, newBufSize);
++                if (tmp2 == NULL) {
++                    htmlErrMemory(ctxt);
++                    goto error;
++                }
++                buffer = tmp2;
++                buffer_size = newBufSize;
++            }
+             input->cur += chunkSize;
+             memcpy(buffer + used, chunk, chunkSize);
+             used += chunkSize;
+@@ -3594,12 +3633,23 @@ next_chunk:
+ 
+         input->cur += skip;
+         if (replSize > 0) {
++            // ensure buffer has enough space for repl
++            if ((size_t)used + replSize > buffer_size) {
++                size_t required = used + replSize;
++                size_t newBufSize = buffer_size * 2 > required ? buffer_size * 2 : required;
++                xmlChar *tmp2 = (xmlChar *)xmlRealloc(buffer, newBufSize);
++                if (tmp2 == NULL) {
++                    htmlErrMemory(ctxt);
++                    goto error;
++                }
++                buffer = tmp2;
++                buffer_size = newBufSize;
++            }
+             memcpy(buffer + used, repl, replSize);
+             used += replSize;
+         }
+ 
+         SHRINK;
+-
+         if (termSkip >= 0)
+             break;
+ 

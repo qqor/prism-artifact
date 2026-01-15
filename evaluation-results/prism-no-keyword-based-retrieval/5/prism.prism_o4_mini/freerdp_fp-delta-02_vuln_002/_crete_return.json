@@ -1,0 +1,14 @@
+{
+  "project_name": "freerdp",
+  "vulnerability_identifier": "freerdp_fp-delta-02_vuln_002",
+  "source_directory": "/home/qqor/crete/.cache/official-afc-freerdp",
+  "llm_usage": {
+    "total_cost": 1.9646670999999996,
+    "prompt_tokens": 1315197,
+    "completion_tokens": 117716
+  },
+  "variant": "sound",
+  "diff": "--- a/libfreerdp/crypto/x509_utils.c\n+++ b/libfreerdp/crypto/x509_utils.c\n@@ -432,45 +432,32 @@\n \n BOOL x509_validate_subject_aternative_names(const X509* cert) {\n     STACK_OF(GENERAL_NAME) *san_names = NULL;\n-    int i, count;\n-    char *dns_name = NULL;\n-\tBOOL result = TRUE;\n-\n-    // Get Subject Alternative Names (SAN)\n+    int count, i;\n+\n     san_names = X509_get_ext_d2i(cert, NID_subject_alt_name, NULL, NULL);\n-    if (!san_names) {\n-        goto end;\n-    }\n+    if (!san_names)\n+        return TRUE;\n \n     count = sk_GENERAL_NAME_num(san_names);\n-\n     for (i = 0; i < count; i++) {\n         GENERAL_NAME *gen_name = sk_GENERAL_NAME_value(san_names, i);\n-\n         if (gen_name->type == GEN_DNS) {\n-\t\t\t// Allocate string length + 1 for security\n-\t\t\tdns_name = malloc( strlen((char *)ASN1_STRING_get0_data(gen_name->d.dNSName)) + 1);\n-\n-\t\t\tif (dns_name == NULL)\n-\t\t\t\tgoto end;\n-\t\t\t\n-\t\t\tmemcpy(dns_name, (char *)ASN1_STRING_get0_data(gen_name->d.dNSName),  \n-\t\t\t\tASN1_STRING_length(gen_name->d.dNSName)) ;\n-\t\t\t\n-            if (!verify_san(dns_name)) {\n-\t\t\t\tfree(dns_name);\n-\t\t\t\tresult = FALSE;\n-\t\t\t\tgoto end;\n-            } else {\n-\t\t\t\tfree(dns_name);\n+            unsigned char *utf8Name = NULL;\n+            int utf8Len = ASN1_STRING_to_UTF8(&utf8Name, gen_name->d.dNSName);\n+            if (utf8Len < 0)\n+                continue;\n+\n+            if (!verify_san((char*)utf8Name)) {\n+                OPENSSL_free(utf8Name);\n+                sk_GENERAL_NAME_pop_free(san_names, GENERAL_NAME_free);\n+                return FALSE;\n             }\n+            OPENSSL_free(utf8Name);\n         }\n     }\n \n-end:\n     sk_GENERAL_NAME_pop_free(san_names, GENERAL_NAME_free);\n-\n-\treturn TRUE;\n+    return TRUE;\n }\n \n char* x509_utils_get_email(const X509* x509)\n",
+  "stdout": "",
+  "stderr": ""
+}

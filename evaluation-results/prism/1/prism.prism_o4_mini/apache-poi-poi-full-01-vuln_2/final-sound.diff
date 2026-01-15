@@ -1,0 +1,102 @@
+--- a/poi/src/main/java/org/apache/poi/poifs/dev/POIFSDump.java
++++ b/poi/src/main/java/org/apache/poi/poifs/dev/POIFSDump.java
+@@ -22,6 +22,7 @@
+ import java.io.OutputStream;
+ import java.nio.ByteBuffer;
+ import java.nio.file.Files;
++import java.nio.file.Path;
+ import java.nio.file.Paths;
+ import java.util.Iterator;
+ 
+@@ -72,11 +73,23 @@
+                 File dumpDir =
+                         Paths.get(filename).getParent()
+                                 .resolve(filenameWithoutPath + "_dump").toFile();
+-                File file = new File(dumpDir, root.getName());
++                String rawRootName = root.getName();
++                String safeRootName = rawRootName == null ? "_" :
++                        rawRootName.replaceAll("[/\\\\]+", "_")
++                                   .replaceAll("\\.\\.+", "_")
++                                   .replaceAll("[:*?\"<>|]", "_")
++                                   .trim();
++                if (safeRootName.isEmpty()) {
++                    safeRootName = "_";
++                }
++                Path rootPath = dumpDir.toPath().resolve(safeRootName).normalize();
++                if (!rootPath.startsWith(dumpDir.toPath())) {
++                    throw new IOException("Invalid POIFS root name: " + rawRootName);
++                }
++                File file = rootPath.toFile();
+                 if (!file.exists() && !file.mkdirs()) {
+                     throw new IOException("Could not create directory " + file);
+                 }
+-    
+                 dump(root, file);
+     
+                 if (dumpProps) {
+@@ -105,12 +118,36 @@
+                 try (DocumentInputStream is = new DocumentInputStream(node)) {
+                    bytes = IOUtils.toByteArray(is);
+                 }
+-                try (OutputStream out = Files.newOutputStream(new File(parent, node.getName().trim()).toPath())) {
++                String rawName = node.getName().trim();
++                String safeName = rawName.replaceAll("[/\\\\]+", "_")
++                                           .replaceAll("\\.\\.+", "_")
++                                           .replaceAll("[:*?\"<>|]", "_")
++                                           .trim();
++                if (safeName.isEmpty()) {
++                    safeName = "_";
++                }
++                Path outPath = parent.toPath().resolve(safeName).normalize();
++                if (!outPath.startsWith(parent.toPath())) {
++                    throw new IOException("Invalid entry name: " + rawName);
++                }
++                try (OutputStream out = Files.newOutputStream(outPath)) {
+                     out.write(bytes);
+                 }
+             } else if (entry instanceof DirectoryEntry){
+                 DirectoryEntry dir = (DirectoryEntry)entry;
+-                File file = new File(parent, entry.getName());
++                String rawName = entry.getName();
++                String safeName = rawName.replaceAll("[/\\\\]+", "_")
++                                           .replaceAll("\\.\\.+", "_")
++                                           .replaceAll("[:*?\"<>|]", "_")
++                                           .trim();
++                if (safeName.isEmpty()) {
++                    safeName = "_";
++                }
++                Path dirPath = parent.toPath().resolve(safeName).normalize();
++                if (!dirPath.startsWith(parent.toPath())) {
++                    throw new IOException("Invalid entry name: " + rawName);
++                }
++                File file = dirPath.toFile();
+                 if(!file.exists() && !file.mkdirs()) {
+                     throw new IOException("Could not create directory " + file);
+                 }
+@@ -121,11 +158,22 @@
+         }
+     }
+     public static void dump(POIFSFileSystem fs, int startBlock, String name, File parent) throws IOException {
+-        File file = new File(parent, name);
+-        if (! Files.isDirectory(file.toPath().getParent())) {
+-            Files.createDirectories(file.toPath().getParent());
++        String safeName = name == null ? "_" :
++                name.replaceAll("[/\\\\]+", "_")
++                    .replaceAll("\\.\\.+", "_")
++                    .replaceAll("[:*?\"<>|]", "_")
++                    .trim();
++        if (safeName.isEmpty()) {
++            safeName = "_";
+         }
+-        try (OutputStream out = Files.newOutputStream(file.toPath())) {
++        Path filePath = parent.toPath().resolve(safeName).normalize();
++        if (!filePath.startsWith(parent.toPath())) {
++            throw new IOException("Invalid entry name: " + name);
++        }
++        if (!Files.isDirectory(filePath.getParent())) {
++            Files.createDirectories(filePath.getParent());
++        }
++        try (OutputStream out = Files.newOutputStream(filePath)) {
+             POIFSStream stream = new POIFSStream(fs, startBlock);
+ 
+             byte[] b = IOUtils.safelyAllocate(fs.getBigBlockSize(), POIFSFileSystem.getMaxRecordLength());

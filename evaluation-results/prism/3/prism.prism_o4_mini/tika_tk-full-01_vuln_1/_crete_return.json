@@ -1,0 +1,14 @@
+{
+  "project_name": "tika",
+  "vulnerability_identifier": "tika_tk-full-01_vuln_1",
+  "source_directory": "/tasks_new/tika_tk-full-01/official-afc-tika",
+  "llm_usage": {
+    "total_cost": 0.2558094,
+    "prompt_tokens": 106106,
+    "completion_tokens": 31612
+  },
+  "variant": "sound",
+  "diff": "--- a/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-microsoft-module/src/main/java/org/apache/tika/parser/microsoft/rtf/RTFEmbObjHandler.java\n+++ b/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-microsoft-module/src/main/java/org/apache/tika/parser/microsoft/rtf/RTFEmbObjHandler.java\n@@ -19,6 +19,8 @@\n import java.io.IOException;\n import java.io.InputStream;\n import java.io.ObjectInputStream;\n+import java.io.ObjectStreamClass;\n+import java.io.InvalidClassException;\n import java.nio.charset.StandardCharsets;\n import java.util.concurrent.atomic.AtomicInteger;\n \n@@ -211,16 +213,25 @@\n             extractObj(bytes, handler, metadata);\n \n         } else if (state == EMB_STATE.JAVA_OBJDATA) {\n-            try {\n-                Object obj = new ObjectInputStream(\n-                        UnsynchronizedByteArrayInputStream.builder().setByteArray(bytes)\n-                                .get()).readObject();\n+            try (ObjectInputStream ois = new ObjectInputStream(\n+                    UnsynchronizedByteArrayInputStream.builder().setByteArray(bytes).get()) {\n+                @Override\n+                protected Class<?> resolveClass(ObjectStreamClass desc) throws IOException, ClassNotFoundException {\n+                    String name = desc.getName();\n+                    if (!\"java.lang.String\".equals(name)) {\n+                        throw new InvalidClassException(\"Unauthorized deserialization\", name);\n+                    }\n+                    return super.resolveClass(desc);\n+                }\n+            }) {\n+                Object obj = ois.readObject();\n                 metadata.set(RTFMetadata.EMB_CLASS, obj.getClass().getName());\n                 metadata.set(TikaCoreProperties.CONTENT_TYPE_PARSER_OVERRIDE,\n                         MediaType.text(\"plain\").toString());\n                 extractObj(obj.toString().getBytes(StandardCharsets.UTF_8), handler, metadata);\n-            } catch (ClassNotFoundException e) {\n-                throw new TikaException(\"Not found\", e);\n+            } catch (ClassNotFoundException | InvalidClassException | SecurityException e) {\n+                EmbeddedDocumentUtil.recordException(e, metadata);\n+                return;\n             }\n         } else if (state == EMB_STATE.NADA) {\n             //swallow...no start for pict or embed?!\n",
+  "stdout": "",
+  "stderr": ""
+}

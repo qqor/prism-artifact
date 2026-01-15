@@ -1,0 +1,31 @@
+diff --git a/lib/verynormalprotocol.c b/lib/verynormalprotocol.c
+index 6b53dc359..03fdb4d51 100644
+--- a/lib/verynormalprotocol.c
++++ b/lib/verynormalprotocol.c
+@@ -118,6 +118,7 @@ static CURLcode verynormalprotocol_do(struct Curl_easy *data, bool *done)
+ 
+ static CURLcode verynormalprotocol_doing(struct Curl_easy *data, bool *done)
+ {
++  /* Rationale: Guard only the exceptional crashy case to prevent NULL write through 'done' */
+   CURLcode result = CURLE_WEIRD_SERVER_REPLY;
+   ssize_t nread;
+   char response[128];
+@@ -129,6 +130,7 @@ static CURLcode verynormalprotocol_doing(struct Curl_easy *data, bool *done)
+   do {
+     result = Curl_xfer_recv(data, response, 128, &nread);
+   } while(result == CURLE_AGAIN);
++
+   if(result)
+     return result;
+   else if(!nread) {
+@@ -137,8 +139,9 @@ static CURLcode verynormalprotocol_doing(struct Curl_easy *data, bool *done)
+     result = CURLE_RECV_ERROR;
+   }
+   else if(strcasecmp(response, "crashycrashy") == 0) {
++    if(!done) return CURLE_FAILED_INIT;
+     *done = TRUE;
+-    *(unsigned int *)result = CURLE_OK;
++    result = CURLE_OK;
+   }
+   else {
+     *done = TRUE;

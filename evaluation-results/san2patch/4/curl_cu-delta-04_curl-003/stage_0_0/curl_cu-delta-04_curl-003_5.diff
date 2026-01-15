@@ -1,0 +1,30 @@
+diff --git a/lib/multi.c b/lib/multi.c
+index 1851dc731..2ca85b59e 100644
+--- a/lib/multi.c
++++ b/lib/multi.c
+@@ -716,10 +716,6 @@ static CURLcode multi_done(struct Curl_easy *data,
+   case CURLE_ABORTED_BY_CALLBACK:
+   case CURLE_READ_ERROR:
+   case CURLE_WRITE_ERROR:
+-    /* When we are aborted due to a callback return code it basically have to
+-       be counted as premature as there is trouble ahead if we do not. We have
+-       many callbacks and protocols work differently, we could potentially do
+-       this more fine-grained in the future. */
+     premature = TRUE;
+     FALLTHROUGH();
+   default:
+@@ -732,9 +728,12 @@ static CURLcode multi_done(struct Curl_easy *data,
+   else
+     result = status;
+ 
++  /* Prevent use-after-free: clear DOH context after handler->done */
++  if(data->req.doh) {
++    data->req.doh = NULL;
++  }
++
+   if(CURLE_ABORTED_BY_CALLBACK != result) {
+-    /* avoid this if we already aborted by callback to avoid this calling
+-       another callback */
+     int rc = Curl_pgrsDone(data);
+     if(!result && rc)
+       result = CURLE_ABORTED_BY_CALLBACK;

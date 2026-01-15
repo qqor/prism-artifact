@@ -1,0 +1,146 @@
+--- a/tika-core/src/main/java/org/apache/tika/exception/TikaTimeoutException.java
++++ b/tika-core/src/main/java/org/apache/tika/exception/TikaTimeoutException.java
+@@ -20,7 +20,28 @@
+  * Runtime/unchecked version of {@link java.util.concurrent.TimeoutException}
+  */
+ public class TikaTimeoutException extends RuntimeException {
++    
++    private static final int MAX_DEPTH = 100;
++    
+     public TikaTimeoutException(String message) {
+         super(message);
+     }
++    
++    public static boolean isTimeoutException(Throwable t) {
++        return isTimeoutException(t, 0);
++    }
++    
++    private static boolean isTimeoutException(Throwable t, int depth) {
++        if (t == null) {
++            return false;
++        }
++        if (depth > MAX_DEPTH) {
++            return false;
++        }
++        if (t instanceof TikaTimeoutException) {
++            return true;
++        } else {
++            return isTimeoutException(t.getCause(), depth + 1);
++        }
++    }
+ }
+
+--- a/tika-core/src/main/java/org/apache/tika/sax/SecureContentHandler.java
++++ b/tika-core/src/main/java/org/apache/tika/sax/SecureContentHandler.java
+@@ -207,6 +207,10 @@
+      * @throws SAXException if a zip bomb is detected
+      */
+     protected void advance(int length) throws SAXException {
++        if (Thread.interrupted()) {
++            throw new SAXException("Parsing interrupted due to timeout", 
++                new org.apache.tika.exception.TikaTimeoutException("Timeout during content extraction"));
++        }
+         characterCount += length;
+         long byteCount = getByteCount();
+         if (characterCount > threshold && characterCount > byteCount * ratio) {
+@@ -219,6 +223,10 @@
+     @Override
+     public void startElement(String uri, String localName, String name, Attributes atts)
+             throws SAXException {
++        if (Thread.interrupted()) {
++            throw new SAXException("Parsing interrupted due to timeout",
++                new org.apache.tika.exception.TikaTimeoutException("Timeout during element processing"));
++        }
+         currentDepth++;
+         if (currentDepth >= maxDepth) {
+             throw new SecureSAXException(
+
+--- a/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-pkg-module/src/main/java/org/apache/tika/parser/pkg/PackageParser.java
++++ b/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-pkg-module/src/main/java/org/apache/tika/parser/pkg/PackageParser.java
+@@ -371,7 +371,11 @@
+             throws TikaException, IOException, SAXException {
+         try {
+             ArchiveEntry entry = ais.getNextEntry();
+-            while (entry != null) {
++            while (entry != null && !Thread.currentThread().isInterrupted()) {
++                if (Thread.interrupted()) {
++                    throw new TikaException("Archive parsing interrupted",
++                        new org.apache.tika.exception.TikaTimeoutException("Timeout during archive entry iteration"));
++                }
+                 if (shouldUseDataDescriptor && entryCnt.get() > 0) {
+                     // With shouldUseDataDescriptor being true, we are reading
+                     // the zip once again. The number of entryCnt entries have
+@@ -441,6 +445,10 @@
+                             EmbeddedDocumentExtractor extractor, Metadata parentMetadata,
+                             XHTMLContentHandler xhtml)
+             throws SAXException, IOException, TikaException {
++        if (Thread.interrupted()) {
++            throw new TikaException("Archive entry parsing interrupted",
++                new org.apache.tika.exception.TikaTimeoutException("Timeout before processing archive entry"));
++        }
+         String name = entry.getName();
+         
+         //Try to detect charset of archive entry in case of non-unicode filename is used
+
+--- a/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-miscoffice-module/src/main/java/org/apache/tika/parser/epub/EpubParser.java
++++ b/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-miscoffice-module/src/main/java/org/apache/tika/parser/epub/EpubParser.java
+@@ -155,7 +155,11 @@
+ 
+         ZipArchiveEntry entry = zip.getNextEntry();
+         SAXException sax = null;
+-        while (entry != null) {
++        while (entry != null && !Thread.currentThread().isInterrupted()) {
++            if (Thread.interrupted()) {
++                throw new TikaException("EPUB parsing interrupted",
++                    new org.apache.tika.exception.TikaTimeoutException("Timeout during EPUB entry processing"));
++            }
+             if (entry.getName().equals("mimetype")) {
+                 updateMimeType(zip, metadata);
+             } else if (entry.getName().equals(META_INF_ENCRYPTION)) {
+
+--- a/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-apple-module/src/main/java/org/apache/tika/parser/iwork/IWorkPackageParser.java
++++ b/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-apple-module/src/main/java/org/apache/tika/parser/iwork/IWorkPackageParser.java
+@@ -88,7 +88,11 @@
+         ZipArchiveInputStream zip = new ZipArchiveInputStream(stream);
+         ZipArchiveEntry entry = zip.getNextEntry();
+ 
+-        while (entry != null) {
++        while (entry != null && !Thread.currentThread().isInterrupted()) {
++            if (Thread.interrupted()) {
++                throw new TikaException("iWork parsing interrupted",
++                    new org.apache.tika.exception.TikaTimeoutException("Timeout during iWork entry processing"));
++            }
+             if (!IWORK_CONTENT_ENTRIES.contains(entry.getName())) {
+                 entry = zip.getNextEntry();
+                 continue;
+
+--- a/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-pdf-module/src/main/java/org/apache/tika/parser/pdf/PDFParser.java
++++ b/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-pdf-module/src/main/java/org/apache/tika/parser/pdf/PDFParser.java
+@@ -178,6 +178,11 @@
+ 
+             scanXRefOffsets(localConfig, tstream, metadata, context);
+ 
++            if (Thread.interrupted()) {
++                throw new TikaException("PDF parsing interrupted",
++                    new org.apache.tika.exception.TikaTimeoutException("Timeout before loading PDF document"));
++            }
++
+             password = getPassword(metadata, context);
+             MemoryUsageSetting memoryUsageSetting = null;
+ 
+@@ -203,7 +208,15 @@
+             checkIllustrator(pdfDocument, metadata);
+             AccessChecker checker = localConfig.getAccessChecker();
+             checker.check(metadata);
++            if (Thread.interrupted()) {
++                throw new TikaException("PDF parsing interrupted",
++                    new org.apache.tika.exception.TikaTimeoutException("Timeout before rendering pages"));
++            }
+             renderPagesBeforeParse(tstream, handler, metadata, context, localConfig);
++            if (Thread.interrupted()) {
++                throw new TikaException("PDF parsing interrupted",
++                    new org.apache.tika.exception.TikaTimeoutException("Timeout before content extraction"));
++            }
+             if (handler != null) {
+                 if (shouldHandleXFAOnly(hasXFA, localConfig)) {
+                     handleXFAOnly(pdfDocument, handler, metadata, context);

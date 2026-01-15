@@ -1,0 +1,52 @@
+--- a/libexif/apple/exif-mnote-data-apple.c
++++ b/libexif/apple/exif-mnote-data-apple.c
+@@ -70,6 +70,12 @@
+ 
+     /* Start of interesting data */
+     ofs = d->offset + 6;
++    /* Guard for byte-order header */
++    if (ofs + 14 > buf_size) {
++        exif_log(md->log, EXIF_LOG_CODE_CORRUPT_DATA,
++                 "ExifMnoteDataApple", "MakerNote too small for byte-order header");
++        return;
++    }
+ 
+     if ((buf[ofs + 12] == 'M') && (buf[ofs + 13] == 'M')) {
+         d->order = EXIF_BYTE_ORDER_MOTOROLA;
+@@ -107,15 +113,30 @@
+     }
+ 
+     for (i = 0; i < tcount; i++) {
+-        d->entries[i].tag = exif_get_short(buf + ofs, d->order);
+-        d->entries[i].format = exif_get_short(buf + ofs + 2, d->order);
+-        d->entries[i].components = exif_get_long(buf + ofs + 4, d->order);
+-        d->entries[i].order = d->order;
++        size_t entry_ofs = ofs + i * 12;
++        /* Ensure we can read 12-byte entry header */
++        if (entry_ofs + 12 > buf_size) {
++            exif_log(md->log, EXIF_LOG_CODE_CORRUPT_DATA,
++                     "ExifMnoteDataApple", "Directory entry %u past end of buffer", i);
++            break;
++        }
++        d->entries[i].tag        = exif_get_short(buf + entry_ofs,     d->order);
++        d->entries[i].format     = exif_get_short(buf + entry_ofs + 2, d->order);
++        d->entries[i].components = exif_get_long (buf + entry_ofs + 4, d->order);
++        d->entries[i].order      = d->order;
+         dsize = exif_format_get_size(d->entries[i].format) * d->entries[i].components;
+         if (dsize > 4) {
+-            dofs = d->offset + exif_get_long(buf + ofs + 8, d->order);
++            dofs = d->offset + exif_get_long(buf + entry_ofs + 8, d->order);
+         } else {
+-            dofs = ofs + 8;
++            dofs = entry_ofs + 8;
++        }
++        /* Ensure full data block fits */
++        if (dofs + dsize > buf_size) {
++            exif_log(md->log, EXIF_LOG_CODE_CORRUPT_DATA,
++                     "ExifMnoteDataApple",
++                     "Tag data %u past end of buffer (%zu >= %zu)",
++                     d->entries[i].tag, (size_t)(dofs + dsize), buf_size);
++            continue;
+         }
+ 	if (dofs > buf_size) {
+ 		exif_log (md->log, EXIF_LOG_CODE_CORRUPT_DATA,

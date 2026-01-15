@@ -1,0 +1,56 @@
+diff --git a/lib/dict.c b/lib/dict.c
+index c940308b0..aecce227c 100644
+--- a/lib/dict.c
++++ b/lib/dict.c
+@@ -129,20 +129,39 @@ static CURLcode sendf(struct Curl_easy *data,
+ 
+ static CURLcode sendf(struct Curl_easy *data, const char *fmt, ...)
+ {
++  #define MAX_DICT_ARG_LEN 1024
+   size_t bytes_written;
+   size_t write_len;
+   CURLcode result = CURLE_OK;
+   char *s;
+   char *sptr;
+   va_list ap;
++  va_list ap_copy;
++
++  /* Pre-format length check to avoid OOB in vaprintf */
+   va_start(ap, fmt);
+-  s = vaprintf(fmt, ap); /* returns an allocated string */
++  va_copy(ap_copy, ap);
++  char tmp[MAX_DICT_ARG_LEN + 1];
++  int len = vsnprintf(tmp, sizeof(tmp), fmt, ap_copy);
++  va_end(ap_copy);
++  if(len < 0) {
++    va_end(ap);
++    return CURLE_OUT_OF_MEMORY;
++  }
++  if(len > MAX_DICT_ARG_LEN) {
++    va_end(ap);
++    failf(data, "DICT output too long (%d > %d)", len, MAX_DICT_ARG_LEN);
++    return CURLE_BAD_FUNCTION_ARGUMENT;
++  }
++
++  /* Now safely generate the full string */
++  s = vaprintf(fmt, ap);
+   va_end(ap);
+   if(!s)
+     return CURLE_OUT_OF_MEMORY; /* failure */
+ 
+   bytes_written = 0;
+-  write_len = strlen(s);
++  write_len = (size_t)len;
+   sptr = s;
+ 
+   for(;;) {
+@@ -155,8 +174,7 @@ static CURLcode sendf(struct Curl_easy *data, const char *fmt, ...)
+     Curl_debug(data, CURLINFO_DATA_OUT, sptr, (size_t)bytes_written);
+ 
+     if((size_t)bytes_written != write_len) {
+-      /* if not all was written at once, we must advance the pointer, decrease
+-         the size left and try again! */
++      /* if not all was written at once, advance pointer, decrease size and retry */
+       write_len -= bytes_written;
+       sptr += bytes_written;
+     }

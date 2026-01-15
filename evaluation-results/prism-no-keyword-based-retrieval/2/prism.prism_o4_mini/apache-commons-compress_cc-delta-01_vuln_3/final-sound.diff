@@ -1,0 +1,24 @@
+--- a/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java
++++ b/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java
+@@ -219,8 +219,8 @@
+      * Since they are parsed into long values, maximum length of each is the same as Long.MAX_VALUE which is 19 digits.
+      * </p>
+      */
+-    private static final Pattern PAX_EXTENDED_HEADER_FILE_TIMES_PATTERN = Pattern.compile(
+-            "(-?(?:\\d{1,19}|(?:.|\\d)*))(?:\\.\\d{1,19})?");
++    private static final int MAX_DECIMAL_SECONDS_LENGTH = 30;
++    private static final Pattern PAX_EXTENDED_HEADER_FILE_TIMES_PATTERN = Pattern.compile("-?\\d{1,19}(?:\\.\\d{1,9})?");
+ 
+     private static FileTime fileTimeFromOptionalSeconds(final long seconds) {
+         return seconds <= 0 ? null : FileTimes.fromUnixTime(seconds);
+@@ -270,6 +270,10 @@
+     private static Instant parseInstantFromDecimalSeconds(final String key,
+                                                           final String value) throws IOException {
+ 
++        // Reject excessively long inputs to avoid regex DoS
++        if (value == null || value.length() > MAX_DECIMAL_SECONDS_LENGTH) {
++            throw new IOException("Corrupted PAX header. Time field value is invalid '" + value + "'");
++        }
+         // Validate field values to prevent denial of service attacks with BigDecimal values (see JDK-6560193)
+         Matcher fileTimesMatcher = PAX_EXTENDED_HEADER_FILE_TIMES_PATTERN.matcher(value);
+         if (! fileTimesMatcher.matches()) {

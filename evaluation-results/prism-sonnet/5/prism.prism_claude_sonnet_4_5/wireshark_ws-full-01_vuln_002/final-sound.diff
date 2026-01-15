@@ -1,0 +1,47 @@
+--- a/epan/dissectors/packet-telnet.c
++++ b/epan/dissectors/packet-telnet.c
+@@ -633,11 +633,14 @@
+ }
+ 
+ static void
+-dissect_linemode_subopt(packet_info *pinfo, const char *optname _U_, tvbuff_t *tvb _U_, int offset _U_,
++dissect_linemode_subopt(packet_info *pinfo _U_, const char *optname _U_, tvbuff_t *tvb _U_, int offset _U_,
+                     int len _U_, proto_tree *tree _U_, proto_item *item _U_)
+ {
+-  if ( hf_telnet_naws_subopt_set )
+-    wmem_free(pinfo->pool, hf_naws_data);
++  if ( hf_telnet_naws_subopt_set && hf_naws_data ) {
++    wmem_free(wmem_file_scope(), hf_naws_data);
++    hf_naws_data = NULL;
++    hf_telnet_naws_subopt_set = 0;
++  }
+ 
+   return;
+ }
+@@ -649,7 +652,12 @@
+   hf_telnet_width = tvb_get_uint16(tvb, offset, ENC_BIG_ENDIAN);
+   hf_telnet_height = tvb_get_uint16(tvb, offset + 2, ENC_BIG_ENDIAN);
+ 
+-  hf_naws_data = (uint8_t *)wmem_alloc(pinfo->pool, hf_telnet_width * hf_telnet_height);
++  if (hf_naws_data) {
++    wmem_free(wmem_file_scope(), hf_naws_data);
++    hf_naws_data = NULL;
++  }
++
++  hf_naws_data = (uint8_t *)wmem_alloc(wmem_file_scope(), hf_telnet_width * hf_telnet_height);
+ 
+   if ( hf_naws_data )
+     hf_telnet_naws_subopt_set = 1;
+@@ -2350,8 +2358,11 @@
+ 
+ static void telnet_cleanup_protocol(void)
+ {
++    if (hf_naws_data) {
++        wmem_free(wmem_file_scope(), hf_naws_data);
++        hf_naws_data = NULL;
++    }
+     hf_telnet_naws_subopt_set = 0;
+-    hf_naws_data = NULL;
+ }
+ 
+ void

@@ -1,0 +1,38 @@
+diff --git a/libfreerdp/codec/rfx.c b/libfreerdp/codec/rfx.c
+index 3b9168ab6..2d556c3af 100644
+--- a/libfreerdp/codec/rfx.c
++++ b/libfreerdp/codec/rfx.c
+@@ -707,9 +707,9 @@ static INLINE BOOL rfx_process_message_frame_end(RFX_CONTEXT* WINPR_RESTRICT con
+ }
+ 
+ static INLINE BOOL rfx_process_message_metadata(RFX_CONTEXT* WINPR_RESTRICT context,
+-												RFX_MESSAGE* WINPR_RESTRICT message,
+-												wStream* WINPR_RESTRICT s,
+-												UINT16* WINPR_RESTRICT pExpectedBlockType)
++								RFX_MESSAGE* WINPR_RESTRICT message,
++								wStream* WINPR_RESTRICT s,
++								UINT16* WINPR_RESTRICT pExpectedBlockType)
+ {
+ 	UINT32 magic = 0;
+ 
+@@ -731,7 +731,19 @@ static INLINE BOOL rfx_process_message_metadata(RFX_CONTEXT* WINPR_RESTRICT cont
+ 		WLog_Print(context->priv->log, WLOG_ERROR, "invalid magic number 0x%08" PRIX32 "", magic);
+ 		return FALSE;
+ 	}
+-	*(UINT64*)metadataBlock = metadataData;
++
++	/* Rationale: Use stream API to verify enough data remains before reading 8 bytes */
++	size_t remain = Stream_GetRemainingLength(s);
++	if (remain < sizeof(UINT64))
++	{
++		WLog_Print(context->priv->log, WLOG_ERROR, "not enough data for metadata");
++		return FALSE;
++	}
++
++	/* read the 64-bit metadata value from the stream safely */
++	UINT64 safeValue;
++	Stream_Read_UINT64(s, safeValue);
++	*(UINT64*)metadataBlock = safeValue;
+ 	return TRUE;
+ }
+ 

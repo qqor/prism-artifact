@@ -1,0 +1,55 @@
+diff --git a/lib/dict.c b/lib/dict.c
+index c940308b0..214e6253c 100644
+--- a/lib/dict.c
++++ b/lib/dict.c
+@@ -226,11 +226,20 @@ static CURLcode dict_do(struct Curl_easy *data, bool *done)
+         do {
+         result = sendf(data, "Sending extra debug info...");
+         } while(result == CURLE_AGAIN);
+-        do {
+-        result = sendf(data, user_start);
+-        } while(result == CURLE_AGAIN);
+-      }
+ 
++        /* Rationale: Build safe formatted command with snprintf to enforce limit */
++        {
++          char safe_cmd[DICT_MAX_CMD_LEN + 1];
++          snprintf(safe_cmd, sizeof(safe_cmd), "%s", user_start);
++          if(strlen(safe_cmd) >= DICT_MAX_CMD_LEN) {
++            result = CURLE_BAD_FUNCTION_ARGUMENT;
++            goto error;
++          }
++          do {
++          result = sendf(data, safe_cmd);
++          } while(result == CURLE_AGAIN);
++        }
++      }
+ 
+       do {
+       result = Curl_xfer_recv(data, (resp_buf + 1024 * resp_count),
+@@ -256,22 +265,9 @@ static CURLcode dict_do(struct Curl_easy *data, bool *done)
+       do {
+       result = sendf(data,
+ "AUTH %02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x\r\n",
+-      md5_out[0],
+-      md5_out[1],
+-      md5_out[2],
+-      md5_out[3],
+-      md5_out[4],
+-      md5_out[5],
+-      md5_out[6],
+-      md5_out[7],
+-      md5_out[8],
+-      md5_out[9],
+-      md5_out[10],
+-      md5_out[11],
+-      md5_out[12],
+-      md5_out[13],
+-      md5_out[14],
+-      md5_out[15]);
++      md5_out[0], md5_out[1], md5_out[2], md5_out[3], md5_out[4], md5_out[5],
++      md5_out[6], md5_out[7], md5_out[8], md5_out[9], md5_out[10], md5_out[11],
++      md5_out[12], md5_out[13], md5_out[14], md5_out[15]);
+       } while(result == CURLE_AGAIN);
+       if(result)
+         goto error;

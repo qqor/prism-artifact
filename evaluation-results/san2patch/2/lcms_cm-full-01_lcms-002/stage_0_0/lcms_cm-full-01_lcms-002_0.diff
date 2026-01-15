@@ -1,0 +1,34 @@
+diff --git a/src/cmspack.c b/src/cmspack.c
+index 3e9d23f..f0dd55b 100644
+--- a/src/cmspack.c
++++ b/src/cmspack.c
+@@ -105,6 +105,11 @@ cmsUInt8Number* UnrollChunkyBytes(CMSREGISTER _cmsTRANSFORM* info,
+     cmsUInt32Number Extra      = T_EXTRA(info -> InputFormat);
+     cmsUInt32Number Premul     = T_PREMUL(info->InputFormat);
+ 
++    /* Validate channel count to avoid OOB read */
++    if (nChan > MAX_CHANS) {
++        return cmsSignalError(info->ContextID, cmsERROR_RANGE, "Too many channels to unpack");
++    }
++
+     cmsUInt32Number ExtraFirst = DoSwap ^ SwapFirst;
+     cmsUInt32Number v;
+     cmsUInt32Number i;  
+@@ -125,7 +130,8 @@ cmsUInt8Number* UnrollChunkyBytes(CMSREGISTER _cmsTRANSFORM* info,
+ 
+     for (i=0; i < nChan; i++) {
+ 
+-        cmsUInt32Number index = DoSwap ? (nChan - i - 1) : i;
++// FIXME: Crash CWE-125: Out-of-bounds Read
++         cmsUInt32Number index = DoSwap ? (nChan - i - 1) : i;
+ 
+         v = FROM_8_TO_16(*accum);
+         v = Reverse ? REVERSE_FLAVOR_16(v) : v;
+@@ -159,6 +165,7 @@ cmsUInt8Number* UnrollChunkyBytes(CMSREGISTER _cmsTRANSFORM* info,
+ }
+ 
+ 
++
+ // Extra channels are just ignored because come in the next planes
+ static
+ cmsUInt8Number* UnrollPlanarBytes(CMSREGISTER _cmsTRANSFORM* info,

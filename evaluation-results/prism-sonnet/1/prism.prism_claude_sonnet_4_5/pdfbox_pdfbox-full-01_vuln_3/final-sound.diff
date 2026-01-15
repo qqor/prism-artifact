@@ -1,0 +1,164 @@
+--- a/fontbox/src/main/java/org/apache/fontbox/type1/Type1Parser.java
++++ b/fontbox/src/main/java/org/apache/fontbox/type1/Type1Parser.java
+@@ -219,7 +219,9 @@
+                             || lexer.peekToken().getText().equals("readonly")
+                             || lexer.peekToken().getText().equals("def"))))
+             {
+-                lexer.nextToken();
++                if (lexer.nextToken() == null) {
++                    throw new IOException("Should have found dup, readonly or def?! EOF?");
++                }
+             }
+             
+             Map<Integer, String> codeToName = new HashMap<>();
+@@ -640,7 +642,9 @@
+         while (!(lexer.peekKind(Token.LITERAL)
+                 && lexer.peekToken().getText().equals("CharStrings")))
+         {
+-            lexer.nextToken();
++            if (lexer.nextToken() == null) {
++                throw new IOException("EOF? Should have found CharStrings");
++            }
+         }
+ 
+         // CharStrings dict
+
+--- a/pdfbox/src/main/java/org/apache/pdfbox/pdmodel/PDPageTree.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/pdmodel/PDPageTree.java
+@@ -180,6 +180,7 @@
+     private final class PageIterator implements Iterator<PDPage>
+     {
+         private final Queue<COSDictionary> queue = new ArrayDeque<>();
++        private Set<COSDictionary> seen = new HashSet<>();
+ 
+         private PageIterator(COSDictionary node)
+         {
+@@ -205,6 +206,11 @@
+          */
+         private List<COSDictionary> enqueueKids(COSDictionary node)
+         {
++            if (seen.contains(node)) {
++                LOG.warn("Found an infinite loop in the page tree");
++                return Collections.EMPTY_LIST;
++            }
++            seen.add(node);
+             if (isPageTreeNode(node))
+             {
+                 return getKids(node);
+
+--- a/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/XrefParser.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/XrefParser.java
+@@ -23,6 +23,7 @@
+ import java.util.Map;
+ import java.util.Optional;
+ import java.util.Map.Entry;
++import java.util.Set;
+ 
+ import org.apache.logging.log4j.LogManager;
+ import org.apache.logging.log4j.Logger;
+@@ -98,17 +99,19 @@
+         }
+         document.setStartXref(startXrefOffset);
+         long prev = startXrefOffset;
+-        //lastPrev prevents potential infinite loops in crafted files
+-        long lastPrev = -1;
+         // ---- parse whole chain of xref tables/object streams using PREV reference
++        Set<Long> prevSet = new HashSet<>();
+         COSDictionary trailer = null;
+-        while (prev > 0 && prev != lastPrev)
+-        {
+-            lastPrev = prev;
++        while (prev > 0)
++        {
++            // save expected position for loop detection
++            prevSet.add(prev);
+             // seek to xref table
+             source.seek(prev);
+             // skip white spaces
+             parser.skipSpaces();
++            // save current position as well due to skipped spaces
++            prevSet.add(source.getPosition());
+             // -- parse xref
+             if (source.peek() == X)
+             {
+@@ -170,7 +173,7 @@
+                     trailer.setLong(COSName.PREV, prev);
+                 }
+             }
+-            if (prev == lastPrev)
++            if (prevSet.contains(prev))
+             {
+                 throw new IOException("/Prev loop at offset " + prev);
+             }
+
+--- a/fontbox/src/main/java/org/apache/fontbox/type1/Type1Lexer.java
++++ b/fontbox/src/main/java/org/apache/fontbox/type1/Type1Lexer.java
+@@ -48,7 +48,8 @@
+      * Log instance.
+      */
+     private static final Logger LOG = LogManager.getLogger(Type1Lexer.class);
+-    
++    private static final int MAX_CHAR_STRING_SIZE = 1_000_000;
++
+     private final ByteBuffer buffer;
+     private Token aheadToken;
+     private int openParens = 0;
+@@ -501,6 +502,10 @@
+      */
+     private Token readCharString(int length) throws IOException
+     {
++        if (length > MAX_CHAR_STRING_SIZE) {
++            throw new DamagedFontException("char string is too long. length=" +
++                    length + " max_length=" + MAX_CHAR_STRING_SIZE);
++        }
+         try
+         {
+             buffer.get(); // space
+
+--- a/fontbox/src/main/java/org/apache/fontbox/pfb/PfbParser.java
++++ b/fontbox/src/main/java/org/apache/fontbox/pfb/PfbParser.java
+@@ -158,7 +158,7 @@
+             size += in.read() << 16;
+             size += in.read() << 24;
+             LOG.debug("record type: {}, segment size: {}", recordType, size);
+-            long newTotal = total + size;
++            long newTotal = (long)total + (long)size;
+             if (newTotal > MAX_LENGTH) {
+                 throw new IOException("record size would be too large: " + newTotal);
+             }
+
+--- a/xmpbox/src/main/java/org/apache/xmpbox/xml/DomXmpParser.java
++++ b/xmpbox/src/main/java/org/apache/xmpbox/xml/DomXmpParser.java
+@@ -79,6 +79,13 @@
+         try
+         {
+             DocumentBuilderFactory dbFactory = DocumentBuilderFactory.newInstance();
++            dbFactory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
++            dbFactory.setFeature("http://xml.org/sax/features/external-general-entities", false);
++            dbFactory.setFeature("http://xml.org/sax/features/external-parameter-entities", false);
++            dbFactory.setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false);
++            dbFactory.setXIncludeAware(false);
++            dbFactory.setExpandEntityReferences(false);
++            dbFactory.setIgnoringComments(true);
+             dbFactory.setNamespaceAware(true);
+             dBuilder = dbFactory.newDocumentBuilder();
+             nsFinder = new NamespaceFinder();
+
+--- a/pdfbox/src/main/java/org/apache/pdfbox/pdmodel/interactive/form/PDXFAResource.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/pdmodel/interactive/form/PDXFAResource.java
+@@ -133,8 +133,14 @@
+     public Document getDocument() throws IOException
+     {
+         DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+-        factory.setNamespaceAware(true);
+         try {
++            factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
++            factory.setFeature("http://xml.org/sax/features/external-general-entities", false);
++            factory.setFeature("http://xml.org/sax/features/external-parameter-entities", false);
++            factory.setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false);
++            factory.setXIncludeAware(false);
++            factory.setExpandEntityReferences(false);
++            factory.setNamespaceAware(true);
+             DocumentBuilder builder = factory.newDocumentBuilder();
+             return builder.parse(new ByteArrayInputStream(this.getBytes()));
+         } catch (ParserConfigurationException | SAXException e) {

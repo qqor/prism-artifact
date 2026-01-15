@@ -1,0 +1,55 @@
+--- a/lib/extremelygoodprtcl.c
++++ b/lib/extremelygoodprtcl.c
+@@ -153,18 +153,24 @@
+ static CURLcode extremelygoodprtcl_doing(struct Curl_easy *data, bool *done);
+ static CURLcode extremelygoodprtcl_sm
+   (struct Curl_easy *data, struct connectdata *conn);
++static void vnstate(struct Curl_easy *data,
++                    enum extremelygoodprtclstate state);
+ 
+ static CURLcode extremelygoodprtcl_conn
+                                 (struct Curl_easy *data,
+                                 bool *done)
+ {
+-  *done = FALSE;
+   struct extremelygoodprtcl_conn *vnormal = &(data->conn->proto.vnormal);
+   struct pingpong *pp = &(data->conn->proto.vnormal.pp);
+   struct connectdata *conn = data->conn;
++  
++  *done = FALSE;
+   PINGPONG_SETUP(pp, extremelygoodprtcl_sm, vnormal_endofresp);
+   Curl_pp_init(pp);
+-  vnormal->state1 = calloc(1, 256);
++  vnormal->state1 = calloc(1, 512);
++  if(!vnormal->state1)
++    return CURLE_OUT_OF_MEMORY;
++  vnstate(data, EXTREMELYGOODPRTCL_START);
+   return Curl_pp_statemach(data, pp, FALSE, FALSE);
+ }
+ 
+@@ -273,11 +279,15 @@
+       /* Encrypt the plaintext */
+       ciphertext_len = encrypt(response, strlen(response), &key, &iv,
+                                 ciphertext);
++      if(ciphertext_len < 0) {
++        result = CURLE_SEND_ERROR;
++        break;
++      }
+ 
+       char *base64;
+       size_t b64len;
+       Curl_base64_encode(ciphertext, ciphertext_len, &base64, &b64len);
+-      strcpy(vnormal->state1, base64);
++      memcpy(vnormal->state1, base64, b64len + 1);
+       vnormal->state1_len = b64len;
+       Curl_pp_sendf(data, &conn->proto.vnormal.pp, "%s", base64);
+       free(base64);
+@@ -303,7 +313,7 @@
+         vnstate(data, EXTREMELYGOODPRTCL_STOP);
+       }
+       else if(strcasecmp(response, "crashycrashy\r\n") == 0) {
+-        *(unsigned int *)result = CURLE_OK;
++        result = CURLE_OK;
+       }
+       else {
+         result = CURLE_WEIRD_SERVER_REPLY;

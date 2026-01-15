@@ -1,0 +1,63 @@
+--- a/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-text-module/src/main/java/org/apache/tika/parser/csv/TextAndCSVConfig.java
++++ b/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-text-module/src/main/java/org/apache/tika/parser/csv/TextAndCSVConfig.java
+@@ -55,4 +55,23 @@
+         nameToDelimiterMap.entrySet()
+                           .forEach(e -> delimiterToNameMap.put(e.getValue(), e.getKey()));
+     }
++    /**
++     * Whether the parser should fetch external links for hyperlink-looking cells.
++     * Defaults to false.
++     */
++    private boolean parseExternalLinks = false;
++
++    /**
++     * Returns true if external links should be fetched during CSV parsing.
++     */
++    public boolean isParseExternalLinks() {
++        return parseExternalLinks;
++    }
++
++    /**
++     * Sets whether external links should be fetched during CSV parsing.
++     */
++    public void setParseExternalLinks(boolean parseExternalLinks) {
++        this.parseExternalLinks = parseExternalLinks;
++    }
+ }
+
+--- a/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-text-module/src/main/java/org/apache/tika/parser/csv/TextAndCSVParser.java
++++ b/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-text-module/src/main/java/org/apache/tika/parser/csv/TextAndCSVParser.java
+@@ -161,11 +161,12 @@
+         return SUPPORTED_TYPES;
+     }
+ 
++    private static final TextAndCSVConfig DEFAULT_CSV_CONFIG = new TextAndCSVConfig();
++
+     @Override
+     public void parse(InputStream stream, ContentHandler handler, Metadata metadata,
+                       ParseContext context) throws IOException, SAXException, TikaException {
+-        TextAndCSVConfig textAndCSVConfig = context.get(TextAndCSVConfig.class, defaultTextAndCSVConfig);
+-
++        TextAndCSVConfig textAndCSVConfig = context.get(TextAndCSVConfig.class, DEFAULT_CSV_CONFIG);
+         CSVParams params = getOverride(metadata, textAndCSVConfig);
+         Reader reader;
+         Charset charset;
+@@ -247,6 +248,7 @@
+     private void processCell(String cellContent, XHTMLContentHandler xhtml,
+                              Metadata metadata,
+                              ParseContext context) throws IOException, SAXException {
++        TextAndCSVConfig config = context.get(TextAndCSVConfig.class, DEFAULT_CSV_CONFIG);
+         xhtml.startElement(TD);
+         Matcher m = HYPERLINK_PATTERN.matcher(cellContent);
+         if (m.find()) {
+@@ -258,7 +260,9 @@
+             xhtml.startElement("a", "href", url);
+             xhtml.characters(name);
+             xhtml.endElement("a");
+-            processURL(url, name, xhtml, metadata, context);
++            if (config.isParseExternalLinks()) {
++                processURL(url, name, xhtml, metadata, context);
++            }
+         } else {
+             xhtml.characters(cellContent);
+         }

@@ -1,0 +1,33 @@
+diff --git a/epan/dissectors/packet-netbios.c b/epan/dissectors/packet-netbios.c
+index 5ea85c7df4..e6d44775d8 100644
+--- a/epan/dissectors/packet-netbios.c
++++ b/epan/dissectors/packet-netbios.c
+@@ -195,7 +195,8 @@ static reassembly_table netbios_reassembly_table;
+ /* defragmentation of NetBIOS Frame */
+ static bool netbios_defragment = true;
+ 
+-/* See
++// FIXME: Crash CWE-125: Out-of-bounds Read
++ /* See
+ 
+ 	http://publibz.boulder.ibm.com/cgi-bin/bookmgr_OS390/BOOKS/BK8P7001/CCONTENTS
+ 
+@@ -208,7 +209,17 @@ static bool netbios_defragment = true;
+ 
+ /* the strings for the command types  */
+ 
+-static const value_string cmd_vals[] = {
++/* Candidate 5: Byte-wise safe copy with loop and zero-fill */
++static inline void netbios_copy8_loop(size_t offset, uint8_t *dst) {
++    size_t len = sizeof(dissect_netb);
++    for (size_t i = 0; i < 8; i++) {
++        if (offset + i < len) {
++            dst[i] = dissect_netb[offset + i];
++        } else {
++            dst[i] = 0;
++        }
++    }
++}static const value_string cmd_vals[] = {
+ 	{ NB_ADD_GROUP,			"Add Group Name Query" },
+ 	{ NB_ADD_NAME,			"Add Name Query" },
+ 	{ NB_NAME_IN_CONFLICT,		"Name In Conflict" },

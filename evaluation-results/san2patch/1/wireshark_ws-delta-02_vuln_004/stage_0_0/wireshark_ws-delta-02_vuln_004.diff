@@ -1,0 +1,69 @@
+diff --git a/epan/dissectors/packet-icmp.c b/epan/dissectors/packet-icmp.c
+index 68d5fb0b9c..8246c10cbf 100644
+--- a/epan/dissectors/packet-icmp.c
++++ b/epan/dissectors/packet-icmp.c
+@@ -1064,36 +1064,45 @@ dissect_icmp_extension(tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree, v
+ 		switch (class_num) {
+ 		case MPLS_STACK_ENTRY_OBJECT_CLASS:
+ 			unknown_object =
+-			    dissect_mpls_stack_entry_object(tvb, offset,
+-							    ext_object_tree,
+-							    tf_object);
++				dissect_mpls_stack_entry_object(tvb, offset,
++							ext_object_tree,
++							tf_object);
+ 			break;
+ 		case INTERFACE_INFORMATION_OBJECT_CLASS:
+ 			unknown_object =
+-			    dissect_interface_information_object(tvb,
+-								 offset,
+-								 ext_object_tree,
+-								 tf_object);
++				dissect_interface_information_object(tvb,
++							offset,
++							ext_object_tree,
++							tf_object);
+ 			int_info_obj_count++;
+ 			if (int_info_obj_count > 4) {
+ 				proto_item_set_text(tf_object,
+-						    "More than 4 Interface Information Objects");
++					"More than 4 Interface Information Objects");
+ 			}
+ 			break;
+ 		case MPLS_EXTENDED_PAYLOAD_OBJECT_CLASS:
+ 			unknown_object =
+-			    dissect_mpls_extended_payload_object(tvb,
+-								 offset,
+-								 ext_object_tree,
+-								 tf_object);
+-			break;
+-		case INTERFACE_IDENTIFICATION_OBJECT_CLASS:
+-			unknown_object =
+-			    dissect_interface_identification_object(tvb,
+-								 offset,
+-								 ext_object_tree,
+-								 tf_object);
++				dissect_mpls_extended_payload_object(tvb,
++							offset,
++							ext_object_tree,
++							tf_object);
+ 			break;
++// FIXME: Crash CWE-787: Out-of-bounds Write
++ 		case INTERFACE_IDENTIFICATION_OBJECT_CLASS:
++			{
++				/* cap the buffer via a subset tvb to 32 bytes */
++				guint8 obj_len = tvb_get_guint8(tvb, offset + 2);
++				int byte_len = obj_len * 4;
++				int cap = byte_len > 32 ? 32 : byte_len;
++				tvbuff_t *sub_tvb = tvb_new_subset_length(tvb, offset, cap);
++				unknown_object =
++					dissect_interface_identification_object(sub_tvb,
++							0,
++							ext_object_tree,
++							tf_object);
++				/* no need to g_free(sub_tvb) as tvb API manages it */
++				break;
++			}
+ 		default:
+ 
+ 			unknown_object = true;

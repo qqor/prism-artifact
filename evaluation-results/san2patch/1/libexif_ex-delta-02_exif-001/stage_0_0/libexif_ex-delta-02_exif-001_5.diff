@@ -1,0 +1,36 @@
+diff --git a/libexif/exif-data.c b/libexif/exif-data.c
+index b133887..9fbf6f2 100644
+--- a/libexif/exif-data.c
++++ b/libexif/exif-data.c
+@@ -1033,7 +1033,8 @@ void
+ exif_data_save_data (ExifData *data, unsigned char **d, unsigned int *ds)
+ {
+ 	if (ds)
+-		*ds = 0;	/* This means something went wrong */
++		*ds = 0;   /* This means something went wrong */
++	// FIXME: Crash CWE-125: Out-of-bounds Read
+ 
+ 	if (!data || !d || !ds)
+ 		return;
+@@ -1068,12 +1069,20 @@ exif_data_save_data (ExifData *data, unsigned char **d, unsigned int *ds)
+ 	/* Now save IFD 0. IFD 1 will be saved automatically. */
+ 	exif_log (data->priv->log, EXIF_LOG_CODE_DEBUG, "ExifData",
+ 		  "Saving IFDs...");
++	/* added bounds check to prevent OOB read */
++	unsigned int content_len = *ds - 6;
++	if (content_len < 4) {
++		exif_log (data->priv->log, EXIF_LOG_CODE_WARNING, "ExifData",
++			  "Insufficient data length, skipping IFD save");
++		return;
++	}
+ 	exif_data_save_data_content (data, data->ifd[EXIF_IFD_0], d, ds,
+-				     *ds - 6);
++		             *ds - 6);
+ 	exif_log (data->priv->log, EXIF_LOG_CODE_DEBUG, "ExifData",
+ 		  "Saved %i byte(s) EXIF data.", *ds);
+ }
+ 
++
+ ExifData *
+ exif_data_new_from_file (const char *path)
+ {

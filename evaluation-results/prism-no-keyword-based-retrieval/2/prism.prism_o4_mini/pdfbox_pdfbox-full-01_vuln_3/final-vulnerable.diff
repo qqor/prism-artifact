@@ -1,0 +1,63 @@
+--- a/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/BaseParser.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/BaseParser.java
+@@ -338,9 +338,16 @@
+      */
+     private boolean readUntilEndOfCOSDictionary() throws IOException
+     {
++        long skipped = 0L;
++        final long MAX_SKIP_BYTES = 5L * 1024 * 1024;
+         int c = source.read();
+         while (c != -1 && c != '/' && c != '>')
+         {
++            if (++skipped > MAX_SKIP_BYTES)
++            {
++                // abort recovery to prevent infinite loops
++                return true;
++            }
+             // in addition to stopping when we find / or >, we also want
+             // to stop when we find endstream or endobj.
+             if (c == E)
+@@ -400,12 +407,6 @@
+         }
+         return true;
+     }
+-
+-    /**
+-     * Skip the upcoming CRLF or LF which are supposed to follow a stream. Trailing spaces are removed as well.
+-     * 
+-     * @throws IOException if something went wrong
+-     */
+     protected void skipWhiteSpaces() throws IOException
+     {
+         //PDF Ref 3.2.7 A stream must be followed by either
+@@ -1318,16 +1319,26 @@
+      */
+     protected void skipSpaces() throws IOException
+     {
++        long skipped = 0L;
++        final long MAX_SKIP_BYTES = 5L * 1024 * 1024;
+         int c = source.read();
+         // 37 is the % character, a comment
+-        while( isWhitespace(c) || c == 37)
+-        {
+-            if ( c == 37 )
++        while (isWhitespace(c) || c == 37)
++        {
++            if (++skipped > MAX_SKIP_BYTES)
++            {
++                throw new IOException("Too many whitespace bytes skipped (" + skipped + ")");
++            }
++            if (c == 37)
+             {
+                 // skip past the comment section
+                 c = source.read();
+-                while(!isEOL(c) && c != -1)
++                while (!isEOL(c) && c != -1)
+                 {
++                    if (++skipped > MAX_SKIP_BYTES)
++                    {
++                        throw new IOException("Too many whitespace bytes skipped (" + skipped + ")");
++                    }
+                     c = source.read();
+                 }
+             }

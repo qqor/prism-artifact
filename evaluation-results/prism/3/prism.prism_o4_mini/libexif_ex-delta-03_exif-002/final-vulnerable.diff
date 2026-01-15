@@ -1,0 +1,95 @@
+--- a/libexif/exif-data.c
++++ b/libexif/exif-data.c
+@@ -48,7 +48,8 @@
+ #undef JPEG_MARKER_APP1
+ #define JPEG_MARKER_APP1 0xe1
+ 
+-#define CHECKOVERFLOW(offset,datasize,structsize) (( offset >= datasize) || (structsize > datasize) || (offset > datasize - structsize ))
++#define CHECKOVERFLOW(offset,datasize,structsize) \
++    ((size_t)(offset) + (size_t)(structsize) > (size_t)(datasize))
+ 
+ static const unsigned char ExifHeader[] = {0x45, 0x78, 0x69, 0x66, 0x00, 0x00};
+ 
+@@ -180,38 +181,50 @@
+ 
+ 	/* {0,1,2,4,8} x { 0x00000000 .. 0xffffffff } 
+ 	 *   -> { 0x000000000 .. 0x7fffffff8 } */
+-	s = exif_format_get_size(entry->format) * entry->components;
+-	if ((s < entry->components) || (s == 0)){
+-		return 0;
+-	}
+-
+-	/*
+-	 * Size? If bigger than 4 bytes, the actual data is not
+-	 * in the entry but somewhere else (offset).
+-	 */
+-	if (s > 4)
+-		doff = exif_get_long (d + offset + 8, data->priv->order);
+-	else
+-		doff = offset + 8;
+-
+-	/* Sanity checks */
+-	if (doff >= size) {
+-		exif_log (data->priv->log, EXIF_LOG_CODE_DEBUG, "ExifData",
+-				  "Tag starts past end of buffer (%u > %u)", doff, size);
+-		return 0;
+-	}
+-
+-	if (s > size - doff) {
+-		exif_log (data->priv->log, EXIF_LOG_CODE_DEBUG, "ExifData",
+-				  "Tag data goes past end of buffer (%u > %u)", doff+s, size);
+-		return 0;
+-	}
+-
+-	entry->data = exif_data_alloc (data, s);
+-	if (entry->data) {
+-		entry->size = s;
+-		memcpy (entry->data, d + doff, s);
+-	} else {
++    s = exif_format_get_size(entry->format) * entry->components;
++    if ((s < entry->components) || (s == 0)) {
++        return 0;
++    }
++
++    /* Ensure the 8-byte entry header is within bounds */
++    if (CHECKOVERFLOW(offset, size, 8)) {
++        exif_log (data->priv->log, EXIF_LOG_CODE_DEBUG, "ExifData",
++                  "Entry header goes past end of buffer (%u + %u > %u)",
++                  offset, (unsigned int)8, size);
++        return 0;
++    }
++
++    /*
++     * Size? If bigger than 4 bytes, the actual data is not
++     * in the entry but somewhere else (offset).
++     */
++    if (s > 4) {
++        /* Ensure the 4-byte external-offset field sits within bounds */
++        if (CHECKOVERFLOW(offset, size, 12)) {
++            exif_log (data->priv->log, EXIF_LOG_CODE_DEBUG, "ExifData",
++                      "Offset field read past end of buffer (%u + %u > %u)",
++                      offset, (unsigned int)12, size);
++            return 0;
++        }
++        doff = exif_get_long (d + offset + 8, data->priv->order);
++    } else {
++        /* Inline data within the tag entry */
++        doff = offset + 8;
++    }
++
++    /* Unified data-range check: doff..doff+s must lie within [0..size). */
++    if (CHECKOVERFLOW(doff, size, s)) {
++        exif_log (data->priv->log, EXIF_LOG_CODE_DEBUG, "ExifData",
++                  "Tag data goes past end of buffer (%u + %u > %u)",
++                  doff, s, size);
++        return 0;
++    }
++
++    entry->data = exif_data_alloc (data, s);
++    if (entry->data) {
++        entry->size = s;
++        memcpy (entry->data, d + doff, s);
++    } else {
+ 		EXIF_LOG_NO_MEMORY(data->priv->log, "ExifData", s);
+ 		return 0;
+ 	}

@@ -1,0 +1,182 @@
+--- a/poi-ooxml/src/main/java/org/apache/poi/xssf/eventusermodel/XSSFSheetXMLHandler.java
++++ b/poi-ooxml/src/main/java/org/apache/poi/xssf/eventusermodel/XSSFSheetXMLHandler.java
+@@ -24,6 +24,7 @@
+ 
+ import org.apache.logging.log4j.Logger;
+ import org.apache.poi.logging.PoiLogManager;
++import org.apache.poi.openxml4j.util.ZipSecureFile;
+ import org.apache.poi.ss.usermodel.BuiltinFormats;
+ import org.apache.poi.ss.usermodel.DataFormatter;
+ import org.apache.poi.ss.usermodel.RichTextString;
+@@ -172,6 +173,19 @@
+             for (Iterator<CellAddress> iter = commentsTable.getCellAddresses(); iter.hasNext(); ) {
+                 commentCellRefs.add(iter.next());
+             }
++        }
++    }
++
++    private void checkMaxTextSize(StringBuilder buffer, int additionalLength) throws SAXException {
++        long currentSize = buffer.length();
++        long newSize = currentSize + additionalLength;
++        if (newSize > ZipSecureFile.getMaxTextSize()) {
++            throw new SAXException(
++                "The text content would exceed the maximum allowed size (" + ZipSecureFile.getMaxTextSize() + " characters). " +
++                "This may indicate a malformed or malicious file with excessive text content. " +
++                "Current size: " + currentSize + ", additional: " + additionalLength + ". " +
++                "You can adjust this limit via ZipSecureFile.setMaxTextSize() if needed."
++            );
+         }
+     }
+ 
+@@ -356,12 +370,15 @@
+     public void characters(char[] ch, int start, int length)
+             throws SAXException {
+         if (vIsOpen) {
++            checkMaxTextSize(value, length);
+             value.append(ch, start, length);
+         }
+         if (fIsOpen) {
++            checkMaxTextSize(formula, length);
+             formula.append(ch, start, length);
+         }
+         if (hfIsOpen) {
++            checkMaxTextSize(headerFooter, length);
+             headerFooter.append(ch, start, length);
+         }
+     }
+
+--- a/poi-ooxml/src/main/java/org/apache/poi/xssf/model/CommentsTable.java
++++ b/poi-ooxml/src/main/java/org/apache/poi/xssf/model/CommentsTable.java
+@@ -49,6 +49,7 @@
+ 
+     public static final String DEFAULT_AUTHOR = "";
+     public static final int DEFAULT_AUTHOR_ID = 0;
++    private static final int MAX_COMMENT_COUNT = 100_000;
+ 
+     private Sheet sheet;
+     private XSSFVMLDrawing vmlDrawing;
+@@ -319,7 +320,18 @@
+         // Create the cache if needed
+         if(commentRefs == null) {
+             commentRefs = new HashMap<>();
+-            for (CTComment comment : comments.getCommentList().getCommentArray()) {
++            CTComment[] commentArray = comments.getCommentList().getCommentArray();
++            
++            // Validate comment count before processing
++            if (commentArray.length > MAX_COMMENT_COUNT) {
++                throw new IllegalStateException(
++                    "The file contains " + commentArray.length + " comments, which exceeds the maximum allowed (" + 
++                    MAX_COMMENT_COUNT + "). This may indicate a malformed or malicious file. " +
++                    "Processing has been terminated to prevent resource exhaustion."
++                );
++            }
++            
++            for (CTComment comment : commentArray) {
+                 commentRefs.put(new CellAddress(comment.getRef()), comment);
+             }
+         }
+
+--- a/poi-examples/src/main/java/org/apache/poi/examples/xssf/eventusermodel/XLSX2CSV.java
++++ b/poi-examples/src/main/java/org/apache/poi/examples/xssf/eventusermodel/XLSX2CSV.java
+@@ -70,6 +70,9 @@
+  */
+ @SuppressWarnings({"java:S106","java:S4823","java:S1192"})
+ public class XLSX2CSV {
++    private static final int MAX_OUTPUT_OPERATIONS = 100_000;
++    private static final int MAX_REASONABLE_GAP = 100;
++
+     /**
+      * Uses the XSSF Event SAX helpers to do most of the work
+      *  of parsing the Sheet XML, and outputs the contents
+@@ -79,10 +82,30 @@
+         private boolean firstCellOfRow;
+         private int currentRow = -1;
+         private int currentCol = -1;
++        private int outputOperations = 0;
++
++        private void checkAndIncrementOperations(int increment) {
++            outputOperations += increment;
++            if (outputOperations > MAX_OUTPUT_OPERATIONS) {
++                throw new IllegalStateException(
++                    "Output operation limit exceeded (" + MAX_OUTPUT_OPERATIONS + 
++                    "). This may indicate a malformed or malicious file with extreme row/column gaps."
++                );
++            }
++        }
+ 
+         private void outputMissingRows(int number) {
+-            for (int i=0; i<number; i++) {
+-                for (int j=0; j<minColumns; j++) {
++            int actualGap = Math.min(number, MAX_REASONABLE_GAP);
++            
++            if (actualGap <= 0) {
++                return;
++            }
++            
++            int operationsNeeded = actualGap * Math.max(0, minColumns);
++            checkAndIncrementOperations(operationsNeeded);
++            
++            for (int i = 0; i < actualGap; i++) {
++                for (int j = 0; j < minColumns; j++) {
+                     output.append(',');
+                 }
+                 output.append('\n');
+@@ -91,9 +114,15 @@
+ 
+         @Override
+         public void startRow(int rowNum) {
+-            // If there were gaps, output the missing rows
+-            outputMissingRows(rowNum-currentRow-1);
+-            // Prepare for this row
++            if (rowNum < 0) {
++                throw new IllegalArgumentException("Invalid row number: " + rowNum);
++            }
++            
++            int gap = rowNum - currentRow - 1;
++            if (gap > 0) {
++                outputMissingRows(gap);
++            }
++            
+             firstCellOfRow = true;
+             currentRow = rowNum;
+             currentCol = -1;
+@@ -101,11 +130,16 @@
+ 
+         @Override
+         public void endRow(int rowNum) {
+-            // Ensure the minimum number of columns
+-            for (int i=currentCol; i<minColumns; i++) {
+-                output.append(',');
++            int columnsToFill = Math.min(Math.max(0, minColumns - currentCol), MAX_REASONABLE_GAP);
++            
++            if (columnsToFill > 0) {
++                checkAndIncrementOperations(columnsToFill);
++                for (int i = 0; i < columnsToFill; i++) {
++                    output.append(',');
++                }
+             }
+             output.append('\n');
++            checkAndIncrementOperations(1);
+         }
+ 
+         @Override
+@@ -124,9 +158,16 @@
+ 
+             // Did we miss any cells?
+             int thisCol = (new CellReference(cellReference)).getCol();
+-            int missedCols = thisCol - currentCol - 1;
+-            for (int i=0; i<missedCols; i++) {
+-                output.append(',');
++            if (thisCol < 0) {
++                throw new IllegalArgumentException("Invalid column index in cell reference: " + cellReference);
++            }
++            
++            int missedCols = Math.min(Math.max(0, thisCol - currentCol - 1), MAX_REASONABLE_GAP);
++            if (missedCols > 0) {
++                checkAndIncrementOperations(missedCols);
++                for (int i = 0; i < missedCols; i++) {
++                    output.append(',');
++                }
+             }
+ 
+             // no need to append anything if we do not have a value

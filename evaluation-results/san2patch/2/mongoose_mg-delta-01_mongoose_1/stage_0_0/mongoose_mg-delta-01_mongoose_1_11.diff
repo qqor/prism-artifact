@@ -1,0 +1,74 @@
+diff --git a/src/fmt.c b/src/fmt.c
+index 8164e1ca..c6525126 100644
+--- a/src/fmt.c
++++ b/src/fmt.c
+@@ -176,19 +176,27 @@ static size_t mg_dtoa(char *dst, size_t dstlen, double d, int width, bool tz) {
+     return mg_snprintf(dst, dstlen, "%.*s", n, buf);
+   } else {
+     int targ_width = width;
+-    for (i = 0, t = mul; t >= 1.0 && s + n < (int) sizeof(buf); i++) {
++    for (i = 0, t = mul; t >= 1.0; i++) {
++      if (s + n >= (int) sizeof(buf) - 1) break;  // prevent overflow
+       int ch = (int) (d / t);
+       if (n > 0 || ch > 0) buf[s + n++] = (char) (ch + '0');
+       d -= ch * t;
+       t /= 10.0;
+     }
+     // printf(" --> [%g] -> %g %g (%d) [%.*s]\n", saved, d, t, n, s + n, buf);
+-    if (n == 0) buf[s++] = '0';
+-    while (t >= 1.0 && n + s < (int) sizeof(buf)) buf[n++] = '0', t /= 10.0;
+-    if (s + n < (int) sizeof(buf)) buf[n + s++] = '.';
++    if (n == 0) {
++      if (s < (int) sizeof(buf) - 1) buf[s++] = '0';  // safe
++    }
++    while (t >= 1.0) {
++      if (s + n >= (int) sizeof(buf) - 1) break;  // prevent overflow
++      buf[s + n++] = '0';
++      t /= 10.0;
++    }
++    if (s + n < (int) sizeof(buf) - 1) buf[s + n++] = '.';  // safe
+     // printf(" 1--> [%g] -> [%.*s]\n", saved, s + n, buf);
+     if (!tz && n > 0) targ_width = width + n;
+-    for (i = 0, t = 0.1; s + n < (int) sizeof(buf) && n < targ_width; i++) {
++    for (i = 0, t = 0.1; n < targ_width; i++) {
++      if (s + n >= (int) sizeof(buf) - 1) break;  // prevent overflow
+       int ch = (int) (d / t);
+       buf[s + n++] = (char) (ch + '0');
+       d -= ch * t;
+@@ -220,7 +228,7 @@ static size_t mg_lld(char *buf, int64_t val, bool is_signed, bool is_hex) {
+   // Reverse a string
+   for (i = 0; i < n / 2; i++) {
+     char t = buf[s + i];
+-    buf[s + i] = buf[s + n - i - 1], buf[s + n - i - 1] = t;
++buf[s + i] = buf[s + n - i - 1], buf[s + n - i - 1] = t;
+   }
+   if (val == 0) buf[n++] = '0';  // Handle special case
+   return n + s;
+@@ -228,9 +236,16 @@ static size_t mg_lld(char *buf, int64_t val, bool is_signed, bool is_hex) {
+ 
+ static size_t scpy(void (*out)(char, void *), void *ptr, char *buf,
+                           size_t len) {
+-  size_t i = 0;
+-  while (i < len && buf[i] != '\0') out(buf[i++], ptr);
+-  return i;
++// Rationale: First scan up to len-1 bytes to find '\0', then output exactly that many characters
++  size_t max_chars = len > 0 ? len - 1 : 0;
++  size_t count = 0;
++  while (count < max_chars && buf[count] != '\0') {
++    count++;
++  }
++  for (size_t i = 0; i < count; i++) {
++    out(buf[i], ptr);
++  }
++  return count;
+ }
+ 
+ size_t mg_xprintf(void (*out)(char, void *), void *ptr, const char *fmt, ...) {
+@@ -241,7 +256,6 @@ size_t mg_xprintf(void (*out)(char, void *), void *ptr, const char *fmt, ...) {
+   va_end(ap);
+   return len;
+ }
+-
+ size_t mg_vxprintf(void (*out)(char, void *), void *param, const char *fmt,
+                    va_list *ap) {
+   size_t i = 0, n = 0;

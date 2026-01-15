@@ -1,0 +1,32 @@
+--- a/tika-core/src/main/java/org/apache/tika/detect/ShellCodeDetector.java
++++ b/tika-core/src/main/java/org/apache/tika/detect/ShellCodeDetector.java
+@@ -97,16 +97,24 @@
+         Path tmpDir = Files.createTempDirectory(cwd, "tika-shell-detect-");
+         Path tmpFile = tmpDir.resolve(fileName);
+         Files.copy(tis.getPath(), tmpFile, StandardCopyOption.REPLACE_EXISTING);
+-        ProcessBuilder pb = new ProcessBuilder(fileName);
+-        pb.directory(tmpDir.toFile());
++        // Determine shell-syntax status safely
++        String osName = System.getProperty("os.name").toLowerCase(java.util.Locale.ROOT);
++        boolean shellNoArgs = false;
+         try {
+-            FileProcessResult result = ProcessUtils.execute(pb, 20000, 100000, 100000);
+-            if (result.getExitValue() == 0) {
+-                metadata.set(SHELL_NO_ARGS, true);
++            if (!osName.contains("win")) {
++                ProcessBuilder pb = new ProcessBuilder("/bin/sh", "-n", "--", fileName);
++                pb.directory(tmpDir.toFile());
++                FileProcessResult result = ProcessUtils.execute(pb, 20000, 100000, 100000);
++                if (result.getExitValue() == 0) {
++                    shellNoArgs = true;
++                }
+             }
++        } catch (Exception e) {
++            // Ignore syntax-check failures; shellNoArgs remains false
+         } finally {
+             FileUtils.deleteDirectory(tmpDir.toFile());
+         }
++        metadata.set(SHELL_NO_ARGS, shellNoArgs);
+         return SHELL_SCRIPT;
+     }
+ 

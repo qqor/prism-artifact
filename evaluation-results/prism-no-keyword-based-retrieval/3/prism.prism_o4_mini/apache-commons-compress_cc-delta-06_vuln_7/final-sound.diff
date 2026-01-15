@@ -1,0 +1,103 @@
+--- a/src/main/java/org/apache/commons/compress/archivers/ArchiveEntry.java
++++ b/src/main/java/org/apache/commons/compress/archivers/ArchiveEntry.java
+@@ -20,8 +20,11 @@
+ 
+ import java.io.IOException;
+ import java.nio.file.Path;
++import java.nio.file.Paths;
++import java.util.Objects;
++import java.util.List;
++import java.util.ArrayList;
+ import java.util.Date;
+-
+ /**
+  * An entry of an archive.
+  */
+@@ -73,12 +76,66 @@
+      * @since 1.26.0
+      */
+     default Path resolveIn(final Path parentPath) throws IOException {
++        Objects.requireNonNull(parentPath, "parentPath must not be null");
+         final String name = getName();
+-        final Path outputFile = parentPath.resolve(name).normalize();
+-        if (!outputFile.startsWith(parentPath)) {
+-            throw new IOException(String.format("Zip slip '%s' + '%s' -> '%s'", parentPath, name, outputFile));
++        // Normalize separators and strip leading slashes
++        String cleaned = name.replace('\\', '/').replaceFirst("^/+", "");
++        // Split into segments and validate each
++        String[] segments = cleaned.split("/");
++        List<String> safeSegments = new ArrayList<>();
++        for (int i = 0; i < segments.length; i++) {
++            String seg = segments[i];
++            if (seg.isEmpty() || seg.equals(".")) {
++                continue;
++            }
++            // Percent-decode segment
++            StringBuilder sb = new StringBuilder();
++            for (int idx = 0; idx < seg.length(); idx++) {
++                char c = seg.charAt(idx);
++                if (c == '%' && idx + 2 < seg.length()) {
++                    String hex = seg.substring(idx + 1, idx + 3);
++                    try {
++                        int val = Integer.parseInt(hex, 16);
++                        sb.append((char) val);
++                        idx += 2;
++                    } catch (NumberFormatException e) {
++                        throw new IOException("Invalid percent-encoding in entry name: " + name);
++                    }
++                } else if (c == '%') {
++                    throw new IOException("Invalid percent-encoding in entry name: " + name);
++                } else {
++                    sb.append(c);
++                }
++            }
++            String decoded = sb.toString();
++            if ("..".equals(decoded)) {
++                throw new IOException("Zip slip detected: entry name contains '..': " + name);
++            }
++            if (i == 0 && decoded.matches("(?i)^[A-Za-z]:$")) {
++                throw new IOException("Zip slip detected: drive-letter segment in entry name: " + name);
++            }
++            safeSegments.add(decoded);
+         }
+-        return outputFile;
++        // Reconstruct relative path
++        Path rel;
++        if (safeSegments.isEmpty()) {
++            rel = Paths.get("");
++        } else {
++            rel = Paths.get(safeSegments.get(0),
++                    safeSegments.subList(1, safeSegments.size()).toArray(new String[0]));
++        }
++        rel = rel.normalize();
++        if (rel.isAbsolute() || rel.startsWith("..")) {
++            throw new IOException(String.format(
++                    "Zip slip detected: parent=%s, entry=%s, normalized=%s",
++                    parentPath, name, rel));
++        }
++        Path resolved = parentPath.resolve(rel).normalize();
++        if (!resolved.startsWith(parentPath.normalize())) {
++            throw new IOException(String.format(
++                    "Zip slip detected: parent=%s, entry=%s, resolved=%s",
++                    parentPath, name, resolved));
++        }
++        return resolved;
+     }
+-
+ }
+
+--- a/src/main/java/org/apache/commons/compress/archivers/examples/Expander.java
++++ b/src/main/java/org/apache/commons/compress/archivers/examples/Expander.java
+@@ -83,6 +83,12 @@
+                 if (nullTarget) {
+                     writer.accept(nextEntry, NullOutputStream.INSTANCE);
+                 } else {
++                    Files.createDirectories(targetPath.getParent());
++                    // Defense-in-depth: ensure the resolved path stays within the base directory
++                    Path normalizedTarget = targetPath.normalize();
++                    if (!normalizedTarget.startsWith(targetDirPath)) {
++                        throw new IOException("Resolved path escapes target directory: " + normalizedTarget);
++                    }
+                     try (OutputStream outputStream = Files.newOutputStream(targetPath)) {
+                         writer.accept(nextEntry, outputStream);
+                     }

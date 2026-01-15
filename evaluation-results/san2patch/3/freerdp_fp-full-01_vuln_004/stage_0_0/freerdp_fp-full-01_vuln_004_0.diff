@@ -1,0 +1,34 @@
+diff --git a/libfreerdp/core/gcc.c b/libfreerdp/core/gcc.c
+index d135d8353..4575ef461 100644
+--- a/libfreerdp/core/gcc.c
++++ b/libfreerdp/core/gcc.c
+@@ -1865,22 +1865,17 @@ BOOL gcc_read_client_network_data(wStream* s, rdpMcs* mcs)
+ 	/* channelDefArray */
+ 	for (UINT32 i = 0; i < mcs->channelCount; i++)
+ 	{
+-		/**
+-		 * CHANNEL_DEF
+-		 * - name: an 8-byte array containing a null-terminated collection
+-		 *   of seven ANSI characters that uniquely identify the channel.
+-		 * - options: a 32-bit, unsigned integer. Channel option flags
+-		 */
++		/* Validate channel name length before reading to prevent OOB */
+ 		rdpMcsChannel* channel = &mcs->channels[i];
+-		Stream_Read(s, channel->Name, CHANNEL_NAME_LEN + 1); /* name (8 bytes) */
+-
+-		if (!memchr(channel->Name, 0, CHANNEL_NAME_LEN + 1))
++		UINT8 nameLen;
++		Stream_Read_UINT8(s, nameLen); /* read name length */
++		if (nameLen > CHANNEL_NAME_LEN)
+ 		{
+-			WLog_ERR(
+-			    TAG,
+-			    "protocol violation: received a static channel name with missing null-termination");
++			WLog_ERR(TAG, "MCS channel name length %u exceeds maximum %u", nameLen, CHANNEL_NAME_LEN);
+ 			return FALSE;
+ 		}
++		Stream_Read(s, channel->Name, nameLen);   /* read actual name */
++		channel->Name[nameLen] = '\0';           /* null-terminate safely */
+ 
+ 		Stream_Read_UINT32(s, channel->options); /* options (4 bytes) */
+ 		channel->ChannelId = mcs->baseChannelId++;

@@ -1,0 +1,97 @@
+--- a/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/PDFXrefStreamParser.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/PDFXrefStreamParser.java
+@@ -41,6 +41,8 @@
+     private final int[] w = new int[3];
+     private ObjectNumbers objectNumbers = null;
+     private final RandomAccessRead source;
++    private static final long MAX_XREF_ENTRIES = 1_000_000L;
++    private static final int MAX_W_SUM = 1024;
+ 
+     /**
+      * Constructor.
+@@ -83,7 +85,11 @@
+         {
+             throw new IOException("Incorrect /W array in XRef: " + Arrays.toString(w));
+         }
+-
++        long wSum = (long) w[0] + w[1] + w[2];
++        if (wSum == 0 || wSum > MAX_W_SUM)
++        {
++            throw new IOException("XRef stream field width sum is unreasonable: " + wSum);
++        }
+         COSArray indexArray = stream.getCOSArray(COSName.INDEX);
+         if (indexArray == null)
+         {
+@@ -118,9 +124,14 @@
+      */
+     public void parse(XrefTrailerResolver resolver) throws IOException
+     {
++        long processedEntries = 0L;
+         byte[] currLine = new byte[w[0] + w[1] + w[2]];
+         while (!source.isEOF() && objectNumbers.hasNext())
+         {
++            if (++processedEntries > MAX_XREF_ENTRIES)
++            {
++                throw new IOException("Too many XRef entries processed: " + processedEntries);
++            }
+             readNextValue(currLine);
+             // get the current objID
+             long objID = objectNumbers.next();
+
+--- a/fontbox/src/main/java/org/apache/fontbox/type1/Type1Parser.java
++++ b/fontbox/src/main/java/org/apache/fontbox/type1/Type1Parser.java
+@@ -43,6 +43,8 @@
+     // constants for encryption
+     private static final int EEXEC_KEY = 55665;
+     private static final int CHARSTRING_KEY = 4330;
++    private static final int MAX_ENCODING_SKIP_TOKENS = 10000;
++    private static final int MAX_ENCODING_ENTRIES = 256;
+ 
+     // state
+     private Type1Lexer lexer;
+@@ -214,23 +216,38 @@
+             // 0 1 255 {1 index exch /.notdef put } for
+             // we have to check "readonly" and "def" too
+             // as some fonts don't provide any dup-values, see PDFBOX-2134
+-            while (!(lexer.peekKind(Token.NAME)
+-                    && (lexer.peekToken().getText().equals("dup")
+-                            || lexer.peekToken().getText().equals("readonly")
+-                            || lexer.peekToken().getText().equals("def"))))
+-            {
++            int skipCount = 0;
++            while (true)
++            {
++                if (!lexer.peekKind(Token.NAME))
++                {
++                    throw new IOException("Unexpected EOF in encoding");
++                }
++                String tokenText = lexer.peekToken().getText();
++                if ("dup".equals(tokenText) || "readonly".equals(tokenText) || "def".equals(tokenText))
++                {
++                    break;
++                }
+                 lexer.nextToken();
++                if (++skipCount > MAX_ENCODING_SKIP_TOKENS)
++                {
++                    throw new IOException("Too many tokens before encoding definition: " + skipCount);
++                }
+             }
+             
+             Map<Integer, String> codeToName = new HashMap<>();
+-            while (lexer.peekKind(Token.NAME) &&
+-                    lexer.peekToken().getText().equals("dup"))
++            int entryCount = 0;
++            while (lexer.peekKind(Token.NAME) && lexer.peekToken().getText().equals("dup"))
+             {
+                 read(Token.NAME, "dup");
+                 int code = read(Token.INTEGER).intValue();
+                 String name = read(Token.LITERAL).getText();
+                 read(Token.NAME, "put");
+                 codeToName.put(code, name);
++                if (++entryCount > MAX_ENCODING_ENTRIES)
++                {
++                    throw new IOException("Too many encoding entries: " + entryCount);
++                }
+             }
+             font.encoding = new BuiltInEncoding(codeToName);
+             readMaybe(Token.NAME, "readonly");

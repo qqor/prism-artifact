@@ -1,0 +1,37 @@
+--- a/src/main/java/org/apache/commons/compress/compressors/lzw/LZWInputStream.java
++++ b/src/main/java/org/apache/commons/compress/compressors/lzw/LZWInputStream.java
+@@ -39,6 +39,8 @@
+ public abstract class LZWInputStream extends CompressorInputStream implements InputStreamStatistics {
+     protected static final int DEFAULT_CODE_SIZE = 9;
+     protected static final int UNUSED_PREFIX = -1;
++    private static final int MAX_ALLOWED_CODE_SIZE = 31;
++    private static final int DEFAULT_MAX_CODE_SIZE = 20;
+ 
+     private final byte[] oneByte = new byte[1];
+ 
+@@ -178,6 +180,9 @@
+     protected void initializeTables(final int maxCodeSize) {
+         // maxCodeSize shifted cannot be less than 256, otherwise the loop in initializeTables() will throw an ArrayIndexOutOfBoundsException
+         // maxCodeSize cannot be smaller than getCodeSize(), otherwise addEntry() will throw an ArrayIndexOutOfBoundsException
++        if (maxCodeSize > MAX_ALLOWED_CODE_SIZE) {
++            throw new IllegalArgumentException("maxCodeSize " + maxCodeSize + " exceeds maximum allowed value of " + MAX_ALLOWED_CODE_SIZE);
++        }
+         if (1 << maxCodeSize < 256 || getCodeSize() > maxCodeSize) {
+             // TODO test against prefixes.length and characters.length?
+             throw new IllegalArgumentException("maxCodeSize " + maxCodeSize + " is out of bounds.");
+@@ -205,6 +210,15 @@
+     protected void initializeTables(final int maxCodeSize, final int memoryLimiKiB) throws MemoryLimitException {
+         if (maxCodeSize <= 0) {
+             throw new IllegalArgumentException("maxCodeSize is " + maxCodeSize + ", must be bigger than 0");
++        }
++        
++        if (maxCodeSize > MAX_ALLOWED_CODE_SIZE) {
++            throw new IllegalArgumentException("maxCodeSize " + maxCodeSize + " exceeds maximum allowed value of " + MAX_ALLOWED_CODE_SIZE);
++        }
++
++        if (memoryLimiKiB == -1 && maxCodeSize > DEFAULT_MAX_CODE_SIZE) {
++            throw new IllegalArgumentException("maxCodeSize " + maxCodeSize + " exceeds default maximum of " + DEFAULT_MAX_CODE_SIZE + 
++                    " when no memory limit is set. Use a constructor with an explicit memory limit to process files with larger code sizes.");
+         }
+ 
+         if (memoryLimiKiB > -1) {

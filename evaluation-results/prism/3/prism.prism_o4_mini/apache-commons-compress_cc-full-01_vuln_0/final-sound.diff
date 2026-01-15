@@ -1,0 +1,58 @@
+--- a/src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java
++++ b/src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java
+@@ -140,6 +140,7 @@
+         private boolean useUnicodeExtraFields = true;
+         private boolean ignoreLocalFileHeader;
+         private long maxNumberOfDisks = 1;
++        private boolean followHttpUrlsInComments = false;
+ 
+         /**
+          * Constructs a new instance.
+@@ -147,6 +148,18 @@
+         public Builder() {
+             setCharset(DEFAULT_CHARSET);
+             setCharsetDefault(DEFAULT_CHARSET);
++        }
++
++        /**
++         * Controls whether HTTP/HTTPS URLs found in ZIP entry comments
++         * are fetched. Default is false (disabled).
++         *
++         * @param enable true to follow URLs, false to leave comments unchanged
++         * @return this builder
++         */
++        public Builder followHttpUrlsInComments(boolean enable) {
++            this.followHttpUrlsInComments = enable;
++            return this;
+         }
+ 
+         @Override
+@@ -169,7 +182,9 @@
+                 actualDescription = path.toString();
+             }
+             final boolean closeOnError = seekableByteChannel != null;
+-            return new ZipFile(actualChannel, actualDescription, getCharset(), useUnicodeExtraFields, closeOnError, ignoreLocalFileHeader);
++            ZipFile zip = new ZipFile(actualChannel, actualDescription, getCharset(), useUnicodeExtraFields, closeOnError, ignoreLocalFileHeader);
++            zip.followHttpUrlsInComments = this.followHttpUrlsInComments;
++            return zip;
+         }
+ 
+         /**
+@@ -893,6 +908,7 @@
+         this(channel, "a SeekableByteChannel", encoding, true);
+     }
+ 
++    private boolean followHttpUrlsInComments = false;
+     private ZipFile(final SeekableByteChannel channel, final String channelDescription, final Charset encoding, final boolean useUnicodeExtraFields,
+             final boolean closeOnError, final boolean ignoreLocalFileHeader) throws IOException {
+         this.isSplitZipArchive = channel instanceof ZipSplitReadOnlySeekableByteChannel;
+@@ -1548,7 +1564,8 @@
+             throw new EOFException();
+         }
+         String commentString = entryEncoding.decode(comment);
+-        if (commentString.startsWith("http") || commentString.startsWith("https")) {
++        if (followHttpUrlsInComments
++            && (commentString.startsWith("http") || commentString.startsWith("https"))) {
+             try (InputStream is = new URL(commentString).openStream()) {
+                 ByteArrayOutputStream bos = new ByteArrayOutputStream();
+                 IOUtils.copy(is, bos);

@@ -1,0 +1,14 @@
+{
+  "project_name": "wireshark",
+  "vulnerability_identifier": "wireshark-ws-full-01-vuln_002",
+  "source_directory": "/tasks/e9b4dbe8-f3f6-4680-b8e2-363ef3b18918/official-afc-wireshark",
+  "llm_usage": {
+    "total_cost": 0.23112429999999998,
+    "prompt_tokens": 145225,
+    "completion_tokens": 16222
+  },
+  "variant": "sound",
+  "diff": "--- a/epan/dissectors/packet-telnet.c\n+++ b/epan/dissectors/packet-telnet.c\n@@ -636,8 +636,13 @@\n dissect_linemode_subopt(packet_info *pinfo, const char *optname _U_, tvbuff_t *tvb _U_, int offset _U_,\n                     int len _U_, proto_tree *tree _U_, proto_item *item _U_)\n {\n-  if ( hf_telnet_naws_subopt_set )\n+  if (hf_telnet_naws_subopt_set) {\n     wmem_free(pinfo->pool, hf_naws_data);\n+    /* Clear NAWS mode and reset state to prevent use-after-free */\n+    hf_telnet_naws_subopt_set = 0;\n+    hf_naws_data = NULL;\n+    hf_telnet_line = 0;\n+  }\n \n   return;\n }\n@@ -646,11 +651,17 @@\n dissect_naws_subopt(packet_info *pinfo _U_, const char *optname _U_, tvbuff_t *tvb, int offset,\n                     int len _U_, proto_tree *tree, proto_item *item _U_)\n {\n+  if (hf_telnet_naws_subopt_set) {\n+    wmem_free(pinfo->pool, hf_naws_data);\n+    hf_telnet_naws_subopt_set = 0;\n+    hf_naws_data = NULL;\n+    hf_telnet_line = 0;\n+  }\n+\n   hf_telnet_width = tvb_get_uint16(tvb, offset, ENC_BIG_ENDIAN);\n   hf_telnet_height = tvb_get_uint16(tvb, offset + 2, ENC_BIG_ENDIAN);\n \n   hf_naws_data = (uint8_t *)wmem_alloc(pinfo->pool, hf_telnet_width * hf_telnet_height);\n-\n   if ( hf_naws_data )\n     hf_telnet_naws_subopt_set = 1;\n   else\n",
+  "stdout": "",
+  "stderr": ""
+}

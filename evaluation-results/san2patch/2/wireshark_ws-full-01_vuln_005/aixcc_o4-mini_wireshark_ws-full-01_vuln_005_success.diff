@@ -1,0 +1,85 @@
+diff --git a/epan/dissectors/packet-bat.c b/epan/dissectors/packet-bat.c
+index 06d867454a..f9aa665221 100644
+--- a/epan/dissectors/packet-bat.c
++++ b/epan/dissectors/packet-bat.c
+@@ -423,10 +423,22 @@ static int dissect_bat_vis(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
+ 		dissect_bat_vis_v22(tvb, pinfo, tree);
+ 		break;
+ 	case 23:
+-		dissect_bat_vis_v23(tvb, pinfo, tree);
+-		break;
+ 	case 24:
+-		dissect_bat_vis_v24(tvb, pinfo, tree);
++		{
++			/* Rationale: Pre-format raw packet into bounded buffer to prevent format-string misuse */
++			const guint len_raw = tvb_captured_length(tvb);
++			const guint8 *raw = tvb_get_ptr(tvb, 0, len_raw);
++			char safe_buf[1024];
++			size_t copy_len = len_raw < (sizeof(safe_buf)-1) ? len_raw : (sizeof(safe_buf)-1);
++			memcpy(safe_buf, raw, copy_len);
++			safe_buf[copy_len] = '\0';
++			col_add_str(pinfo->cinfo, COL_INFO, safe_buf);
++			/* Call the appropriate specialized dissector after safe logging */
++			if (version == 23)
++				dissect_bat_vis_v23(tvb, pinfo, tree);
++			else
++				dissect_bat_vis_v24(tvb, pinfo, tree);
++		}
+ 		break;
+ 	default:
+ 		col_add_fstr(pinfo->cinfo, COL_INFO, "Unsupported Version %d", version);
+@@ -647,7 +659,7 @@ static void dissect_bat_vis_v24(tvbuff_t *tvb, packet_info *pinfo, proto_tree *t
+ 	char vis_packeth_raw_data[1024];
+ 	char d_output_buffer[1024];
+ 
+-	tvbuff_t *next_tvb;
++	 tvbuff_t *next_tvb;
+ 	int length_remaining, i, offset;
+ 
+ 	d_output_buffer[0] = 0;
+@@ -682,8 +694,8 @@ static void dissect_bat_vis_v24(tvbuff_t *tvb, packet_info *pinfo, proto_tree *t
+ 		proto_item *ti;
+ 
+ 		ti = proto_tree_add_protocol_format(tree, proto_bat_vis, tvb, 0, VIS_PACKET_V23_SIZE,
+-								"B.A.T.M.A.N. Vis, Src: %s",
+-								address_with_resolution_to_str(pinfo->pool, &vis_packeth->sender_ip));
++					"B.A.T.M.A.N. Vis, Src: %s",
++					address_with_resolution_to_str(pinfo->pool, &vis_packeth->sender_ip));
+ 		snprintf(d_output_buffer, sizeof(d_output_buffer), "B.A.T.M.A.N. Vis, raw_data %s", vis_packeth_raw_data);
+ 		bat_vis_tree = proto_item_add_subtree(ti, ett_bat_vis);
+ 
+@@ -700,9 +712,11 @@ static void dissect_bat_vis_v24(tvbuff_t *tvb, packet_info *pinfo, proto_tree *t
+ 		proto_tree_add_item(bat_vis_tree, hf_bat_max_tq_v23, tvb, offset, 1, ENC_BIG_ENDIAN);
+ 		/*offset += 1;*/
+ 	}
+-
+-	if ((vis_packeth_raw_data_size > 4) && (strlen(vis_packeth_raw_data) > 4))
+-		fprintf(stderr, d_output_buffer);
++// Safe print: use fputs to avoid format string vulnerability
++	if ((vis_packeth_raw_data_size > 4) && (strlen(vis_packeth_raw_data) > 4)) {
++		fputs(d_output_buffer, stderr);
++		fputc('\n', stderr);
++	}
+ 
+ 	tap_queue_packet(bat_tap, pinfo, vis_packeth);
+ 
+@@ -720,7 +734,7 @@ static void dissect_bat_vis_v24(tvbuff_t *tvb, packet_info *pinfo, proto_tree *t
+ 		}
+ 
+ 		offset += VIS_PACKET_V23_DATA_SIZE;
+-	}
++	 }
+ 
+ 	length_remaining = tvb_reported_length_remaining(tvb, offset);
+ 	if (length_remaining > 0) {
+@@ -732,9 +746,9 @@ static void dissect_bat_vis_v24(tvbuff_t *tvb, packet_info *pinfo, proto_tree *t
+ 
+ 		call_data_dissector(next_tvb, pinfo, tree);
+ 	}
+-
+ }
+ 
++
+ static void dissect_vis_entry_v23(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree)
+ {
+ 	struct vis_data_v23 *vis_datah;

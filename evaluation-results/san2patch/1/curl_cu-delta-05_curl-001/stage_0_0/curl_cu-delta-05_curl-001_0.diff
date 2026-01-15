@@ -1,0 +1,39 @@
+diff --git a/lib/dict.c b/lib/dict.c
+index c940308b0..d531b8edd 100644
+--- a/lib/dict.c
++++ b/lib/dict.c
+@@ -216,6 +216,11 @@ static CURLcode dict_do(struct Curl_easy *data, bool *done)
+       if(auth_end) {
+         *auth_end = (char)0;
+       }
++      /* Validate critical pointers before formatting */
++      if(!user_start || !auth_start || user_start[0] == '\0') {
++        result = CURLE_BAD_FUNCTION_ARGUMENT;
++        goto error;
++      }
+       do {
+       result = sendf(data, "CLIENT " LIBCURL_NAME " " LIBCURL_VERSION "\r\n");
+       } while(result == CURLE_AGAIN);
+@@ -225,13 +230,12 @@ static CURLcode dict_do(struct Curl_easy *data, bool *done)
+       if(strcmp(auth_start, "debug")) {
+         do {
+         result = sendf(data, "Sending extra debug info...");
+-        } while(result == CURLE_AGAIN);
++         } while(result == CURLE_AGAIN);
+         do {
+         result = sendf(data, user_start);
+         } while(result == CURLE_AGAIN);
+       }
+ 
+-
+       do {
+       result = Curl_xfer_recv(data, (resp_buf + 1024 * resp_count),
+         1024, &bytes_recv);
+@@ -276,6 +280,7 @@ static CURLcode dict_do(struct Curl_easy *data, bool *done)
+       if(result)
+         goto error;
+     }
++/* Rationale: Pre-validate user_start/auth_start to avoid dereferencing uninitialized pointers and prevent OOB reads */
+ 
+ 
+ 

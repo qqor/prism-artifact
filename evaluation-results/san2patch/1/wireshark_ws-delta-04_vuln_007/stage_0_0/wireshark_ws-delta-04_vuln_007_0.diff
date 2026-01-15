@@ -1,0 +1,53 @@
+diff --git a/epan/dissectors/packet-json.c b/epan/dissectors/packet-json.c
+index fbf7776431..b0ca6251a7 100644
+--- a/epan/dissectors/packet-json.c
++++ b/epan/dissectors/packet-json.c
+@@ -562,19 +562,43 @@ get_json_string(wmem_allocator_t *scope, tvbparse_elem_t *tok, bool remove_quote
+ 	size_t length;
+ 
+ 	string = tvb_get_string_enc(scope, tok->tvb, tok->offset, tok->len, ENC_UTF_8);
++	// Rationale: Pre-scan escape sequences to ensure they are well-formed before unescaping
++	bool valid_escapes = true;
++	for (char *p = string; *p && valid_escapes; ++p) {
++		if (*p == '\\') {
++			char next = *(p + 1);
++			if (next == 'u' || next == 'U') {
++				size_t needed = (next == 'u') ? 4 : 8;
++				// Ensure we have enough characters and they are hex digits
++				for (size_t i = 1; i <= needed; ++i) {
++					if (!*(p + 1 + i) || !isxdigit((unsigned char)*(p + 1 + i))) {
++						valid_escapes = false;
++						break;
++					}
++				}
++				p += needed;
++			} else {
++				// Simple escape, ensure next char exists
++				if (!*(p + 1)) {
++					valid_escapes = false;
++				}
++				++p;
++			}
++		}
++	}
+ 
+-	if (unescape_strings) {
++	if (unescape_strings && valid_escapes) {
+ 		string = json_string_unescape(scope, string, &length);
+-	}
+-	else {
++	} else {
++		// Fallback: skip unescaping if invalid or disabled
+ 		length = strlen(string);
+ 	}
+ 
+ 	if (remove_quotes) {
+-		if (string[length - 1] == '"') {
++		if (length > 0 && string[length - 1] == '"') {
+ 			string[length - 1] = '\0';
+ 		}
+-		if (string[0] == '"') {
++		if (*string == '"') {
+ 			string += 1;
+ 		}
+ 	}

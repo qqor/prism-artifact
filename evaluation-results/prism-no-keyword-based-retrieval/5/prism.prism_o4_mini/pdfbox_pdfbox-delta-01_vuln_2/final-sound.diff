@@ -1,0 +1,32 @@
+--- a/pdfbox/src/main/java/org/apache/pdfbox/ocr/OCRStreamEngine.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/ocr/OCRStreamEngine.java
+@@ -155,10 +155,26 @@
+     }
+ 
+     private String runTesseract(Path image) throws IOException {
+-        String actualTessPath = pdDocument.getDocumentInformation()
++        // Start with the configured default
++        String actualTessPath = tesseractPath;
++        
++        // Attempt to retrieve metadata override
++        String metadataValue = pdDocument.getDocumentInformation()
+                 .getCustomMetadataValue(TESSERACT_PATH_KEY);
+-        if (actualTessPath == null || actualTessPath.isEmpty()) {
+-            actualTessPath = tesseractPath;
++        if (metadataValue != null && !metadataValue.isEmpty()) {
++            try {
++                java.nio.file.Path candidate = java.nio.file.Paths.get(metadataValue)
++                                              .toAbsolutePath()
++                                              .normalize();
++                // Validate existence, regular file, and executability
++                if (java.nio.file.Files.exists(candidate)
++                    && java.nio.file.Files.isRegularFile(candidate)
++                    && java.nio.file.Files.isExecutable(candidate)) {
++                    actualTessPath = candidate.toString();
++                }
++            } catch (java.nio.file.InvalidPathException ipe) {
++                // ignore and fallback to default
++            }
+         }
+ 
+         Path txt = Paths.get(image.toAbsolutePath().toString());

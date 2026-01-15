@@ -1,0 +1,91 @@
+diff --git a/src/json.c b/src/json.c
+index 2a91900..90ee3cd 100644
+--- a/src/json.c
++++ b/src/json.c
+@@ -600,49 +600,55 @@ json_value * json_parse_ex (json_settings * settings,
+                      case 't':
+ 
+                         if ((end - state.ptr) < 3 || *(++ state.ptr) != 'r' ||
+-                            *(++ state.ptr) != 'u' || *(++ state.ptr) != 'e')
+-                        {
+-                           goto e_unknown_value;
+-                        }
+-
++                            {
++                                size_t idx = 0;
++                                const char expected[] = "true";
++                                if ((size_t)(end - state.ptr) < sizeof(expected)-1)
++                                    goto e_unknown_value;
++                                while (idx < sizeof(expected)-1) {
++                                    if (state.ptr[idx] != expected[idx])
++                                        goto e_unknown_value;
++                                    idx++;
++                                }
++                                state.ptr += (idx - 1);
++                            }
+                         if (!new_value (&state, &top, &root, &alloc, json_boolean))
+                            goto e_alloc_failure;
+-
+-                        top->u.boolean = 1;
+-
++                         top->u.boolean = 1;
+                         flags |= flag_next;
+                         break;
+-
+                      case 'f':
+-
+-                        if ((end - state.ptr) < 4 || *(++ state.ptr) != 'a' ||
+-                            *(++ state.ptr) != 'l' || *(++ state.ptr) != 's' ||
+-                            *(++ state.ptr) != 'e')
++                            {
++                                size_t idx = 0;
++                                const char expected[] = "false";
++                                if ((size_t)(end - state.ptr) < sizeof(expected)-1)
++                                    goto e_unknown_value;
++                                while (idx < sizeof(expected)-1) {
++                                    if (state.ptr[idx] != expected[idx])
++                                        goto e_unknown_value;
++                                    idx++;
++                                }
++                                state.ptr += (idx - 1);
++                            }
++                        }                     case 'n':
+                         {
+-                           goto e_unknown_value;
+-                        }
+-
+-                        if (!new_value (&state, &top, &root, &alloc, json_boolean))
+-                           goto e_alloc_failure;
+-
+-                        flags |= flag_next;
+-                        break;
+-
+-                     case 'n':
+-
+-                        if ((end - state.ptr) < 3 || *(++ state.ptr) != 'u' ||
+-                            *(++ state.ptr) != 'l' || *(++ state.ptr) != 'l')
+-                        {
+-                           goto e_unknown_value;
++                           /* use a temporary pointer to safely scan */
++                           const json_char *p = state.ptr;
++                           /* check overall length */
++                           if ((size_t)(end - p) < 4)
++                              goto e_unknown_value;
++                           p++; /* now at 'u' */
++                           if (*p++ != 'u' || *p++ != 'l' || *p++ != 'l')
++                              goto e_unknown_value;
++                           /* set state.ptr to last 'l' */
++                           state.ptr = p - 1;
+                         }
+ 
+                         if (!new_value (&state, &top, &root, &alloc, json_null))
+                            goto e_alloc_failure;
+ 
+                         flags |= flag_next;
+-                        break;
+-
+-                     default:
++                        break;                     default:
+ 
+                         if (isdigit (b) || b == '-')
+                         {

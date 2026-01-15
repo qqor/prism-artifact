@@ -1,0 +1,14 @@
+{
+  "project_name": "freerdp",
+  "vulnerability_identifier": "freerdp_fp-delta-03_vuln_003",
+  "source_directory": "/home/qqor/crete/.cache/official-afc-freerdp",
+  "llm_usage": {
+    "total_cost": 0.7696865,
+    "prompt_tokens": 366435,
+    "completion_tokens": 83320
+  },
+  "variant": "sound",
+  "diff": "--- a/libfreerdp/codec/rfx_types.h\n+++ b/libfreerdp/codec/rfx_types.h\n@@ -94,6 +94,10 @@\n \tPROFILER_DEFINE(prof_rfx_dwt_2d_encode)\n \tPROFILER_DEFINE(prof_rfx_rgb_to_ycbcr)\n \tPROFILER_DEFINE(prof_rfx_encode_format_rgb)\n+\n+\t/* metadata array and count for RemoteFX codec */\n+\tUINT64* metadata;\n+\tUINT16 metadataCount;\n };\n \n struct S_RFX_MESSAGE\n\n--- a/libfreerdp/codec/rfx.c\n+++ b/libfreerdp/codec/rfx.c\n@@ -387,6 +387,13 @@\n \t\t}\n \n \t\tBufferPool_Free(priv->BufferPool);\n+\n+\t\t/* free metadata array if allocated */\n+\t\tif (priv->metadata)\n+\t\t{\n+\t\t\tfree(priv->metadata);\n+\t\t}\n+\n \t\twinpr_aligned_free(priv);\n \t}\n \twinpr_aligned_free(context);\n@@ -657,15 +664,17 @@\n \tWINPR_ASSERT(message);\n \tWINPR_ASSERT(pExpectedBlockType);\n \n+\tRFX_CONTEXT_PRIV* priv = context->priv;\n+\n \tif (*pExpectedBlockType != WBT_FRAME_BEGIN)\n \t{\n-\t\tWLog_Print(context->priv->log, WLOG_ERROR, \"message unexpected wants WBT_FRAME_BEGIN\");\n+\t\tWLog_Print(priv->log, WLOG_ERROR, \"message unexpected wants WBT_FRAME_BEGIN\");\n \t\treturn FALSE;\n \t}\n \n \t*pExpectedBlockType = WBT_REGION;\n \n-\tif (!Stream_CheckAndLogRequiredLengthWLog(context->priv->log, s, 6))\n+\tif (!Stream_CheckAndLogRequiredLengthWLog(priv->log, s, 6))\n \t\treturn FALSE;\n \n \tStream_Read_UINT32(\n@@ -673,10 +682,22 @@\n \tStream_Read_UINT16(s, numRegions); /* numRegions (2 bytes) */\n \tif (Stream_GetRemainingLength(s) >= 8)\n \t{\n-\t        UINT64 blockOffset = 0;\n+\t        UINT64 blockOffset = 0, blockData = 0;\n \t        Stream_Read_UINT64(s, blockOffset);\n-\t        Stream_Read_UINT64(s, metadataData);\n-\t        metadataBlock += blockOffset;\n+\t        Stream_Read_UINT64(s, blockData);\n+\n+\t        /* allocate metadata buffer if not yet allocated */\n+\t        if (!priv->metadata)\n+\t        {\n+\t            priv->metadataCount = 1;\n+\t            priv->metadata = (UINT64*) calloc(priv->metadataCount, sizeof(UINT64));\n+\t            if (!priv->metadata)\n+\t                return FALSE;\n+\t        }\n+\n+\t        /* point to our allocated metadata slot and store data */\n+\t        metadataBlock = (UINT64) priv->metadata;\n+\t        metadataData  = blockData;\n \t}\n \tWLog_Print(context->priv->log, WLOG_DEBUG,\n \t           \"RFX_FRAME_BEGIN: frameIdx: %\" PRIu32 \" numRegions: %\" PRIu16 \"\", frameIdx,\n",
+  "stdout": "",
+  "stderr": ""
+}

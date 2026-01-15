@@ -1,0 +1,50 @@
+diff --git a/lib/verynormalprotocol.c b/lib/verynormalprotocol.c
+index 6b53dc359..89082d01a 100644
+--- a/lib/verynormalprotocol.c
++++ b/lib/verynormalprotocol.c
+@@ -118,35 +118,39 @@ static CURLcode verynormalprotocol_do(struct Curl_easy *data, bool *done)
+ 
+ static CURLcode verynormalprotocol_doing(struct Curl_easy *data, bool *done)
+ {
++  /* Rationale: Avoid NULL-deferences by using a local flag and applying it to 'done' only if non-NULL */
+   CURLcode result = CURLE_WEIRD_SERVER_REPLY;
+   ssize_t nread;
+   char response[128];
+-
+-  *done = FALSE;
++  bool local_done = FALSE;
+ 
+   /* Read the response from the server. If we see the correct "heartbeat",
+      we should complete the transaction and return CURLE_OK. */
+   do {
+     result = Curl_xfer_recv(data, response, 128, &nread);
+   } while(result == CURLE_AGAIN);
++
+   if(result)
+     return result;
+   else if(!nread) {
+     failf(data, "Connection disconnected");
+-    *done = TRUE;
++    local_done = TRUE;
+     result = CURLE_RECV_ERROR;
+   }
+   else if(strcasecmp(response, "crashycrashy") == 0) {
+-    *done = TRUE;
+-    *(unsigned int *)result = CURLE_OK;
++    local_done = TRUE;
++    result = CURLE_OK;
+   }
+   else {
+-    *done = TRUE;
++    local_done = TRUE;
+     result = CURLE_WEIRD_SERVER_REPLY;
+   }
+ 
+   if(result == CURLE_AGAIN)
+     result = CURLE_OK;
++
++  if(done)
++    *done = local_done;
+   return result;
+ }
+ 

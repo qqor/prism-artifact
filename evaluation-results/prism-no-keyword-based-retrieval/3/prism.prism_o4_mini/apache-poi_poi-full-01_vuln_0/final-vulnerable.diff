@@ -1,0 +1,66 @@
+--- a/poi-ooxml/src/main/java/org/apache/poi/openxml4j/opc/ZipPackage.java
++++ b/poi-ooxml/src/main/java/org/apache/poi/openxml4j/opc/ZipPackage.java
+@@ -207,9 +207,45 @@
+      */
+     ZipPackage(InputStream in, PackageAccess access, boolean closeStream, OPCComplianceFlags opcComplianceFlags) throws IOException {
+         super(access, opcComplianceFlags);
+-        try (ZipArchiveThresholdInputStream zis = ZipHelper.openZipStream(in, closeStream)) {
+-            this.zipArchive = new ZipInputStreamZipEntrySource(zis);
+-        }
++        // Fast-fail non-ZIP inputs via magic header check
++        java.io.InputStream rin = in instanceof java.io.BufferedInputStream
++                ? in
++                : new java.io.BufferedInputStream(in);
++        if (!rin.markSupported()) {
++            rin = new java.io.BufferedInputStream(rin);
++        }
++        rin.mark(4);
++        byte[] signature = new byte[4];
++        int sigLen = rin.read(signature);
++        rin.reset();
++        if (sigLen < 4
++                || signature[0] != 'P' || signature[1] != 'K'
++                || (signature[2] != 3 && signature[2] != 5 && signature[2] != 7)
++                || (signature[3] != 4 && signature[3] != 6 && signature[3] != 8)) {
++            if (closeStream) {
++                rin.close();
++            }
++            throw new org.apache.poi.openxml4j.exceptions.NotOfficeXmlFileException(
++                    "Input is not a valid ZIP file");
++        }
++        final java.io.File tmp = org.apache.poi.util.TempFile.createTempFile("poi-zip-package", ".zip");
++        tmp.deleteOnExit();
++        long maxBytes = ZipSecureFile.getMaxEntrySize() * ZipSecureFile.getMaxFileCount();
++        try (org.apache.commons.io.input.BoundedInputStream bounded =
++                     new org.apache.commons.io.input.BoundedInputStream(rin, maxBytes);
++             java.io.OutputStream os = java.nio.file.Files.newOutputStream(tmp.toPath())) {
++            bounded.setPropagateClose(false);
++            org.apache.commons.compress.utils.IOUtils.copy(bounded, os);
++        }
++        if (closeStream) {
++            rin.close();
++        }
++        if (tmp.length() >= maxBytes) {
++            throw new IOException(String.format(java.util.Locale.ROOT,
++                    "Input ZIP exceeds maximum allowed size of %d bytes", maxBytes));
++        }
++        org.apache.commons.compress.archivers.zip.ZipFile zipFile = ZipHelper.openZipFile(tmp);
++        this.zipArchive = new ZipFileZipEntrySource(zipFile);
+     }
+ 
+     /**
+@@ -276,13 +312,7 @@
+         } catch (InvalidZipException e) {
+             throw new InvalidOperationException("Can't open the specified file: '" + file + "'", e);
+         } catch (IOException e) {
+-            // probably not happening with write access - not sure how to handle the default read-write access ...
+-            if (access == PackageAccess.WRITE) {
+-                throw new InvalidOperationException("Can't open the specified file: '" + file + "'", e);
+-            }
+-
+-            LOG.atWarn().log("Error in zip file {} - falling back to stream processing (i.e. ignoring zip central directory)", file);
+-            ze = openZipEntrySourceStream(file);
++            throw new InvalidOperationException("Can't open the specified file: '" + file + "'", e);
+         }
+         this.zipArchive = ze;
+     }

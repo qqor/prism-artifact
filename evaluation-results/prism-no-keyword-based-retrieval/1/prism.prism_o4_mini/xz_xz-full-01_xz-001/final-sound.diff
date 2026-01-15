@@ -1,0 +1,54 @@
+--- a/src/liblzma/check/treeck.h
++++ b/src/liblzma/check/treeck.h
+@@ -14,6 +14,7 @@
+ #define STATE_CLEAR   0
+ #define STATE_VISITED 1
+ #define STATE_HASHED  2
++#define STATE_FREED   3
+ 
+ #define MAX_BLOCK_WIDTH  0x7fffffffull
+ #define MAX_BLOCK_HEIGHT 0x7fffffffull
+
+--- a/src/liblzma/check/treeck.c
++++ b/src/liblzma/check/treeck.c
+@@ -85,19 +85,32 @@
+     node->state = STATE_HASHED;
+   }
+ 
+-  // Free the node and edges
+-  free(node->edges);
+-  free(node);
++  // Memory is freed later by free_tree
+ 
+   return sum;
+ }
+ 
++// Recursively free all nodes in the tree exactly once
++static void
++free_tree(TreeNode *node)
++{
++    if (!node || node->state == STATE_FREED)
++        return;
++    node->state = STATE_FREED;
++    for (size_t i = 0; i < node->edge_count; ++i) {
++        free_tree(node->edges[i]);
++    }
++    free(node->edges);
++    free(node);
++}
++
++// Public API: build tree, compute checksum, then free tree
+ extern LZMA_API(uint32_t)
+ lzma_tree(const uint8_t *buf, size_t size, uint32_t checksum)
+ {
+-  unsigned long seed = hash_data(buf, size);
+-  TreeNode *root = create_tree(buf, size, 0, 16, seed, NULL);
+-  checksum ^= compute_tree_checksum(root, 0);
+-  return checksum;
++    unsigned long seed = hash_data(buf, size);
++    TreeNode *root = create_tree(buf, size, 0, 16, seed, NULL);
++    checksum ^= compute_tree_checksum(root, 0);
++    free_tree(root);
++    return checksum;
+ }
+-

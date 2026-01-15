@@ -1,0 +1,39 @@
+diff --git a/epan/dissectors/packet-openvpn.c b/epan/dissectors/packet-openvpn.c
+index b5486db018..79ce834bcf 100644
+--- a/epan/dissectors/packet-openvpn.c
++++ b/epan/dissectors/packet-openvpn.c
+@@ -299,7 +299,7 @@ dissect_openvpn_msg_common(tvbuff_t *tvb, packet_info *pinfo, proto_tree *openvp
+   msg_length_remaining = tvb_reported_length_remaining(tvb, offset);
+ 
+   if (msg_length_remaining == 0) {
+-    return tvb_captured_length(tvb);
++  return tvb_captured_length(tvb);
+   }
+ 
+   int data_len = msg_length_remaining;
+@@ -307,9 +307,13 @@ dissect_openvpn_msg_common(tvbuff_t *tvb, packet_info *pinfo, proto_tree *openvp
+   if ((openvpn_opcode == P_CONTROL_HARD_RESET_CLIENT_V3 || openvpn_opcode == P_CONTROL_WKC_V1)
+       &&  msg_length_remaining >= 2) {
+ 
+-    wkc_len = tvb_get_ntohs(tvb, tvb_reported_length(tvb) - 2);
++// Rationale: prevent buffer overflow by rejecting too-large copies
++     wkc_len = tvb_get_ntohs(tvb, tvb_reported_length(tvb) - 2);
+     data_len = msg_length_remaining - wkc_len;
++    if (data_len < 0 || data_len > (int)sizeof(buf) - 1)
++        return tvb_captured_length(tvb);
+     tvb_memcpy(tvb, buf, offset, data_len);
++    buf[data_len] = '\0';
+     if (!strcmp((char*)&buf[0], "OpenVPN"))
+         return 0;
+   }
+@@ -318,9 +322,7 @@ dissect_openvpn_msg_common(tvbuff_t *tvb, packet_info *pinfo, proto_tree *openvp
+     proto_tree *data_tree;
+     data_tree = proto_tree_add_subtree_format(openvpn_tree, tvb, offset, data_len,
+                               ett_openvpn_data, NULL, "Data (%d bytes)",
+-                              data_len);
+-
+-    proto_tree_add_item(data_tree, hf_openvpn_data, tvb, offset, data_len, ENC_NA);
++                              data_len);    proto_tree_add_item(data_tree, hf_openvpn_data, tvb, offset, data_len, ENC_NA);
+ 
+     if (wkc_len > 0)
+     {

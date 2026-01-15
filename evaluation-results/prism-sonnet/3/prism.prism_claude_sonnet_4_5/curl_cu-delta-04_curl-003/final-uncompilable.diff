@@ -1,0 +1,56 @@
+--- a/lib/doh.c
++++ b/lib/doh.c
+@@ -224,6 +224,11 @@
+   }
+   else {
+     struct doh_probes *dohp = data->req.doh;
++    /* Check if parent's DOH structure is still valid */
++    if(!dohp) {
++      DEBUGF(infof(doh, "doh_done: parent DOH structure already freed"));
++      return 0;
++    }
+     /* one of the DoH request done for the 'data' transfer is now complete! */
+     dohp->pending--;
+     infof(doh, "a DoH request is completed, %u to go", dohp->pending);
+@@ -1407,6 +1412,12 @@
+     curl_off_t mid;
+     size_t slot;
+     for(slot = 0; slot < DOH_SLOT_COUNT; slot++) {
++      /* Verify structure hasn't been freed during previous iteration */
++      if(data->req.doh != doh || !data->req.doh) {
++        DEBUGF(infof(data, "Curl_doh_close: DOH structure freed during cleanup"));
++        break;
++      }
++      
+       mid = doh->probe[slot].easy_mid;
+       if(mid < 0)
+         continue;
+@@ -1418,12 +1429,18 @@
+       if(!probe_data) {
+         DEBUGF(infof(data, "Curl_doh_close: xfer for mid=%"
+                      FMT_OFF_T " not found!",
+-                     doh->probe[slot].easy_mid));
++                     mid));
+         continue;
+       }
+       /* data->multi might already be reset at this time */
+       curl_multi_remove_handle(data->multi, probe_data);
+       Curl_close(&probe_data);
++      
++      /* Verify structure is still valid after callbacks */
++      if(data->req.doh != doh || !data->req.doh) {
++        DEBUGF(infof(data, "Curl_doh_close: DOH structure freed during probe cleanup"));
++        break;
++      }
+     }
+   }
+ }
+@@ -1434,7 +1451,7 @@
+   if(doh) {
+     Curl_doh_close(data);
+     curl_slist_free_all(doh->req_hds);
+-    data->req.doh->req_hds = NULL;
++    doh->req_hds = NULL;
+     Curl_safefree(data->req.doh);
+   }
+ }

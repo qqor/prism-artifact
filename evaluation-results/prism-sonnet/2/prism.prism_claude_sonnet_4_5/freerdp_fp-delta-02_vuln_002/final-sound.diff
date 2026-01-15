@@ -1,0 +1,77 @@
+--- a/libfreerdp/crypto/x509_utils.c
++++ b/libfreerdp/crypto/x509_utils.c
+@@ -433,13 +433,13 @@
+ BOOL x509_validate_subject_aternative_names(const X509* cert) {
+     STACK_OF(GENERAL_NAME) *san_names = NULL;
+     int i, count;
++    unsigned char *dns_name_utf8 = NULL;
+     char *dns_name = NULL;
+ 	BOOL result = TRUE;
+ 
+-    // Get Subject Alternative Names (SAN)
+     san_names = X509_get_ext_d2i(cert, NID_subject_alt_name, NULL, NULL);
+     if (!san_names) {
+-        goto end;
++        return TRUE;
+     }
+ 
+     count = sk_GENERAL_NAME_num(san_names);
+@@ -448,29 +448,43 @@
+         GENERAL_NAME *gen_name = sk_GENERAL_NAME_value(san_names, i);
+ 
+         if (gen_name->type == GEN_DNS) {
+-			// Allocate string length + 1 for security
+-			dns_name = malloc( strlen((char *)ASN1_STRING_get0_data(gen_name->d.dNSName)) + 1);
+-
+-			if (dns_name == NULL)
+-				goto end;
+-			
+-			memcpy(dns_name, (char *)ASN1_STRING_get0_data(gen_name->d.dNSName),  
+-				ASN1_STRING_length(gen_name->d.dNSName)) ;
+-			
++            int length = ASN1_STRING_to_UTF8(&dns_name_utf8, gen_name->d.dNSName);
++            if (length < 0) {
++                result = FALSE;
++                goto end;
++            }
++
++            dns_name = strndup((char*)dns_name_utf8, (size_t)length);
++            OPENSSL_free(dns_name_utf8);
++            dns_name_utf8 = NULL;
++
++            if (dns_name == NULL) {
++                result = FALSE;
++                goto end;
++            }
++
+             if (!verify_san(dns_name)) {
+-				free(dns_name);
+-				result = FALSE;
+-				goto end;
+-            } else {
+-				free(dns_name);
++                free(dns_name);
++                dns_name = NULL;
++                result = FALSE;
++                goto end;
+             }
++
++            free(dns_name);
++            dns_name = NULL;
+         }
+     }
+ 
+ end:
++    if (dns_name_utf8) {
++        OPENSSL_free(dns_name_utf8);
++    }
++    if (dns_name) {
++        free(dns_name);
++    }
+     sk_GENERAL_NAME_pop_free(san_names, GENERAL_NAME_free);
+ 
+-	return TRUE;
++    return result;
+ }
+ 
+ char* x509_utils_get_email(const X509* x509)

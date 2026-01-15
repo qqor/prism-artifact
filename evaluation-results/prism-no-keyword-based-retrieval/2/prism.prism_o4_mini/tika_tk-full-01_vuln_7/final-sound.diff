@@ -1,0 +1,44 @@
+--- a/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-text-module/src/main/java/org/apache/tika/parser/csv/TextAndCSVConfig.java
++++ b/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-text-module/src/main/java/org/apache/tika/parser/csv/TextAndCSVConfig.java
+@@ -19,7 +19,7 @@
+ import java.io.Serializable;
+ import java.util.HashMap;
+ import java.util.Map;
+-
++import org.apache.tika.config.Field;
+ public class TextAndCSVConfig implements Serializable {
+ 
+     private static final Map<Character, String> DELIMITER_TO_NAME_MAP = new HashMap<>();
+@@ -41,6 +41,16 @@
+     private Map<String, Character> nameToDelimiterMap = NAME_TO_DELIMITER_MAP;
+     private Map<Character, String> delimiterToNameMap = DELIMITER_TO_NAME_MAP;
+ 
++    @Field
++    private boolean allowExternalFetch = false;
++
++    public boolean isAllowExternalFetch() {
++        return allowExternalFetch;
++    }
++
++    public void setAllowExternalFetch(boolean allowExternalFetch) {
++        this.allowExternalFetch = allowExternalFetch;
++    }
+     public Map<String, Character> getNameToDelimiterMap() {
+         return nameToDelimiterMap;
+     }
+
+--- a/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-text-module/src/main/java/org/apache/tika/parser/csv/TextAndCSVParser.java
++++ b/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-text-module/src/main/java/org/apache/tika/parser/csv/TextAndCSVParser.java
+@@ -268,6 +268,12 @@
+     private void processURL(String urlString, String name, XHTMLContentHandler xhtml,
+                             Metadata parentMetadata,
+                             ParseContext context) throws IOException, SAXException {
++        TextAndCSVConfig cfg = context.get(TextAndCSVConfig.class, defaultTextAndCSVConfig);
++        if (!cfg.isAllowExternalFetch()) {
++            parentMetadata.set(TikaCoreProperties.EMBEDDED_EXCEPTION,
++                    "Skipped external fetch for URL: " + urlString);
++            return;
++        }
+         EmbeddedDocumentExtractor ex = EmbeddedDocumentUtil.getEmbeddedDocumentExtractor(context);
+         Metadata metadata = new Metadata();
+         metadata.set(TikaCoreProperties.RESOURCE_NAME_KEY, name);

@@ -1,0 +1,58 @@
+--- a/src/udev/udev-rules.c
++++ b/src/udev/udev-rules.c
+@@ -1141,11 +1141,14 @@
+         char *i, *j, *m;
+         bool is_escaped = false, is_case_insensitive = false, is_prefix_match = false;
+         int pos = 0;
++        size_t input_len;
+ 
+         assert(str);
+         assert(ret_value);
+         assert(ret_endpos);
+         assert(ret_is_case_insensitive);
++
++        input_len = strlen(str);
+ 
+         /* check if string is prefixed with:
+          * - "e" for escaped
+@@ -1185,10 +1188,18 @@
+                  * so it could be safely interpreted as nulstr.
+                  */
+                 if (is_prefix_match){
++                        /* Check if buffer has space for j[0], j[1], j[2] */
++                        if (j + 2 >= str + input_len)
++                                return -EOVERFLOW;
++                        
+                         j[0] = '*';
+                         j[1] = '\0';
+                         j[2] = '\0';
+                 } else {
++                        /* Check if buffer has space for j[0], j[1] */
++                        if (j + 1 >= str + input_len)
++                                return -EOVERFLOW;
++                        
+                         j[0] = '\0';
+                         j[1] = '\0';
+                 }
+@@ -1216,6 +1227,10 @@
+                 * so it could be safely interpreted as nulstr.
+                 */
+                 if (is_prefix_match){
++                        /* Check if buffer has space for: content at (pos-1) + '*' + two '\0' */
++                        if (pos + l + 1 >= input_len)
++                                return -EOVERFLOW;
++                        
+                         /* need more room to make rule glob match */
+                         memcpy(str + pos - 1, unescaped, l + 1);
+                         str[pos + l - 1] = '*';
+@@ -1224,6 +1239,10 @@
+                         m = str + pos - 1;
+ 
+                 } else {
++                        /* Check if buffer has space for: content at m + two '\0' */
++                        if ((size_t)(m - str) + l + 1 >= input_len)
++                                return -EOVERFLOW;
++                        
+                         memcpy(m, unescaped, l + 1);
+                         m[l] = '\0';
+                         m[l + 1] = '\0';

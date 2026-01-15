@@ -1,0 +1,14 @@
+{
+  "project_name": "apache-poi",
+  "vulnerability_identifier": "apache-poi_poi-full-01_vuln_1",
+  "source_directory": "/home/qqor/crete/.cache/official-afc-poi",
+  "llm_usage": {
+    "total_cost": 2.043282,
+    "prompt_tokens": 574909,
+    "completion_tokens": 21237
+  },
+  "variant": "sound",
+  "diff": "--- a/poi-scratchpad/src/main/java/org/apache/poi/hmef/attribute/MAPIAttribute.java\n+++ b/poi-scratchpad/src/main/java/org/apache/poi/hmef/attribute/MAPIAttribute.java\n@@ -44,6 +44,9 @@\n    private static final int DEFAULT_MAX_RECORD_LENGTH = 1_000_000;\n    private static int MAX_RECORD_LENGTH = 1_000_000;\n    private static int MAX_RECORD_COUNT = 10_000;\n+   // arbitrarily selected; may need to increase\n+   private static final int DEFAULT_MAX_STRING_LENGTH = 100_000;\n+   private static int MAX_STRING_LENGTH = DEFAULT_MAX_STRING_LENGTH;\n \n    private final MAPIProperty property;\n    private final int type;\n@@ -61,6 +64,20 @@\n     */\n    public static int getMaxRecordLength() {\n       return MAX_RECORD_LENGTH;\n+   }\n+\n+   /**\n+    * @param length the max string length allowed for MAPI attribute names\n+    */\n+   public static void setMaxStringLength(int length) {\n+      MAX_STRING_LENGTH = length;\n+   }\n+\n+   /**\n+    * @return the max string length allowed for MAPI attribute names\n+    */\n+   public static int getMaxStringLength() {\n+      return MAX_STRING_LENGTH;\n    }\n \n    /**\n@@ -168,7 +185,7 @@\n                   if (mplen < 0) {\n                      throw new IOException(\"Did not expect negative value: \" + mplen);\n                   }\n-                  byte[] mpdata = new byte[mplen];\n+                  byte[] mpdata = IOUtils.safelyAllocate(mplen, MAX_STRING_LENGTH);\n                   if (IOUtils.readFully(inp, mpdata) < 0) {\n                      throw new IOException(\"Not enough data to read \" + mplen + \" bytes for attribute name\");\n                   }\n@@ -228,7 +245,9 @@\n           type == Types.DIRECTORY ||\n           type == Types.BINARY) {\n             // Need to read the length, as it varies\n-            return LittleEndian.readInt(inp);\n+            int length = LittleEndian.readInt(inp);\n+            IOUtils.safelyAllocateCheck(length, MAX_RECORD_LENGTH);\n+            return length;\n       } else {\n             throw new IllegalArgumentException(\"Unknown type \" + type);\n       }\n",
+  "stdout": "",
+  "stderr": ""
+}

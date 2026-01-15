@@ -1,0 +1,191 @@
+--- a/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-html-module/src/main/java/org/apache/tika/parser/html/HtmlHandler.java
++++ b/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-html-module/src/main/java/org/apache/tika/parser/html/HtmlHandler.java
+@@ -20,6 +20,9 @@
+ import java.net.MalformedURLException;
+ import java.net.URL;
+ import java.nio.charset.StandardCharsets;
++import java.nio.file.Files;
++import java.nio.file.Path;
++import java.nio.file.Paths;
+ import java.util.Arrays;
+ import java.util.HashMap;
+ import java.util.HashSet;
+@@ -35,6 +38,8 @@
+ import org.xml.sax.SAXException;
+ import org.xml.sax.helpers.AttributesImpl;
+ 
++import org.slf4j.Logger;
++import org.slf4j.LoggerFactory;
+ import org.apache.tika.extractor.EmbeddedDocumentExtractor;
+ import org.apache.tika.extractor.EmbeddedDocumentUtil;
+ import org.apache.tika.io.TikaInputStream;
+@@ -53,6 +58,8 @@
+ import org.apache.tika.utils.StringUtils;
+ 
+ class HtmlHandler extends TextContentHandler {
++
++    private static final Logger LOG = LoggerFactory.getLogger(HtmlHandler.class);
+ 
+     // List of attributes that need to be resolved.
+     private static final Set<String> URI_ATTRIBUTES =
+@@ -360,8 +367,15 @@
+             return;
+         }
+         int added = 0;
++        // Security fix: Block document-controlled exiftool_path to prevent OS command injection
+         if (metadata.get("html_meta:exiftool_path") != null) {
+-            added = configureExifTool(metadata.get("html_meta:exiftool_path"));
++            LOG.warn("Ignoring exiftool_path from document metadata for security reasons. " +
++                     "Use system property -Dtika.exiftool.path to configure exiftool.");
++        }
++        // Only use system property (trusted source) for exiftool configuration
++        String exiftoolPath = System.getProperty("tika.exiftool.path");
++        if (exiftoolPath != null && !exiftoolPath.trim().isEmpty()) {
++            added = configureExifTool(exiftoolPath);
+         }
+         //do anything with attrs?
+         Metadata m = new Metadata();
+@@ -384,6 +398,58 @@
+     }
+ 
+     private int configureExifTool(String path) {
++        // Security validation: Prevent OS command injection through path validation
++        if (path == null || path.trim().isEmpty()) {
++            LOG.warn("Exiftool path is null or empty, configuration skipped");
++            return 2;
++        }
++        
++        try {
++            // Resolve to absolute normalized path to prevent directory traversal
++            Path exiftoolPath = Paths.get(path).toAbsolutePath().normalize();
++            
++            // Security: path must be absolute
++            if (!exiftoolPath.isAbsolute()) {
++                LOG.warn("Exiftool path must be absolute, rejecting: {}", path);
++                return 2;
++            }
++            
++            // Security: file must exist
++            if (!Files.exists(exiftoolPath)) {
++                LOG.warn("Exiftool path does not exist: {}", exiftoolPath);
++                return 2;
++            }
++            
++            // Security: file must be executable
++            if (!Files.isExecutable(exiftoolPath)) {
++                LOG.warn("Exiftool path is not executable: {}", exiftoolPath);
++                return 2;
++            }
++            
++            // Security: must be a regular file
++            if (!Files.isRegularFile(exiftoolPath)) {
++                LOG.warn("Exiftool path is not a regular file: {}", exiftoolPath);
++                return 2;
++            }
++            
++            // Security: filename must contain "exiftool" to prevent arbitrary executables
++            String fileName = exiftoolPath.getFileName().toString().toLowerCase(Locale.US);
++            if (!fileName.contains("exiftool")) {
++                LOG.warn("Path does not appear to be exiftool executable: {}", exiftoolPath);
++                return 2;
++            }
++            
++            // Use the validated absolute path
++            path = exiftoolPath.toString();
++            
++        } catch (SecurityException se) {
++            LOG.warn("Security manager denied access to path: {}", path, se);
++            return 2;
++        } catch (Exception e) {
++            LOG.warn("Error validating exiftool path: {}", path, e);
++            return 2;
++        }
++        
+         ExternalParser exifToolParser = getExistingExifToolParser();
+         int retVal = 0;
+         if (exifToolParser == null) {
+@@ -435,7 +501,7 @@
+         }
+         exifToolParser.setCommand("exiftool", "${INPUT}");
+         exifToolParser.setSupportedTypes(newSupported);
+-        metadata.remove("exiftool_path");
++        metadata.remove("html_meta:exiftool_path");
+         Map<MediaType, Parser> updated = new HashMap<>();
+         for (Map.Entry<MediaType, Parser> e : exParser.getParsers().entrySet()) {
+             if (e.getValue() instanceof ExternalParser) {
+
+--- a/tika-core/src/main/java/org/apache/tika/parser/external/ExternalParser.java
++++ b/tika-core/src/main/java/org/apache/tika/parser/external/ExternalParser.java
+@@ -277,6 +277,43 @@
+         }
+     }
+ 
++    /**
++     * Validates file paths before using them in external commands to prevent injection attacks.
++     *
++     * @param path the file path to validate
++     * @throws TikaException if path contains unsafe characters or is invalid
++     */
++    private void validateFilePath(String path) throws TikaException {
++        if (path == null || path.isEmpty()) {
++            throw new TikaException("File path cannot be null or empty");
++        }
++        
++        File file = new File(path);
++        if (!file.isAbsolute()) {
++            throw new TikaException("File path must be absolute: " + path);
++        }
++        
++        // Check for shell metacharacters and control characters
++        for (int i = 0; i < path.length(); i++) {
++            char c = path.charAt(i);
++            
++            if (Character.isISOControl(c)) {
++                throw new TikaException(
++                    "File path contains control character at position " + i);
++            }
++            
++            // Reject shell metacharacters that could enable command injection
++            if (";|&$`()<>*?[]{}\'\"".indexOf(c) >= 0) {
++                throw new TikaException(
++                    "File path contains unsafe character '" + c + "' at position " + i);
++            }
++        }
++        
++        if (path.length() > 4096) {
++            throw new TikaException("File path exceeds maximum length");
++        }
++    }
++
+     private void parse(TikaInputStream stream, XHTMLContentHandler xhtml, Metadata metadata,
+                        TemporaryResources tmp) throws IOException, SAXException, TikaException {
+         boolean inputToStdIn = true;
+@@ -288,20 +325,25 @@
+         // Build our command
+         String[] cmd;
+         if (command.length == 1) {
+-            cmd = command[0].split(" ");
++            // Security: Do not split by space to prevent argument injection
++            cmd = new String[] { command[0] };
+         } else {
+             cmd = new String[command.length];
+             System.arraycopy(command, 0, cmd, 0, command.length);
+         }
+         for (int i = 0; i < cmd.length; i++) {
+             if (cmd[i].contains(INPUT_FILE_TOKEN)) {
+-                cmd[i] = cmd[i].replace(INPUT_FILE_TOKEN, stream.getFile().getPath());
++                String inputPath = stream.getFile().getPath();
++                validateFilePath(inputPath);
++                cmd[i] = cmd[i].replace(INPUT_FILE_TOKEN, inputPath);
+                 inputToStdIn = false;
+             }
+             if (cmd[i].contains(OUTPUT_FILE_TOKEN)) {
+                 output = tmp.createTemporaryFile();
++                String outputPath = output.getPath();
++                validateFilePath(outputPath);
+                 outputFromStdOut = false;
+-                cmd[i] = cmd[i].replace(OUTPUT_FILE_TOKEN, output.getPath());
++                cmd[i] = cmd[i].replace(OUTPUT_FILE_TOKEN, outputPath);
+             }
+         }
+ 

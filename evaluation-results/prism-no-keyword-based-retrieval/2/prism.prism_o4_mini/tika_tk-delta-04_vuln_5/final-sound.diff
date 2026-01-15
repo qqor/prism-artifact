@@ -1,0 +1,31 @@
+--- a/tika-pipes/tika-emitters/tika-emitter-fs/src/main/java/org/apache/tika/pipes/emitter/fs/FileSystemEmitter.java
++++ b/tika-pipes/tika-emitters/tika-emitter-fs/src/main/java/org/apache/tika/pipes/emitter/fs/FileSystemEmitter.java
+@@ -84,9 +84,13 @@
+             emitKey += "." + fileExtension;
+         }
+         if (basePath != null) {
+-            output = basePath.resolve(emitKey);
++            Path rawOutput = basePath.resolve(emitKey);
++            output = rawOutput.normalize();
++            if (!output.startsWith(basePath.normalize())) {
++                throw new TikaEmitterException("Detected path traversal in emitKey: " + emitKey);
++            }
+         } else {
+-            output = Paths.get(emitKey);
++            output = Paths.get(emitKey).normalize();
+         }
+ 
+         if (!Files.isDirectory(output.getParent())) {
+@@ -144,7 +148,11 @@
+ 
+     @Override
+     public void emit(String path, InputStream inputStream, Metadata userMetadata, ParseContext parseContext) throws IOException, TikaEmitterException {
+-        Path target = basePath.resolve(path);
++        Path rawTarget = basePath.resolve(path);
++        Path target = rawTarget.normalize();
++        if (!target.startsWith(basePath.normalize())) {
++            throw new TikaEmitterException("Detected path traversal in path: " + path);
++        }
+ 
+         if (!Files.isDirectory(target.getParent())) {
+             Files.createDirectories(target.getParent());

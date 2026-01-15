@@ -1,0 +1,59 @@
+--- a/src/udev/udev-rules.c
++++ b/src/udev/udev-rules.c
+@@ -1185,17 +1185,24 @@
+                  * so it could be safely interpreted as nulstr.
+                  */
+                 if (is_prefix_match){
++                        /* Validate we have space for '*' + two NULs */
++                        if ((size_t)((i + 1) - j) < 3)
++                                return -EINVAL;
+                         j[0] = '*';
+                         j[1] = '\0';
+                         j[2] = '\0';
+                 } else {
++                        /* Validate we have space for two NULs */
++                        if ((size_t)((i + 1) - j) < 2)
++                                return -EINVAL;
+                         j[0] = '\0';
+                         j[1] = '\0';
+                 }
+-                str = m;            
++                str = m;
+         } else {
+                 _cleanup_free_ char *unescaped = NULL;
+                 ssize_t l;
++                size_t available;
+ 
+                 /* find the end position of value */
+                 for (i = m + 1; *i != '"'; i++) {
+@@ -1211,12 +1218,19 @@
+ 
+                 assert(l <= i - (m + 1));
+ 
++                /* Calculate available buffer space from start to past closing quote */
++                available = (i + 1) - str;
++
+                 /*
+                 * The return value must be terminated by two subsequent NULs
+                 * so it could be safely interpreted as nulstr.
+                 */
+                 if (is_prefix_match){
+                         /* need more room to make rule glob match */
++                        /* Validate we have space for unescaped content + '*' + two NULs */
++                        /* Write range: [pos-1, pos+l+1] requires pos+l+2 total positions */
++                        if ((size_t)(pos + l + 2) > available)
++                                return -EINVAL;
+                         memcpy(str + pos - 1, unescaped, l + 1);
+                         str[pos + l - 1] = '*';
+                         str[pos + l] = '\0';
+@@ -1224,6 +1238,10 @@
+                         m = str + pos - 1;
+ 
+                 } else {
++                        /* Validate we have space for unescaped content + two NULs */
++                        /* Write range: [pos, pos+l+1] requires pos+l+2 total positions */
++                        if ((size_t)(pos + l + 2) > available)
++                                return -EINVAL;
+                         memcpy(m, unescaped, l + 1);
+                         m[l] = '\0';
+                         m[l + 1] = '\0';

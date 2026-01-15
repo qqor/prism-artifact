@@ -1,0 +1,14 @@
+{
+  "project_name": "apache-poi",
+  "vulnerability_identifier": "apache-poi-poi-full-01-vuln_1",
+  "source_directory": "/tasks/9f4f673a-9570-46d1-bfb2-cafe4625487b/official-afc-poi",
+  "llm_usage": {
+    "total_cost": 0.262042,
+    "prompt_tokens": 122524,
+    "completion_tokens": 28924
+  },
+  "variant": "sound",
+  "diff": "--- a/poi-scratchpad/src/main/java/org/apache/poi/hmef/attribute/MAPIAttribute.java\n+++ b/poi-scratchpad/src/main/java/org/apache/poi/hmef/attribute/MAPIAttribute.java\n@@ -164,16 +164,23 @@\n                   name = base.name;\n                } else {\n                   // Custom name was stored\n-                  int mplen = LittleEndian.readInt(inp);\n-                  if (mplen < 0) {\n-                     throw new IOException(\"Did not expect negative value: \" + mplen);\n-                  }\n-                  byte[] mpdata = new byte[mplen];\n-                  if (IOUtils.readFully(inp, mpdata) < 0) {\n-                     throw new IOException(\"Not enough data to read \" + mplen + \" bytes for attribute name\");\n-                  }\n-                  name = StringUtil.getFromUnicodeLE(mpdata, 0, (mplen/2)-1);\n-                  skipToBoundary(mplen, inp);\n+                   int mplen = LittleEndian.readInt(inp);\n+                   if (mplen < 0) {\n+                      throw new IOException(\"Did not expect negative property name length: \" + mplen);\n+                   }\n+                   if (mplen < 2 || (mplen & 1) != 0) {\n+                      throw new IOException(\"Invalid or odd property name length: \" + mplen);\n+                   }\n+                   byte[] mpdata = IOUtils.safelyAllocate(mplen, TNEFAttribute.getMaxRecordLength());\n+                   if (IOUtils.readFully(inp, mpdata) < 0) {\n+                      throw new IOException(\"Not enough data to read \" + mplen + \" bytes for attribute name\");\n+                   }\n+                   try {\n+                      name = StringUtil.getFromUnicodeLE(mpdata, 0, (mplen/2) - 1);\n+                   } catch (IllegalArgumentException e) {\n+                      throw new IOException(\"Invalid property name data for length \" + mplen, e);\n+                   }\n+                   skipToBoundary(mplen, inp);\n                }\n \n                // Now create\n",
+  "stdout": "",
+  "stderr": ""
+}

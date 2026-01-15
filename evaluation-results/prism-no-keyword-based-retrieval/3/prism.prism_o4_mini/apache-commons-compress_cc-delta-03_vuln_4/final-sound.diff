@@ -1,0 +1,50 @@
+--- a/src/main/java/org/apache/commons/compress/archivers/tar/TarUtils.java
++++ b/src/main/java/org/apache/commons/compress/archivers/tar/TarUtils.java
+@@ -49,6 +49,9 @@
+ 
+     static final ZipEncoding DEFAULT_ENCODING = ZipEncodingHelper.getZipEncoding(Charset.defaultCharset());
+ 
++    /** Maximum allowed length of a single PAX header record (length field) in bytes */
++    private static final int MAX_PAX_HEADER_LENGTH = 10 * 1024; // 10 KiB
++
+     /**
+      * Encapsulates the algorithms used up to Commons Compress 1.3 as ZipEncoding.
+      */
+@@ -657,6 +660,10 @@
+                     break;
+                 }
+                 if (ch == ' ') { // End of length string
++                    if (len < 3 || len > MAX_PAX_HEADER_LENGTH) {
++                        throw new IOException("PAX header record length " + len +
++                            " is invalid or exceeds maximum of " + MAX_PAX_HEADER_LENGTH);
++                    }
+                     // Get keyword
+                     final ByteArrayOutputStream coll = new ByteArrayOutputStream();
+                     while ((ch = inputStream.read()) != -1) {
+
+--- a/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java
++++ b/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java
+@@ -219,7 +219,10 @@
+      * </p>
+      */
+     private static final Pattern PAX_EXTENDED_HEADER_FILE_TIMES_PATTERN =
+-            Pattern.compile("-?\\d{1,19}(?:\\.\\d*)?");
++            Pattern.compile("-?\\d{1,19}(?:\\.\\d{0,9})?");
++
++    /** Maximum allowed length of timestamp string: sign + 19 digits + dot + 9 digits = 30 */
++    private static final int MAX_TIMESTAMP_LENGTH = 30;
+ 
+     private static FileTime fileTimeFromOptionalSeconds(final long seconds) {
+         return seconds <= 0 ? null : FileTimes.fromUnixTime(seconds);
+@@ -268,8 +271,9 @@
+ 
+     private static Instant parseInstantFromDecimalSeconds(final String value) throws IOException {
+         // Validate field values to prevent denial of service attacks with BigDecimal values (see JDK-6560193)
+-        if (!PAX_EXTENDED_HEADER_FILE_TIMES_PATTERN.matcher(value).matches()) {
+-            throw new IOException("Corrupted PAX header. Time field value is invalid '" + value + "'");
++        if (value.length() > MAX_TIMESTAMP_LENGTH
++                || !PAX_EXTENDED_HEADER_FILE_TIMES_PATTERN.matcher(value).matches()) {
++            throw new IOException("Corrupted PAX header. Time field is invalid or too long: '" + value + "'");
+         }
+ 
+         final BigDecimal epochSeconds = new BigDecimal(value);

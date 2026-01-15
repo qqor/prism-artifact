@@ -1,0 +1,130 @@
+--- a/libfreerdp/core/mcs.h
++++ b/libfreerdp/core/mcs.h
+@@ -144,7 +144,7 @@
+ 	BOOL globalChannelJoined;
+ 	BOOL messageChannelJoined;
+ 
+-	INT8 channelCount;
++	UINT8 channelCount;
+ 	rdpMcsChannel* channels;
+ };
+ 
+
+--- a/libfreerdp/core/gcc.c
++++ b/libfreerdp/core/gcc.c
+@@ -1847,46 +1847,40 @@
+ 
+ BOOL gcc_read_client_network_data(wStream* s, rdpMcs* mcs)
+ {
+-	WINPR_ASSERT(s);
+-	WINPR_ASSERT(mcs);
+-
+-	const size_t blockLength = Stream_GetRemainingLength(s);
+-	if (blockLength < 4)
+-		return FALSE;
+-
+-	Stream_Read_UINT8(s, mcs->channelCount); /* channelCount */
+-
+-	if (blockLength < 4 + (UINT8)mcs->channelCount * 12)
+-		return FALSE;
+-
+-	if (mcs->channelCount > CHANNEL_MAX_COUNT)
+-		return FALSE;
+-
+-	/* channelDefArray */
+-	for (UINT32 i = 0; i < mcs->channelCount; i++)
+-	{
+-		/**
+-		 * CHANNEL_DEF
+-		 * - name: an 8-byte array containing a null-terminated collection
+-		 *   of seven ANSI characters that uniquely identify the channel.
+-		 * - options: a 32-bit, unsigned integer. Channel option flags
+-		 */
+-		rdpMcsChannel* channel = &mcs->channels[i];
+-		Stream_Read(s, channel->Name, CHANNEL_NAME_LEN + 1); /* name (8 bytes) */
+-
+-		if (!memchr(channel->Name, 0, CHANNEL_NAME_LEN + 1))
+-		{
+-			WLog_ERR(
+-			    TAG,
+-			    "protocol violation: received a static channel name with missing null-termination");
+-			return FALSE;
+-		}
+-
+-		Stream_Read_UINT32(s, channel->options); /* options (4 bytes) */
+-		channel->ChannelId = mcs->baseChannelId++;
+-	}
+-
+-	return TRUE;
++    UINT8 channelCount;
++    UINT32 i;
++    rdpMcsChannel* channel;
++    const size_t blockLength = Stream_GetRemainingLength(s);
++
++    WINPR_ASSERT(s);
++    WINPR_ASSERT(mcs);
++
++    if (blockLength < 1)
++        return FALSE;
++    Stream_Read_UINT8(s, channelCount);
++    if (channelCount > CHANNEL_MAX_COUNT)
++    {
++        WLog_ERR(TAG, "Too many client channel definitions: %" PRIu8, channelCount);
++        return FALSE;
++    }
++    if (blockLength < 1 + (size_t)channelCount * 12)
++        return FALSE;
++    mcs->channelCount = channelCount;
++
++    for (i = 0; i < channelCount; i++)
++    {
++        channel = &mcs->channels[i];
++        Stream_Read(s, channel->Name, CHANNEL_NAME_LEN + 1); /* name (8 bytes) */
++        if (!memchr(channel->Name, 0, CHANNEL_NAME_LEN + 1))
++        {
++            WLog_ERR(TAG,
++                     "protocol violation: received a static channel name with missing null-termination");
++            return FALSE;
++        }
++        Stream_Read_UINT32(s, channel->options);
++        channel->ChannelId = mcs->baseChannelId++;
++    }
++    return TRUE;
+ }
+ 
+ /**
+
+--- a/libfreerdp/core/mcs.c
++++ b/libfreerdp/core/mcs.c
+@@ -693,12 +693,25 @@
+ 	if (!mcs_read_domain_parameters(s, &mcs->maximumParameters))
+ 		return FALSE;
+ 
+-	if (!ber_read_octet_string_tag(s, &length) ||
+-	    (!Stream_CheckAndLogRequiredLength(TAG, s, length)))
+-		return FALSE;
+-
+-	if (!gcc_read_conference_create_request(s, mcs))
+-		return FALSE;
++    UINT8 userChannelCount;
++    UINT32 j;
++
++    if (!ber_read_octet_string_tag(s, &length) ||
++        !Stream_CheckAndLogRequiredLength(TAG, s, length))
++        return FALSE;
++
++    Stream_Read_UINT8(s, userChannelCount);
++    if (userChannelCount > CHANNEL_MAX_COUNT)
++    {
++        WLog_ERR(TAG, "Too many user channels to join: %" PRIu8, userChannelCount);
++        return FALSE;
++    }
++
++    for (j = 0; j < userChannelCount; j++)
++    {
++        if (!gcc_read_conference_create_request(s, mcs))
++            return FALSE;
++    }
+ 
+ 	if (!mcs_merge_domain_parameters(&mcs->targetParameters, &mcs->minimumParameters,
+ 	                                 &mcs->maximumParameters, &mcs->domainParameters))

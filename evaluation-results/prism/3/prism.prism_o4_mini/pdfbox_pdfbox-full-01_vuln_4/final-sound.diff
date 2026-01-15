@@ -1,0 +1,128 @@
+--- a/fontbox/src/main/java/org/apache/fontbox/pfb/PfbParser.java
++++ b/fontbox/src/main/java/org/apache/fontbox/pfb/PfbParser.java
+@@ -69,7 +69,7 @@
+      * Heuristically chosen max length to buffer a Type1 font
+      */
+     private static final long MAX_LENGTH = 100_000_000;
+-
++    private static final long MAX_PFB_SEGMENT_LENGTH = 1 * 1024 * 1024; // 1 MB max segment length
+     /**
+      * the parsed pfb-data.
+      */
+@@ -157,6 +157,9 @@
+             size += in.read() << 8;
+             size += in.read() << 16;
+             size += in.read() << 24;
++            if (size < 0 || size > MAX_PFB_SEGMENT_LENGTH) {
++                throw new IOException("PFB segment size out of bounds: " + size);
++            }
+             LOG.debug("record type: {}, segment size: {}", recordType, size);
+             long newTotal = total + size;
+             if (newTotal > MAX_LENGTH) {
+
+--- a/fontbox/src/main/java/org/apache/fontbox/type1/Type1Parser.java
++++ b/fontbox/src/main/java/org/apache/fontbox/type1/Type1Parser.java
+@@ -21,6 +21,8 @@
+ import org.apache.fontbox.encoding.StandardEncoding;
+ 
+ import java.io.IOException;
++import org.apache.logging.log4j.Logger;
++import org.apache.logging.log4j.LogManager;
+ import java.util.ArrayList;
+ import java.util.HashMap;
+ import java.util.List;
+@@ -538,6 +540,11 @@
+     /**
+      * Parses the binary portion of a Type 1 font.
+      */
++    private static final Logger LOG = LogManager.getLogger(Type1Parser.class);
++    private static final int MAX_CHARSTRINGS = 1_000;
++    private static final int MAX_SUBRS = 5_000;
++    private static final int MAX_OTHERSUBRS = 5_000;
++
+     private void parseBinary(byte[] bytes) throws IOException
+     {
+         byte[] decrypted;
+@@ -549,6 +556,9 @@
+         else
+         {
+             decrypted = decrypt(hexToBinary(bytes), EEXEC_KEY, 4);
++        }
++        if (decrypted.length > 1024 * 1024) {
++            throw new IOException("Decrypted font data too large: " + decrypted.length);
+         }
+         lexer = new Type1Lexer(decrypted);
+ 
+@@ -707,6 +717,13 @@
+     {
+         // allocate size (array indexes may not be in-order)
+         int length = read(Token.INTEGER).intValue();
++        if (length < 0) {
++            throw new IOException("Negative Subrs count: " + length);
++        }
++        if (length > MAX_SUBRS) {
++            LOG.warn("Clamping Subrs count {} to {}", length, MAX_SUBRS);
++            length = MAX_SUBRS;
++        }
+         for (int i = 0; i < length; i++)
+         {
+             font.subrs.add(null);
+@@ -757,6 +774,13 @@
+         else
+         {
+             int length = read(Token.INTEGER).intValue();
++            if (length < 0) {
++                throw new IOException("Negative OtherSubrs count: " + length);
++            }
++            if (length > MAX_OTHERSUBRS) {
++                LOG.warn("Clamping OtherSubrs count {} to {}", length, MAX_OTHERSUBRS);
++                length = MAX_OTHERSUBRS;
++            }
+             read(Token.NAME, "array");
+ 
+             for (int i = 0; i < length; i++)
+@@ -777,6 +801,13 @@
+     private void readCharStrings(int lenIV) throws IOException
+     {
+         int length = read(Token.INTEGER).intValue();
++        if (length < 0) {
++            throw new IOException("Negative CharStrings count: " + length);
++        }
++        if (length > MAX_CHARSTRINGS) {
++            LOG.warn("Clamping CharStrings count {} to {}", length, MAX_CHARSTRINGS);
++            length = MAX_CHARSTRINGS;
++        }
+         read(Token.NAME, "dict");
+         // could actually be a sequence ending in "CharStrings begin", too
+         // instead of the "dup begin"
+
+--- a/fontbox/src/main/java/org/apache/fontbox/type1/Type1Lexer.java
++++ b/fontbox/src/main/java/org/apache/fontbox/type1/Type1Lexer.java
+@@ -48,6 +48,8 @@
+      * Log instance.
+      */
+     private static final Logger LOG = LogManager.getLogger(Type1Lexer.class);
++    private static final int MAX_TOKEN_SCAN_BYTES = 16 * 1024; // 16 KB max per token
++    private int scanned;
+     
+     private final ByteBuffer buffer;
+     private Token aheadToken;
+@@ -102,6 +104,10 @@
+     {
+         try
+         {
++            scanned++;
++            if (scanned > MAX_TOKEN_SCAN_BYTES) {
++                throw new DamagedFontException("Token exceeds max length at position " + buffer.position());
++            }
+             return (char) buffer.get();
+         }
+         catch (BufferUnderflowException exception)
+@@ -116,6 +122,7 @@
+      */
+     private Token readToken(Token prevToken) throws IOException
+     {
++        scanned = 0;
+         boolean skip;
+         do
+         {

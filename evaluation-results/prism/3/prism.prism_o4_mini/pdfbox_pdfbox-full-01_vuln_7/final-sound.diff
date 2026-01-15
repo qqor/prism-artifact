@@ -1,0 +1,51 @@
+--- a/pdfbox/src/main/java/org/apache/pdfbox/pdmodel/PDPageTree.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/pdmodel/PDPageTree.java
+@@ -180,6 +180,7 @@
+     private final class PageIterator implements Iterator<PDPage>
+     {
+         private final Queue<COSDictionary> queue = new ArrayDeque<>();
++        private final java.util.Set<COSDictionary> visitedNodes = new java.util.HashSet<>();
+ 
+         private PageIterator(COSDictionary node)
+         {
+@@ -205,23 +206,29 @@
+          */
+         private List<COSDictionary> enqueueKids(COSDictionary node)
+         {
++            if (node == null) {
++                return Collections.<COSDictionary>emptyList();
++            }
++            if (visitedNodes.contains(node)) {
++                LOG.error("Skipping cyclic page-tree node {}", node);
++                return Collections.<COSDictionary>emptyList();
++            }
++            visitedNodes.add(node);
+             if (isPageTreeNode(node))
+             {
+                 return getKids(node);
+             }
++            COSName type = node.getCOSName(COSName.TYPE);
++            if (COSName.PAGE.equals(type))
++            {
++                queue.add(node);
++            }
+             else
+             {
+-                if (node != null && COSName.PAGE.equals(node.getCOSName(COSName.TYPE)))
+-                {
+-                    queue.add(node);
+-                }
+-                else
+-                {
+-                    LOG.error("Page skipped due to an invalid or missing type {}",
+-                            () -> (node == null ? "(null)" : node.getCOSName(COSName.TYPE)));
+-                }
+-            }
+-            return Collections.EMPTY_LIST;
++                LOG.error("Page skipped due to an invalid or missing type {}", () ->
++                        (type == null ? "(null)" : type));
++            }
++            return Collections.<COSDictionary>emptyList();
+         }
+ 
+         @Override

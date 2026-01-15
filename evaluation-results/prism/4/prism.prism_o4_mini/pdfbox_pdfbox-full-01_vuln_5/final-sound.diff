@@ -1,0 +1,54 @@
+--- a/fontbox/src/main/java/org/apache/fontbox/type1/Type1Lexer.java
++++ b/fontbox/src/main/java/org/apache/fontbox/type1/Type1Lexer.java
+@@ -48,7 +48,13 @@
+      * Log instance.
+      */
+     private static final Logger LOG = LogManager.getLogger(Type1Lexer.class);
+-    
++
++    /**
++     * Maximum allowed CharString length to prevent unbounded memory allocation.
++     * Typical Type 1 CharStrings are small; 10 MiB is a safe upper bound.
++     */
++    private static final int MAX_CHARSTRING_LENGTH = 10 * 1024 * 1024;
++
+     private final ByteBuffer buffer;
+     private Token aheadToken;
+     private int openParens = 0;
+@@ -501,16 +507,32 @@
+      */
+     private Token readCharString(int length) throws IOException
+     {
++        // Validate charstring length to prevent resource exhaustion
++        if (length < 0)
++        {
++            throw new IOException("CharString length is negative: " + length);
++        }
++        // Ensure there is at least one space byte plus the declared data
++        int remaining = buffer.remaining();
++        if (length + 1 > remaining)
++        {
++            throw new IOException("CharString length exceeds available data: " + length);
++        }
++        // Enforce an upper bound to prevent OOM
++        if (length > MAX_CHARSTRING_LENGTH)
++        {
++            throw new IOException("CharString length exceeds maximum allowed: " + length);
++        }
+         try
+         {
+-            buffer.get(); // space
++            buffer.get(); // consume space delimiter
+             byte[] data = new byte[length];
+             buffer.get(data);
+             return new Token(data, Token.CHARSTRING);
+         }
+-        catch (BufferUnderflowException exception)
+-        {
+-            throw new IOException("Premature end of buffer reached");
++        catch (BufferUnderflowException e)
++        {
++            throw new IOException("Premature end of buffer reached", e);
+         }
+     }
+ }

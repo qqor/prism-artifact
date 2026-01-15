@@ -1,0 +1,24 @@
+--- a/src/main/java/org/apache/commons/compress/archivers/examples/Expander.java
++++ b/src/main/java/org/apache/commons/compress/archivers/examples/Expander.java
+@@ -70,7 +70,20 @@
+         final Path targetDirPath = nullTarget ? null : targetDirectory.normalize();
+         T nextEntry = supplier.get();
+         while (nextEntry != null) {
+-            final Path targetPath = nullTarget ? null : nextEntry.resolveIn(targetDirPath);
++            final Path targetPath;
++            if (nullTarget) {
++                targetPath = null;
++            } else {
++                // Compute the raw output path for this entry
++                Path raw = nextEntry.resolveIn(targetDirPath);
++                // Normalize to eliminate "." and ".." segments
++                Path normalized = raw.normalize();
++                // Enforce that the normalized path stays within the target directory
++                if (!normalized.startsWith(targetDirPath)) {
++                    throw new IOException("Entry " + nextEntry.getName() + " would be written outside the target directory: " + normalized);
++                }
++                targetPath = normalized;
++            }
+             if (nextEntry.isDirectory()) {
+                 if (!nullTarget && !Files.isDirectory(targetPath) && Files.createDirectories(targetPath) == null) {
+                     throw new IOException("Failed to create directory " + targetPath);

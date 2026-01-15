@@ -1,0 +1,25 @@
+diff --git a/src/net_builtin.c b/src/net_builtin.c
+index 793874f4..dfa85ded 100644
+--- a/src/net_builtin.c
++++ b/src/net_builtin.c
+@@ -380,11 +380,18 @@ static void rx_arp(struct mg_tcpip_if *ifp, struct pkt *pkt) {
+ }
+ 
+ static void rx_icmp(struct mg_tcpip_if *ifp, struct pkt *pkt) {
+-  // MG_DEBUG(("ICMP %d", (int) len));
++// FIXME: Crash CWE-125: Out-of-bounds Read
++   // MG_DEBUG(("ICMP %d", (int) len));
+   if (pkt->icmp->type == 8 && pkt->ip != NULL && pkt->ip->dst == ifp->ip) {
+-    size_t hlen = sizeof(struct eth) + sizeof(struct ip) + sizeof(struct icmp);
++    size_t ip_hl = pkt->ip->ihl * 4; // Calculate actual IP header length
++    size_t hlen = sizeof(struct eth) + ip_hl + sizeof(struct icmp); // Dynamic header size
++    // Verify packet contains full headers to avoid out-of-bounds
++    if (pkt->len < hlen) return;
+     size_t space = ifp->tx.len - hlen, plen = pkt->pay.len;
++    // Adjust payload length to available buffer space
+     if (plen > space) plen = space;
++    // Ensure we don't read beyond received packet
++    if (plen > pkt->len - hlen) plen = pkt->len - hlen;
+     struct ip *ip = tx_ip(ifp, pkt->eth->src, 1, ifp->ip, pkt->ip->src,
+                           sizeof(struct icmp) + plen);
+     struct icmp *icmp = (struct icmp *) (ip + 1);

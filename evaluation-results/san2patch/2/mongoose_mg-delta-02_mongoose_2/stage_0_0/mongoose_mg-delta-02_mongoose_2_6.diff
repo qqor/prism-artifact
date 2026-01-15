@@ -1,0 +1,24 @@
+diff --git a/src/net_builtin.c b/src/net_builtin.c
+index 793874f4..997bc1ba 100644
+--- a/src/net_builtin.c
++++ b/src/net_builtin.c
+@@ -888,11 +888,15 @@ void mg_tcpip_rx(struct mg_tcpip_if *ifp, void *buf, size_t len) {
+     }
+     if (pkt.raw.len < sizeof(*pkt.eth) + sizeof(*pkt.ip)) return;  // Truncated
+     if ((pkt.ip->ver >> 4) != 4) return;                           // Not IP
+-    if ((pkt.ip->ver & 0xF) > 5)                                   // Handle IPv4 options
+-        mkpay(&pkt, (char *)(pkt.ip) + ((pkt.ip->ver & 0xF)*4));
++    // Compute IHL: options or standard
++    size_t ihl = (pkt.ip->ver & 0xF) > 5 ? (pkt.ip->ver & 0xF) * 4 : sizeof(*pkt.ip);
++    size_t payload_offset = sizeof(*pkt.eth) + ihl;
++    // Ensure at least 8 bytes of payload to cover ICMP header in mkpay
++    if (pkt.raw.len < payload_offset + 8) return;
++    if ((pkt.ip->ver & 0xF) > 5)
++      mkpay(&pkt, (char *)(pkt.ip) + ihl);
+     else
+-        mkpay(&pkt, pkt.ip + 1);
+-
++      mkpay(&pkt, pkt.ip + 1);
+     rx_ip(ifp, &pkt);
+   } else {
+     MG_DEBUG(("Unknown eth type %x", mg_htons(pkt.eth->type)));

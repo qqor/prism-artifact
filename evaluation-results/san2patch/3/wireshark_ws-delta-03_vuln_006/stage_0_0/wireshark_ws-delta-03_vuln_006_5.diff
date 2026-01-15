@@ -1,0 +1,50 @@
+diff --git a/epan/dissectors/packet-irc.c b/epan/dissectors/packet-irc.c
+index 481a619eca..fada11926d 100644
+--- a/epan/dissectors/packet-irc.c
++++ b/epan/dissectors/packet-irc.c
+@@ -1106,27 +1106,41 @@
+               */
+              break;
+          }
+- 
++
+          if (linelen != 0)
+          {
++             /* Rationale: Prevent oversized IRC payload processing */
++             const size_t max_len = MAX_IRC_NAME_LIST_LENGTH;
++             if (linelen > max_len) {
++                 expert_info(&ei_protocol, pinfo, "IRC line too long (%zu bytes), skipping\n", linelen);
++                 offset = next_offset;
++                 continue;
++             }
+              if (pinfo->match_uint == pinfo->destport)
+              {
+                  dissect_irc_request(irc_tree, tvb, pinfo, offset, linelen);
+              }
+              else
+              {
++                 /* Maximum allowed NAMES payload length to avoid overflow */
++                 static const guint MAX_IRC_NAME_LIST_LENGTH = 512;
++                 if (linelen > MAX_IRC_NAME_LIST_LENGTH) {
++                     /* Skip oversized NAMES message */
++                     offset = next_offset;
++                     continue;
++                 }
+                  dissect_irc_response(irc_tree, tvb, pinfo, offset, linelen);
+              }
+          }
+-         offset = next_offset;
++// FIXME: Crash CWE-787: Out-of-bounds Write
++          offset = next_offset;
+      }
+      return tvb_captured_length(tvb);
+  }
+  
+  void
+  proto_register_irc(void)
+- {
+-     static hf_register_info hf[] = {
++ {     static hf_register_info hf[] = {
+          { &hf_irc_response, { "Response", "irc.response", FT_STRING, BASE_NONE,
+            NULL, 0x0, "Line of response message", HFILL }},
+  

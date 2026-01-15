@@ -1,0 +1,40 @@
+--- a/libexif/apple/exif-mnote-data-apple.c
++++ b/libexif/apple/exif-mnote-data-apple.c
+@@ -27,6 +27,7 @@
+ 
+ #include <libexif/exif-data.h>
+ #include <libexif/exif-utils.h>
++#include <libexif/exif-format.h>
+ 
+ static void
+ exif_mnote_data_apple_free(ExifMnoteData *md) {
+@@ -235,15 +236,20 @@
+ 
+ int
+ exif_mnote_data_apple_identify(const ExifData *ed, const ExifEntry *e) {
+-    int variant;
+-
+-    if (!strcmp((const char *) e->data, "Apple iOS")) {
+-        variant = 1;
+-    } else {
+-        variant = 0;
+-    }
+-
+-    return variant;
++    const char apple_sig[] = "Apple iOS";
++    size_t siglen = sizeof(apple_sig) - 1;
++    size_t buflen;
++
++    /* Validate entry and data pointer */
++    if (!e || !e->data)
++        return 0;
++
++    /* Compute the length of maker-note data */
++    buflen = exif_format_get_size(e->format) * (size_t) e->components;
++    /* Identify Apple variant if data has sufficient length and matches signature */
++    if (buflen >= siglen && memcmp(e->data, apple_sig, siglen) == 0)
++        return 1;
++    return 0;
+ }
+ 
+ ExifMnoteData *

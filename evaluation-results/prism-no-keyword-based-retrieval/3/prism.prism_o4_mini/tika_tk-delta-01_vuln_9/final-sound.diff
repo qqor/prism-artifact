@@ -1,0 +1,45 @@
+--- a/tika-core/src/main/java/org/apache/tika/parser/external/ExternalParser.java
++++ b/tika-core/src/main/java/org/apache/tika/parser/external/ExternalParser.java
+@@ -22,6 +22,8 @@
+ import java.io.File;
+ import java.io.FileInputStream;
+ import java.io.IOException;
++import java.util.regex.Pattern;
++import org.apache.tika.exception.TikaException;
+ import java.io.InputStream;
+ import java.io.InputStreamReader;
+ import java.io.OutputStream;
+@@ -286,22 +288,21 @@
+         File output = null;
+ 
+         // Build our command
+-        String[] cmd;
+-        if (command.length == 1) {
+-            cmd = command[0].split(" ");
+-        } else {
+-            cmd = new String[command.length];
+-            System.arraycopy(command, 0, cmd, 0, command.length);
+-        }
++        String[] cmd = new String[command.length];
++        System.arraycopy(command, 0, cmd, 0, command.length);
++        // validate and replace input and output file tokens in one pass
+         for (int i = 0; i < cmd.length; i++) {
+-            if (cmd[i].contains(INPUT_FILE_TOKEN)) {
+-                cmd[i] = cmd[i].replace(INPUT_FILE_TOKEN, stream.getFile().getPath());
++            String token = cmd[i];
++            if (token == null || token.length() > 256 || !Pattern.matches("[A-Za-z0-9_./\\\\-]+", token)) {
++                throw new TikaException("Invalid external command token: " + token);
++            }
++            if (token.contains(INPUT_FILE_TOKEN)) {
++                cmd[i] = token.replace(INPUT_FILE_TOKEN, stream.getFile().getPath());
+                 inputToStdIn = false;
+-            }
+-            if (cmd[i].contains(OUTPUT_FILE_TOKEN)) {
++            } else if (token.contains(OUTPUT_FILE_TOKEN)) {
+                 output = tmp.createTemporaryFile();
+                 outputFromStdOut = false;
+-                cmd[i] = cmd[i].replace(OUTPUT_FILE_TOKEN, output.getPath());
++                cmd[i] = token.replace(OUTPUT_FILE_TOKEN, output.getPath());
+             }
+         }
+ 

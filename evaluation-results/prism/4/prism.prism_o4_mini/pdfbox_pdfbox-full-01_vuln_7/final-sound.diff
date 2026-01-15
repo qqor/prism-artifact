@@ -1,0 +1,81 @@
+--- a/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/BaseParser.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/BaseParser.java
+@@ -338,8 +338,10 @@
+      */
+     private boolean readUntilEndOfCOSDictionary() throws IOException
+     {
++        long maxDictScan = Long.getLong("pdfbox.parser.maxCOSDictBytes", 1024 * 1024);
++        long dictScanned = 0;
+         int c = source.read();
+-        while (c != -1 && c != '/' && c != '>')
++        while (c != -1 && c != '/' && c != '>' && dictScanned++ < maxDictScan)
+         {
+             // in addition to stopping when we find / or >, we also want
+             // to stop when we find endstream or endobj.
+@@ -365,6 +367,12 @@
+                 }
+             }
+             c = source.read();
++        }
++        if (dictScanned >= maxDictScan)
++        {
++            LOG.warn("readUntilEndOfCOSDictionary exceeded {} bytes at offset {}, aborting recovery",
++                     maxDictScan, source.getPosition());
++            return true;
+         }
+         if (c == -1)
+         {
+
+--- a/pdfbox/src/main/java/org/apache/pdfbox/pdmodel/PDPageTree.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/pdmodel/PDPageTree.java
+@@ -180,9 +180,12 @@
+     private final class PageIterator implements Iterator<PDPage>
+     {
+         private final Queue<COSDictionary> queue = new ArrayDeque<>();
++        private final Set<COSDictionary> visited = new HashSet<>();
+ 
+         private PageIterator(COSDictionary node)
+         {
++            // Initialize cycle detection
++            visited.clear();
+             List<COSDictionary> kids = enqueueKids(node);
+             while (!kids.isEmpty())
+             {
+@@ -205,13 +208,26 @@
+          */
+         private List<COSDictionary> enqueueKids(COSDictionary node)
+         {
++            if (node == null || !visited.add(node))
++            {
++                return Collections.emptyList();
++            }
+             if (isPageTreeNode(node))
+             {
+-                return getKids(node);
++                List<COSDictionary> kids = getKids(node);
++                List<COSDictionary> filtered = new ArrayList<>();
++                for (COSDictionary kid : kids)
++                {
++                    if (visited.add(kid))
++                    {
++                        filtered.add(kid);
++                    }
++                }
++                return filtered;
+             }
+             else
+             {
+-                if (node != null && COSName.PAGE.equals(node.getCOSName(COSName.TYPE)))
++                if (COSName.PAGE.equals(node.getCOSName(COSName.TYPE)))
+                 {
+                     queue.add(node);
+                 }
+@@ -221,7 +237,7 @@
+                             () -> (node == null ? "(null)" : node.getCOSName(COSName.TYPE)));
+                 }
+             }
+-            return Collections.EMPTY_LIST;
++            return Collections.emptyList();
+         }
+ 
+         @Override

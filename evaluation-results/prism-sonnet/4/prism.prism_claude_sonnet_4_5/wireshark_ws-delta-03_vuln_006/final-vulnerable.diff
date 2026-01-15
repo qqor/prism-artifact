@@ -1,0 +1,261 @@
+--- a/epan/dissectors/packet-irc.c
++++ b/epan/dissectors/packet-irc.c
+@@ -25,11 +25,12 @@
+  *  https://www.ietf.org/archive/id/draft-oakley-irc-ctcp-02.txt
+  */
+ 
+- #include "config.h"
+-
+- #include <epan/packet.h>
+- #include <epan/expert.h>
+- #include <wsutil/array.h>
++#include "config.h"
++
++#include <epan/packet.h>
++#include <epan/expert.h>
++#include <wsutil/array.h>
++#include <wsutil/wmem/wmem.h>
+  
+  void proto_register_irc(void);
+  void proto_reg_handoff_irc(void);
+@@ -327,124 +328,122 @@
+      proto_tree_add_item(tree, hf_irc_request_command_quit_message, tvb, offset, end, ENC_ASCII);
+  }
+  
+- static void
+- dissect_irc_join(tvbuff_t *tvb, proto_item *item, int offset)
+- {
+-     proto_tree *tree;
+-     int start_offset;
+-     int end_offset;
+-     int length;
+-     uint8_t *channel_name;
+- 
+-     if (tvb_get_uint8(tvb, offset) != '#')
+-         return;
+-     
+-     start_offset = offset;
+- 
+-     channel_name = malloc(CHANNELLEN+1);
+- 
+-     if (channel_name == NULL ) {
+-         return;
+-     }
+- 
+-     tree = proto_item_add_subtree(item, ett_irc_request_command_join);
+-     
+-     /* Parse the channels to join*/
+-     while(tvb_offset_exists(tvb, start_offset) ) {
+-         // Find the comma
+-         length = tvb_captured_length_remaining(tvb, start_offset);
+-         end_offset = tvb_find_uint8(tvb, start_offset, length, ',');
+- 
+-         if ( end_offset == -1 ) {
+-             proto_tree_add_item(tree, hf_irc_request_command_join_channel, tvb, start_offset, length, ENC_ASCII);
+-             
+-             memset(channel_name, 0, CHANNELLEN+1);
+-             tvb_memcpy(tvb, channel_name, start_offset, (length < CHANNELLEN) ? length : CHANNELLEN);
+-             proto_item_append_text(tree, "Channel: %s", channel_name);
+- 
+-             free(channel_name);
+-             return;
+-         }
+- 
+-         memset(channel_name, 0, CHANNELLEN+1);
+-         tvb_memcpy(tvb, channel_name, start_offset, (length < CHANNELLEN) ? length : CHANNELLEN);
+-         proto_item_append_text(tree, "Channel: %s", channel_name);
+- 
+-         proto_tree_add_item(tree, hf_irc_request_command_join_channel, tvb, start_offset, length, ENC_ASCII);
+-         start_offset = end_offset + 1;
+-     }
+- 
+-     free(channel_name);
+-     return;
+- }
+- 
+- static void
+- dissect_irc_part(tvbuff_t *tvb, proto_item *item, int offset)
+- {
+-     proto_tree *tree;
+-     int start_offset;
+-     int end_offset;
+-     int length;
+-     uint8_t *channel_name;
+- 
+-     if (tvb_get_uint8(tvb, offset) != '#')
+-         return;
+-     
+-     channel_name = malloc(CHANNELLEN+1);
+- 
+-     if (channel_name == NULL ) {
+-         return;
+-     }
+- 
+-     start_offset = offset;
+- 
+-     tree = proto_item_add_subtree(item, ett_irc_request_command_part);
+- 
+-     while(tvb_offset_exists(tvb, start_offset) ) {
+-         length = tvb_captured_length_remaining(tvb, start_offset);
+-         end_offset = tvb_find_uint8(tvb, start_offset, length, ',');
+- 
+-         if ( end_offset == -1 ) {
+-             int start_message = tvb_find_uint8(tvb, start_offset, length, ':');
+- 
+-             if ( start_message == -1 ) {
+-                 proto_tree_add_item(tree, hf_irc_request_command_part_channel, tvb, start_offset, length, ENC_ASCII);
+-                 
+-                 memset(channel_name, 0, CHANNELLEN+1);
+-                 tvb_memcpy(tvb, channel_name, start_offset, (length < CHANNELLEN) ? length : CHANNELLEN);
+-                 proto_item_append_text(tree, "Channel: %s", channel_name);
+- 
+-                 free(channel_name);
+-                 return;
+-             }
+- 
+-             length = start_message-start_offset;
+- 
+-             proto_tree_add_item(tree, hf_irc_request_command_part_channel, tvb, start_offset, length, ENC_ASCII);
+-             
+-             memset(channel_name, 0, CHANNELLEN+1);
+-             tvb_memcpy(tvb, channel_name, start_offset, (length < CHANNELLEN) ? length : CHANNELLEN);
+-             proto_item_append_text(tree, "Channel: %s", channel_name);
+- 
+-             start_message++;
+-             length = tvb_captured_length_remaining(tvb, start_message);
+-             proto_tree_add_item(tree, hf_irc_request_command_part_message, tvb, start_message, length, ENC_ASCII);
+- 
+-             free(channel_name);
+-             return;
+-         }
+- 
+-         memset(channel_name, 0, CHANNELLEN+1);
+-         tvb_memcpy(tvb, channel_name, start_offset, (length < CHANNELLEN) ? length : CHANNELLEN);
+-         proto_item_append_text(tree, "Channel: %s", channel_name);
+- 
+-         proto_tree_add_item(tree, hf_irc_request_command_join_channel, tvb, start_offset, length, ENC_ASCII);
+-         start_offset = end_offset + 1;
+-     }
+- 
+-     free(channel_name);
+-     return;
+- }
++static void
++dissect_irc_join(tvbuff_t *tvb, proto_item *item, int offset)
++{
++    proto_tree *tree;
++    int start_offset;
++    int end_offset;
++    int length;
++    int copy_length;
++    uint8_t *channel_name;
++
++    if (tvb_get_uint8(tvb, offset) != '#')
++        return;
++    
++    start_offset = offset;
++
++    channel_name = (uint8_t *)wmem_alloc(wmem_packet_scope(), CHANNELLEN+1);
++
++    if (channel_name == NULL ) {
++        return;
++    }
++
++    tree = proto_item_add_subtree(item, ett_irc_request_command_join);
++    
++    /* Parse the channels to join*/
++    while(tvb_offset_exists(tvb, start_offset) ) {
++        length = tvb_captured_length_remaining(tvb, start_offset);
++        end_offset = tvb_find_uint8(tvb, start_offset, length, ',');
++
++        if ( end_offset == -1 ) {
++            proto_tree_add_item(tree, hf_irc_request_command_join_channel, tvb, start_offset, length, ENC_ASCII);
++            
++            memset(channel_name, 0, CHANNELLEN+1);
++            tvb_memcpy(tvb, channel_name, start_offset, (length < CHANNELLEN) ? length : CHANNELLEN);
++            proto_item_append_text(tree, "Channel: %s", channel_name);
++
++            return;
++        }
++
++        copy_length = end_offset - start_offset;
++        memset(channel_name, 0, CHANNELLEN+1);
++        tvb_memcpy(tvb, channel_name, start_offset, (copy_length < CHANNELLEN) ? copy_length : CHANNELLEN);
++        proto_item_append_text(tree, "Channel: %s", channel_name);
++
++        proto_tree_add_item(tree, hf_irc_request_command_join_channel, tvb, start_offset, copy_length, ENC_ASCII);
++        start_offset = end_offset + 1;
++    }
++
++    return;
++}
++ 
++static void
++dissect_irc_part(tvbuff_t *tvb, proto_item *item, int offset)
++{
++    proto_tree *tree;
++    int start_offset;
++    int end_offset;
++    int length;
++    int copy_length;
++    uint8_t *channel_name;
++
++    if (tvb_get_uint8(tvb, offset) != '#')
++        return;
++    
++    channel_name = (uint8_t *)wmem_alloc(wmem_packet_scope(), CHANNELLEN+1);
++
++    if (channel_name == NULL ) {
++        return;
++    }
++
++    start_offset = offset;
++
++    tree = proto_item_add_subtree(item, ett_irc_request_command_part);
++
++    while(tvb_offset_exists(tvb, start_offset) ) {
++        length = tvb_captured_length_remaining(tvb, start_offset);
++        end_offset = tvb_find_uint8(tvb, start_offset, length, ',');
++
++        if ( end_offset == -1 ) {
++            int start_message = tvb_find_uint8(tvb, start_offset, length, ':');
++
++            if ( start_message == -1 ) {
++                proto_tree_add_item(tree, hf_irc_request_command_part_channel, tvb, start_offset, length, ENC_ASCII);
++                
++                memset(channel_name, 0, CHANNELLEN+1);
++                tvb_memcpy(tvb, channel_name, start_offset, (length < CHANNELLEN) ? length : CHANNELLEN);
++                proto_item_append_text(tree, "Channel: %s", channel_name);
++
++                return;
++            }
++
++            length = start_message-start_offset;
++
++            proto_tree_add_item(tree, hf_irc_request_command_part_channel, tvb, start_offset, length, ENC_ASCII);
++            
++            memset(channel_name, 0, CHANNELLEN+1);
++            tvb_memcpy(tvb, channel_name, start_offset, (length < CHANNELLEN) ? length : CHANNELLEN);
++            proto_item_append_text(tree, "Channel: %s", channel_name);
++
++            start_message++;
++            length = tvb_captured_length_remaining(tvb, start_message);
++            proto_tree_add_item(tree, hf_irc_request_command_part_message, tvb, start_message, length, ENC_ASCII);
++
++            return;
++        }
++
++        copy_length = end_offset - start_offset;
++        memset(channel_name, 0, CHANNELLEN+1);
++        tvb_memcpy(tvb, channel_name, start_offset, (copy_length < CHANNELLEN) ? copy_length : CHANNELLEN);
++        proto_item_append_text(tree, "Channel: %s", channel_name);
++
++        proto_tree_add_item(tree, hf_irc_request_command_part_channel, tvb, start_offset, copy_length, ENC_ASCII);
++        start_offset = end_offset + 1;
++    }
++
++    return;
++}
+  
+  static void
+  dissect_irc_privmsg(tvbuff_t *tvb, proto_item *item, int offset)

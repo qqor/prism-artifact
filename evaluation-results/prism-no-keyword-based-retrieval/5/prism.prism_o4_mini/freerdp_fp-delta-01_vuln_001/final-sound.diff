@@ -1,0 +1,52 @@
+--- a/libfreerdp/crypto/certificate.c
++++ b/libfreerdp/crypto/certificate.c
+@@ -1534,9 +1534,9 @@
+ 	WINPR_ASSERT(bio);
+ 	WINPR_ASSERT(ppem);
+ 
+-	const uint16_t blocksize = 2048;
+-	uint16_t offset = 0;
+-	uint16_t length = blocksize;
++    const size_t blocksize = 2048;
++    size_t offset = 0;
++    size_t length = blocksize;
+ 	char* pem = NULL;
+ 
+ 	*ppem = NULL;
+@@ -1563,11 +1563,31 @@
+ 		if (status == 0)
+ 			break;
+ 
+-		offset += (size_t)status;
+-		length += blocksize;
+-
+-	}
+-	pem[offset] = '\0';
++        offset += (size_t)status;
++
++        /* Grow buffer if needed before next read */
++        if (length - offset < blocksize)
++        {
++            size_t new_length = length + blocksize;
++            char* tmp = (char*)realloc(pem, new_length + 1);
++            if (!tmp)
++                goto fail;
++            pem = tmp;
++            length = new_length;
++        }
++
++    }
++
++    /* Ensure space for null terminator */
++    if (length <= offset)
++    {
++        char* tmp = (char*)realloc(pem, offset + 1);
++        if (!tmp)
++            goto fail;
++        pem = tmp;
++    }
++
++    pem[offset] = '\0';
+ 	*ppem = pem;
+ 	if (plength)
+ 		*plength = offset;

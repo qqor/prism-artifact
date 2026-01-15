@@ -1,0 +1,44 @@
+--- a/fontbox/src/main/java/org/apache/fontbox/type1/Type1Lexer.java
++++ b/fontbox/src/main/java/org/apache/fontbox/type1/Type1Lexer.java
+@@ -48,6 +48,13 @@
+      * Log instance.
+      */
+     private static final Logger LOG = LogManager.getLogger(Type1Lexer.class);
++    
++    /**
++     * Maximum allowed size for a CharString in bytes.
++     * This limit prevents OutOfMemoryError from malformed fonts while being
++     * generous enough for legitimate fonts (typical CharStrings are under 1 KB).
++     */
++    private static final int MAX_CHARSTRING_LENGTH = 10_000_000; // 10 MB
+     
+     private final ByteBuffer buffer;
+     private Token aheadToken;
+@@ -503,6 +510,27 @@
+     {
+         try
+         {
++            // Validate length before allocation to prevent OutOfMemoryError
++            if (length < 0)
++            {
++                throw new IOException("CharString length is negative: " + length + 
++                                    " at position " + buffer.position());
++            }
++            
++            if (length > MAX_CHARSTRING_LENGTH)
++            {
++                throw new IOException("CharString length " + length + 
++                                    " exceeds maximum allowed size of " + MAX_CHARSTRING_LENGTH + 
++                                    " at position " + buffer.position());
++            }
++            
++            // Check if buffer has enough remaining data (+1 for the space character)
++            if (buffer.remaining() < length + 1)
++            {
++                throw new IOException("CharString length " + length + 
++                                    " exceeds available buffer data at position " + buffer.position());
++            }
++            
+             buffer.get(); // space
+             byte[] data = new byte[length];
+             buffer.get(data);

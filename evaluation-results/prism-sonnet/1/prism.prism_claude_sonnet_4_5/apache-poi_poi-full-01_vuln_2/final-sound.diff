@@ -1,0 +1,48 @@
+--- a/poi/src/main/java/org/apache/poi/poifs/dev/POIFSDump.java
++++ b/poi/src/main/java/org/apache/poi/poifs/dev/POIFSDump.java
+@@ -43,6 +43,21 @@
+ 
+     private POIFSDump() {}
+ 
++    /**
++     * Sanitizes a filename to prevent path traversal attacks by replacing
++     * potentially dangerous characters with underscores.
++     *
++     * @param name the filename to sanitize
++     * @return the sanitized filename, or empty string if input is null/empty
++     */
++    private static String sanitizeFilename(String name) {
++        if (name == null || name.isEmpty()) {
++            return "";
++        }
++        // Replace path separators and other problematic filename characters
++        return name.trim().replaceAll("[:\\\\/*\"?|<>]", "_");
++    }
++
+     public static void main(String[] args) throws IOException {
+         if (args.length == 0) {
+             System.err.println("Must specify at least one file to dump");
+@@ -72,7 +87,7 @@
+                 File dumpDir =
+                         Paths.get(filename).getParent()
+                                 .resolve(filenameWithoutPath + "_dump").toFile();
+-                File file = new File(dumpDir, root.getName());
++                File file = new File(dumpDir, sanitizeFilename(root.getName()));
+                 if (!file.exists() && !file.mkdirs()) {
+                     throw new IOException("Could not create directory " + file);
+                 }
+@@ -105,12 +120,12 @@
+                 try (DocumentInputStream is = new DocumentInputStream(node)) {
+                    bytes = IOUtils.toByteArray(is);
+                 }
+-                try (OutputStream out = Files.newOutputStream(new File(parent, node.getName().trim()).toPath())) {
++                try (OutputStream out = Files.newOutputStream(new File(parent, sanitizeFilename(node.getName())).toPath())) {
+                     out.write(bytes);
+                 }
+             } else if (entry instanceof DirectoryEntry){
+                 DirectoryEntry dir = (DirectoryEntry)entry;
+-                File file = new File(parent, entry.getName());
++                File file = new File(parent, sanitizeFilename(entry.getName()));
+                 if(!file.exists() && !file.mkdirs()) {
+                     throw new IOException("Could not create directory " + file);
+                 }

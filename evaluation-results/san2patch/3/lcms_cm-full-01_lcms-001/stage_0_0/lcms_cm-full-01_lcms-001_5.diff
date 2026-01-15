@@ -1,0 +1,57 @@
+diff --git a/src/cmslut.c b/src/cmslut.c
+index f117747..9eabbd2 100644
+--- a/src/cmslut.c
++++ b/src/cmslut.c
+@@ -1217,7 +1217,7 @@ void CMSEXPORT cmsStageFree(cmsStage* mpe)
+ 
+ cmsUInt32Number  CMSEXPORT cmsStageInputChannels(const cmsStage* mpe)
+ {
+-    return mpe ->InputChannels;
++return mpe ->InputChannels;
+ }
+ 
+ cmsUInt32Number  CMSEXPORT cmsStageOutputChannels(const cmsStage* mpe)
+@@ -1225,8 +1225,11 @@ cmsUInt32Number  CMSEXPORT cmsStageOutputChannels(const cmsStage* mpe)
+     return mpe ->OutputChannels;
+ }
+ 
+-cmsStageSignature CMSEXPORT cmsStageType(const cmsStage* mpe)
++// FIXME: Crash CWE-476: NULL Pointer Dereference
++ cmsStageSignature CMSEXPORT cmsStageType(const cmsStage* mpe)
+ {
++    // Rationale: Protect against NULL to avoid segmentation fault; return default signature.
++    if (mpe == NULL) return (cmsStageSignature) 0;
+     return mpe -> Type;
+ }
+ 
+@@ -1237,8 +1240,7 @@ void* CMSEXPORT cmsStageData(const cmsStage* mpe)
+ 
+ cmsContext CMSEXPORT cmsGetStageContextID(const cmsStage* mpe)
+ {
+-    return mpe -> ContextID;
+-}
++    return mpe -> ContextID;}
+ 
+ cmsStage*  CMSEXPORT cmsStageNext(const cmsStage* mpe)
+ {
+diff --git a/src/cmsps2.c b/src/cmsps2.c
+index cb2db85..7132df6 100644
+--- a/src/cmsps2.c
++++ b/src/cmsps2.c
+@@ -903,6 +903,16 @@ cmsBool WriteInputLUT(cmsIOHANDLER* m, cmsHPROFILE hProfile, cmsUInt32Number Int
+             dwFlags |= cmsFLAGS_FORCE_CLUT;
+             _cmsOptimizePipeline(m->ContextID, &DeviceLink, Intent, &InputFormat, &OutFrm, &dwFlags);
+ 
++            // Validate each stage to avoid NULL pointer dereference
++            for (cmsUInt32Number i = 0; i < cmsPipelineLen(DeviceLink); ++i) {
++                cmsStage* st = cmsPipelineGetStage(DeviceLink, i);
++                if (st == NULL) {
++                    cmsPipelineFree(DeviceLink);
++                    cmsDeleteTransform(xform);
++                    return FALSE;
++                }
++            }
++
+             rc = EmitCIEBasedDEF(m, DeviceLink, Intent, &BlackPointAdaptedToD50);
+             cmsPipelineFree(DeviceLink);            
+             if (!rc) {

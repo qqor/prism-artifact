@@ -1,0 +1,41 @@
+diff --git a/src/json.c b/src/json.c
+index cf6bc57b..f925821a 100644
+--- a/src/json.c
++++ b/src/json.c
+@@ -16,11 +16,10 @@ static char json_esc(int c, int esc) {
+ 
+ static int mg_pass_string(const char *s, int len) {
+   int i;
+-  for (i = 0; i < len; i++) {
+-    if (s[i] == '\\' && i + 1 < len && json_esc(s[i + 1], 1)) {
++  /* Rationale: ensure we never read beyond the supplied buffer or past a terminating null */
++  for (i = 0; i < len && s[i] != '\0'; i++) {
++    if (s[i] == '\\' && i + 1 < len && s[i + 1] != '\0' && json_esc(s[i + 1], 1)) {
+       i++;
+-    } else if (s[i] == '\0') {
+-      return MG_JSON_INVALID;
+     } else if (s[i] == '"') {
+       return i;
+     }
+@@ -173,6 +172,7 @@ int mg_json_get(struct mg_str json, const char *path, int *toklen) {
+           expecting = S_KEY;
+           break;
+         } else if (c == '[') {
++          /* Original depth guard */
+           if (depth > MG_JSON_MAX_NESTING) return MG_JSON_TOO_DEEP;
+           if (depth == ed && path[pos] == '[' && ei == ci) {
+             ed++, pos++, ci = 0;
+@@ -182,7 +182,12 @@ int mg_json_get(struct mg_str json, const char *path, int *toklen) {
+             }
+             if (path[pos] != 0) pos++;
+           }
+-          nesting[depth++] = c;
++          /* Additional check before writing */
++          if (depth < MG_JSON_MAX_NESTING) {
++            nesting[depth++] = c;
++          } else {
++            return MG_JSON_TOO_DEEP; /* prevent out-of-bounds write */
++          }
+           break;
+         } else if (c == ']' && depth > 0) {  // Empty array
+           MG_EOO(']');

@@ -1,0 +1,39 @@
+--- a/epan/dissectors/packet-icmp.c
++++ b/epan/dissectors/packet-icmp.c
+@@ -897,9 +897,8 @@
+ 				     proto_item * tf_object)
+ {
+ 	proto_item *ti;
+-	uint16_t obj_length;
++	uint16_t obj_length, obj_trunc_length;
+ 	uint8_t c_type;
+-	uint8_t ident_name[ICMP_MAX_IDENT_NAME_LENGTH];
+ 	bool unknown_object;
+ 	uint32_t afi;
+ 	uint32_t addr_length;
+@@ -907,6 +906,7 @@
+ 	unknown_object = false;
+ 	/* Object length */
+ 	obj_length = tvb_get_ntohs(tvb, offset);
++	obj_trunc_length = MIN(obj_length, tvb_reported_length_remaining(tvb, offset));
+ 
+ 	/* C-Type */
+ 	c_type = tvb_get_uint8(tvb, offset + 3);
+@@ -923,14 +923,9 @@
+ 
+ 	switch(c_type) {
+ 		case ICMP_EXT_ECHO_IDENT_NAME:
+-			/* Identification Name must be printable*/
+-			tvb_memcpy(tvb, ident_name, offset, obj_length - 4);
+-
+-			for (unsigned i = 0; i < obj_length - 4; i++)
+-				if (!g_ascii_isprint(ident_name[i]))
+-					break;
+-
+-			proto_tree_add_item(ext_object_tree, hf_icmp_int_ident_name_string, tvb, offset, obj_length - 4, ENC_ASCII);
++			if (obj_trunc_length > 4) {
++				proto_tree_add_item(ext_object_tree, hf_icmp_int_ident_name_string, tvb, offset, obj_trunc_length - 4, ENC_ASCII);
++			}
+ 			break;
+ 		case ICMP_EXT_ECHO_IDENT_INDEX:
+ 			proto_tree_add_item(ext_object_tree, hf_icmp_int_ident_index, tvb, offset, 4, ENC_NA);

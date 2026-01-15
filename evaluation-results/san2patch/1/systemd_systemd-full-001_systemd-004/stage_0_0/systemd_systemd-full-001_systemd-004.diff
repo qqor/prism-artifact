@@ -1,0 +1,48 @@
+diff --git a/src/shared/condition.h b/src/shared/condition.h
+index 378028a73e..6666b84ce9 100644
+--- a/src/shared/condition.h
++++ b/src/shared/condition.h
+@@ -67,7 +67,6 @@ typedef struct Condition {
+         bool negate:1;
+ 
+         ConditionResult result:6;
+-
+         char *parameter;
+ 
+         LIST_FIELDS(struct Condition, conditions);
+@@ -75,9 +74,25 @@ typedef struct Condition {
+ 
+ Condition* condition_new(ConditionType type, const char *parameter, bool trigger, bool negate);
+ Condition* condition_free(Condition *c);
+-Condition* condition_free_list_type(Condition *first, ConditionType type);
++// FIXME: Crash CWE-416: Use After Free
++ Condition* condition_free_list_type(Condition *first, ConditionType type);
+ static inline Condition* condition_free_list(Condition *first) {
+-        return condition_free_list_type(first, _CONDITION_TYPE_INVALID);
++        // reverse-then-free: reverse list to avoid reading freed 'next' pointers
++        Condition *prev = NULL, *current = first, *next;
++        while (current) {
++                next = current->next;
++                current->next = prev;
++                prev = current;
++                current = next;
++        }
++        // now 'prev' is head of reversed list
++        current = prev;
++        while (current) {
++                next = current->next;
++                condition_free(current);
++                current = next;
++        }
++        return NULL;
+ }
+ 
+ int condition_test(Condition *c, char **env);
+@@ -88,7 +103,6 @@ bool condition_test_list(Condition *first, char **env, condition_to_string_t to_
+ 
+ void condition_dump(Condition *c, FILE *f, const char *prefix, condition_to_string_t to_string);
+ void condition_dump_list(Condition *c, FILE *f, const char *prefix, condition_to_string_t to_string);
+-
+ const char* condition_type_to_string(ConditionType t) _const_;
+ ConditionType condition_type_from_string(const char *s) _pure_;
+ 

@@ -1,0 +1,153 @@
+--- a/tika-core/src/main/java/org/apache/tika/parser/ParseRecord.java
++++ b/tika-core/src/main/java/org/apache/tika/parser/ParseRecord.java
+@@ -21,6 +21,7 @@
+ import java.util.List;
+ import java.util.Set;
+ 
++import org.apache.tika.exception.TikaException;
+ import org.apache.tika.metadata.Metadata;
+ 
+ /**
+@@ -33,6 +34,12 @@
+     //hard limits so that specially crafted files
+     //don't cause an OOM
+     private static int MAX_PARSERS = 100;
++    
++    /**
++     * Maximum recursion depth to prevent infinite recursion in nested archives.
++     * This limit helps prevent timeout issues from zip bombs or excessively nested structures.
++     */
++    public static final int MAX_RECURSION_DEPTH = 20;
+ 
+     private static final int MAX_EXCEPTIONS = 100;
+ 
+@@ -51,8 +58,18 @@
+ 
+     private boolean writeLimitReached = false;
+ 
+-    void beforeParse() {
++    /**
++     * Increments the parse depth counter and validates against the maximum recursion depth.
++     * 
++     * @throws TikaException if the maximum recursion depth is exceeded
++     */
++    void beforeParse() throws TikaException {
+         depth++;
++        if (depth > MAX_RECURSION_DEPTH) {
++            throw new TikaException("Maximum recursion depth reached: " + depth + 
++                " (limit: " + MAX_RECURSION_DEPTH + "). " +
++                "This may indicate a zip bomb or excessively nested archive structure.");
++        }
+     }
+ 
+     void afterParse() {
+
+--- a/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-text-module/src/main/java/org/apache/tika/parser/csv/TextAndCSVConfig.java
++++ b/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-text-module/src/main/java/org/apache/tika/parser/csv/TextAndCSVConfig.java
+@@ -24,6 +24,13 @@
+ 
+     private static final Map<Character, String> DELIMITER_TO_NAME_MAP = new HashMap<>();
+     private static final Map<String, Character> NAME_TO_DELIMITER_MAP = new HashMap<>();
++    
++    /**
++     * Maximum length for fraction denominator formats to prevent exponential
++     * computational complexity in cell formatting. Default is 5 which limits
++     * nested loop iterations to a manageable level while supporting common use cases.
++     */
++    private int maxFractionDenomLength = 5;
+ 
+     static {
+         DELIMITER_TO_NAME_MAP.put(',', "comma");
+@@ -55,4 +62,23 @@
+         nameToDelimiterMap.entrySet()
+                           .forEach(e -> delimiterToNameMap.put(e.getValue(), e.getKey()));
+     }
++    
++    /**
++     * Gets the maximum length for fraction denominator formats.
++     * 
++     * @return maximum fraction denominator length
++     */
++    public int getMaxFractionDenomLength() {
++        return maxFractionDenomLength;
++    }
++    
++    /**
++     * Sets the maximum length for fraction denominator formats to prevent
++     * exponential computational complexity.
++     * 
++     * @param maxFractionDenomLength maximum fraction denominator length
++     */
++    public void setMaxFractionDenomLength(int maxFractionDenomLength) {
++        this.maxFractionDenomLength = maxFractionDenomLength;
++    }
+ }
+
+--- a/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-text-module/src/main/java/org/apache/tika/parser/csv/CellFormatter.java
++++ b/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-text-module/src/main/java/org/apache/tika/parser/csv/CellFormatter.java
+@@ -37,6 +37,24 @@
+             "&fraction_format=\"(?:(#{1,20}) )?(#{1,20})/(#{1,20})\"");
+ 
+     private final Matcher fractionFormatMatcher = FRACTION_FORMAT.matcher("");
++    private final int maxFractionDenomLength;
++    
++    /**
++     * Creates a CellFormatter with the specified maximum fraction denominator length.
++     * 
++     * @param maxFractionDenomLength maximum allowed length for fraction denominators
++     */
++    CellFormatter(int maxFractionDenomLength) {
++        this.maxFractionDenomLength = maxFractionDenomLength;
++    }
++    
++    /**
++     * Creates a CellFormatter with default maximum fraction denominator length of 5.
++     */
++    CellFormatter() {
++        this(5);
++    }
++    
+     String format(String cell) {
+         if (cell == null) {
+             cell = "";
+@@ -60,6 +78,11 @@
+         double wholePart = Math.floor(Math.abs(val));
+         double decPart = Math.abs(val) - wholePart;
+         int denomLength = denomFormat.length();
++        
++        // Prevent exponential computational complexity from large denominator lengths
++        if (denomLength > maxFractionDenomLength) {
++            return cell;
++        }
+ 
+         double minVal = 1.0;
+         double currDenom = Math.pow(10, denomLength) - 1d;
+
+--- a/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-text-module/src/main/java/org/apache/tika/parser/csv/TextAndCSVParser.java
++++ b/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-text-module/src/main/java/org/apache/tika/parser/csv/TextAndCSVParser.java
+@@ -189,7 +189,7 @@
+             xhtmlContentHandler.startDocument();
+             xhtmlContentHandler.startElement(TABLE);
+             int firstRowColCount = 0;
+-            CellFormatter cellFormatter = new CellFormatter();
++            CellFormatter cellFormatter = new CellFormatter(textAndCSVConfig.getMaxFractionDenomLength());
+             try {
+                 for (CSVRecord row : commonsParser) {
+                     xhtmlContentHandler.startElement(TR);
+@@ -378,5 +378,16 @@
+         }
+         defaultTextAndCSVConfig.setNameToDelimiterMap(m);
+     }
++    
++    /**
++     * Sets the maximum length for fraction denominator formats to prevent
++     * exponential computational complexity in cell formatting. Default is 5.
++     * 
++     * @param maxFractionDenomLength maximum fraction denominator length
++     */
++    @Field
++    public void setMaxFractionDenomLength(int maxFractionDenomLength) {
++        defaultTextAndCSVConfig.setMaxFractionDenomLength(maxFractionDenomLength);
++    }
+ 
+ }

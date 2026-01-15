@@ -1,0 +1,113 @@
+--- a/src/fmt.c
++++ b/src/fmt.c
+@@ -204,26 +204,45 @@
+   return mg_snprintf(dst, dstlen, "%s", buf);
+ }
+ 
+-static size_t mg_lld(char *buf, int64_t val, bool is_signed, bool is_hex) {
++static size_t mg_lld(char *buf, size_t buf_len, int64_t val, bool is_signed, bool is_hex) {
+   const char *letters = "0123456789abcdef";
++  if (buf_len == 0) return 0;
+   uint64_t v = (uint64_t) val;
+-  size_t s = 0, n, i;
+-  if (is_signed && val < 0) buf[s++] = '-', v = (uint64_t) (-val);
+-  // This loop prints a number in reverse order. I guess this is because we
+-  // write numbers from right to left: least significant digit comes last.
+-  // Maybe because we use Arabic numbers, and Arabs write RTL?
++  size_t s = 0, n = 0, i = 0;
++  if (is_signed && val < 0) {
++    if (s + 1 < buf_len) {
++      buf[s++] = '-';
++    }
++    v = (uint64_t)(-val);
++  }
++  // This loop prints a number in reverse order from least significant digit.
+   if (is_hex) {
+-    for (n = 0; v; v >>= 4) buf[s + n++] = letters[v & 15];
+-  } else {
+-    for (n = 0; v; v /= 10) buf[s + n++] = letters[v % 10];
+-  }
+-  // Reverse a string
+-  for (i = 0; i < n / 2; i++) {
+-    char t = buf[s + i];
+-    buf[s + i] = buf[s + n - i - 1], buf[s + n - i - 1] = t;
+-  }
+-  if (val == 0) buf[n++] = '0';  // Handle special case
+-  return n + s;
++    do {
++      if (s + 1 < buf_len) {
++        buf[s++] = letters[v % 16];
++      }
++    } while ((v /= 16) != 0);
++  } else {
++    do {
++      if (s + 1 < buf_len) {
++        buf[s++] = letters[v % 10];
++      }
++    } while ((v /= 10) != 0);
++  }
++  n = s;
++  // Reverse the digits (excluding sign if present).
++  for (i = (is_signed && val < 0) ? 1 : 0; i < n/2; i++) {
++    char tmp = buf[i];
++    buf[i] = buf[n - i - 1];
++    buf[n - i - 1] = tmp;
++  }
++  // Null-terminate within bounds.
++  if (s < buf_len) {
++    buf[s] = '\0';
++  } else {
++    buf[buf_len - 1] = '\0';
++  }
++  return s;
+ }
+ 
+ static size_t scpy(void (*out)(char, void *), void *ptr, char *buf,
+@@ -280,13 +299,13 @@
+           k = mg_dtoa(tmp, sizeof(tmp), v, (int) pr, c == 'g');
+         } else if (is_long == 2) {
+           int64_t v = va_arg(*ap, int64_t);
+-          k = mg_lld(tmp, v, s, h);
++          k = mg_lld(tmp, sizeof(tmp), v, s, h);
+         } else if (is_long == 1) {
+           long v = va_arg(*ap, long);
+-          k = mg_lld(tmp, s ? (int64_t) v : (int64_t) (unsigned long) v, s, h);
++          k = mg_lld(tmp, sizeof(tmp), s ? (int64_t) v : (int64_t) (unsigned long) v, s, h);
+         } else {
+           int v = va_arg(*ap, int);
+-          k = mg_lld(tmp, s ? (int64_t) v : (int64_t) (unsigned) v, s, h);
++          k = mg_lld(tmp, sizeof(tmp), s ? (int64_t) v : (int64_t) (unsigned) v, s, h);
+         }
+         for (j = 0; j < xl && w > 0; j++) w--;
+         for (j = 0; pad == ' ' && !minus && k < w && j + k < w; j++)
+@@ -315,16 +334,20 @@
+         for (j = 0; minus && pr < w && j + pr < w; j++)
+           n += scpy(out, param, &pad, 1);
+       } else if (c == 'e' || c == 'E') {
+-		  char tmp[8];
+-          double d = va_arg(*ap, double);
+-          int64_t exponent = (int64_t)log10(my_fabs(d));
+-          double mantissa = d / power(10, exponent);
+-          k = mg_dtoa(tmp, 10, mantissa, 8, c == 'e');
+-          n += scpy(out, param, tmp, k);
+-          out(c, param);
+-          n++;
+-		  k = mg_lld(tmp, exponent, 1, 0);
+-          n += scpy(out, param, tmp, k);
++            /* tmp buffer must be large enough for sign, mantissa (8 digits), decimal point,
++               exponent marker, sign, up to 3 exponent digits and null terminator. */
++            char tmp[32];
++            double d = va_arg(*ap, double);
++            int64_t exponent = (int64_t)log10(my_fabs(d));
++            double mantissa = d / power(10, exponent);
++            /* Pass real buffer size to prevent overflow */
++            k = mg_dtoa(tmp, sizeof(tmp), mantissa, 8, c == 'e');
++            n += scpy(out, param, tmp, k);
++            out(c, param);
++            n++;
++            /* Bound exponent conversion too */
++            k = mg_lld(tmp, sizeof(tmp), exponent, 1, 0);
++            n += scpy(out, param, tmp, k);
+ 	  } else if (c == '%') {
+         out('%', param);
+         n++;

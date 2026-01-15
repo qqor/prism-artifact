@@ -1,0 +1,65 @@
+--- a/src/main/java/org/apache/commons/compress/archivers/examples/Expander.java
++++ b/src/main/java/org/apache/commons/compress/archivers/examples/Expander.java
+@@ -44,6 +44,8 @@
+ import org.apache.commons.compress.archivers.zip.ZipFile;
+ import org.apache.commons.io.IOUtils;
+ import org.apache.commons.io.output.NullOutputStream;
++import java.util.logging.Logger;
++import java.util.logging.Level;
+ 
+ /**
+  * Provides a high level API for expanding archives.
+@@ -51,6 +53,7 @@
+  * @since 1.17
+  */
+ public class Expander {
++    private static final Logger LOGGER = Logger.getLogger(Expander.class.getName());
+ 
+     @FunctionalInterface
+     private interface ArchiveEntryBiConsumer<T extends ArchiveEntry> {
+@@ -71,7 +74,18 @@
+         final Path targetDirPath = nullTarget ? null : targetDirectory.normalize();
+         T nextEntry = supplier.get();
+         while (nextEntry != null) {
+-            final Path targetPath = nullTarget ? null : nextEntry.resolveIn(targetDirPath);
++            final Path targetPath;
++            if (!nullTarget) {
++                try {
++                    targetPath = nextEntry.resolveIn(targetDirPath);
++                } catch (IOException e) {
++                    LOGGER.log(Level.WARNING, "Skipping illegal entry path: " + nextEntry.getName(), e);
++                    nextEntry = supplier.get();
++                    continue;
++                }
++            } else {
++                targetPath = null;
++            }
+             if (nextEntry.isDirectory()) {
+                 if (!nullTarget && !Files.isDirectory(targetPath) && Files.createDirectories(targetPath) == null) {
+                     throw new IOException("Failed to create directory " + targetPath);
+@@ -477,8 +491,12 @@
+             if (zae.isUnixSymlink()) {
+                 String targetName = IOUtils.toString(archive.getInputStream(zae),
+                         StandardCharsets.UTF_8);
+-                Path link = targetDirectory.resolve(zae.getName());
+-                Path target = targetDirectory.resolve(targetName);
++                Path link = targetDirectory.resolve(zae.getName()).normalize();
++                Path target = targetDirectory.resolve(targetName).normalize();
++                if (!link.startsWith(targetDirectory) || !target.startsWith(targetDirectory)) {
++                    LOGGER.warning("Skipping symlink outside target: " + zae.getName());
++                    continue;
++                }
+                 Path parent = createParentDirectory(targetDirectory, link);
+ 
+                 if (!Files.isSameFile(link.getParent(), parent)) {
+@@ -490,8 +508,8 @@
+             } else if (! zae.isDirectory()) {
+                 Path target = targetDirectory.resolve(zae.getName()).normalize();
+                 if (!target.startsWith(targetDirectory)) {
+-                    throw new IOException(String.format("Zip slip '%s' + '%s' -> '%s'",
+-                            targetDirectory, zae.getName(), target));
++                    LOGGER.warning("Skipping zip entry outside target: " + zae.getName());
++                    continue;
+                 }
+                 Path parent = createParentDirectory(targetDirectory, target);
+                 if (! target.getParent().toAbsolutePath().normalize().equals(

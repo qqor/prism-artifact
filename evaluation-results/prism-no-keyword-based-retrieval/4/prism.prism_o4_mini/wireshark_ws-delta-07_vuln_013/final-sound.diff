@@ -1,0 +1,90 @@
+--- a/epan/dissectors/packet-gvcp.c
++++ b/epan/dissectors/packet-gvcp.c
+@@ -550,6 +550,7 @@
+ static int ett_gvcp_bootstrap_fields;
+ 
+ static expert_field ei_gvcp_privileged_register;
++static expert_field ei_gvcp_excessive_register_count;
+ 
+ static dissector_handle_t gvcp_handle;
+ static dissector_handle_t gvsp_handle;
+@@ -978,12 +979,18 @@
+ 
+ static int dissect_register(uint32_t addr, proto_tree *branch, tvbuff_t *tvb, int offset, int length)
+ {
+-	uint32_t value = 0;
+-	
+-	value = tvb_get_letohl(tvb, offset);
+-	gvcp_register_number[gvcp_register_count] = addr;
+-	gvcp_register_value[gvcp_register_count++] = value;
+-
++    uint32_t value = 0;
++    
++    value = tvb_get_letohl(tvb, offset);
++
++    /* Defensive: ensure we don't exceed our fixed buffer */
++    if (gvcp_register_count >= GVCP_MAX_REGISTER_COUNT) {
++        /* Skip storing further registers */
++        return 0;
++    }
++
++    gvcp_register_number[gvcp_register_count] = addr;
++    gvcp_register_value[gvcp_register_count++] = value;
+ 	switch (addr)
+ 	{
+ 	case GVCP_VERSION:
+@@ -1808,17 +1815,29 @@
+ 		/* XXX For now we simply (always) add ports. Maybe we should remove when the dissector gets unloaded? */
+ 		dissector_add_uint("udp.port", value, gvcp_handle);
+ 	}
+-
+-	if (num_registers > 1)
+-	{
+-		col_append_str(pinfo->cinfo, COL_INFO, "[Multiple Register Write Command]");
+-	}
+-	else
+-	{
+-		col_append_fstr(pinfo->cinfo, COL_INFO, "%s Value=0x%08X", address_string, value);
+-	}
+-
+-	if (gvcp_telegram_tree != NULL)
++    /* Reset global count for each WRITEREG_CMD */
++    gvcp_register_count = 0;
++
++    /* Sanity-check the number of registers against our fixed array capacity */
++    if (num_registers > GVCP_MAX_REGISTER_COUNT) {
++        proto_tree_add_expert_format(
++            gvcp_telegram_tree, NULL, &ei_gvcp_excessive_register_count,
++            tvb, offset, 4,
++            "Too many registers in Write Register command (%u > %u); truncating",
++            num_registers, GVCP_MAX_REGISTER_COUNT);
++        num_registers = GVCP_MAX_REGISTER_COUNT;
++    }
++
++    if (num_registers > 1)
++    {
++        col_append_str(pinfo->cinfo, COL_INFO, "[Multiple Register Write Command]");
++    }
++    else
++    {
++        col_append_fstr(pinfo->cinfo, COL_INFO, "%s Value=0x%08X", address_string, value);
++    }
++
++    if (gvcp_telegram_tree != NULL)
+ 	{
+ 		if (num_registers > 1)
+ 		{
+@@ -2863,9 +2882,10 @@
+ 
+ void proto_register_gvcp(void)
+ {
+-	static ei_register_info ei[] = {
+-		{ &ei_gvcp_privileged_register, { "gvcp.privileged_register", PI_UNDECODED, PI_WARN, "Privileged GVCP Register", EXPFILL }},
+-	};
++    static ei_register_info ei[] = {
++        { &ei_gvcp_privileged_register, { "gvcp.privileged_register", PI_UNDECODED, PI_WARN, "Privileged GVCP Register", EXPFILL }},
++        { &ei_gvcp_excessive_register_count, { "gvcp.excessive_register_count", PI_UNDECODED, PI_WARN, "Excessive GVCP Register count", EXPFILL }},
++    };
+ 
+ 	static hf_register_info hf[] =
+ 	{

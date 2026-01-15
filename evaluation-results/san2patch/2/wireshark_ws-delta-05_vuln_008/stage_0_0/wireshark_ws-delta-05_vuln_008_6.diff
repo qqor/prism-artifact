@@ -1,0 +1,52 @@
+diff --git a/epan/dissectors/packet-netbios.c b/epan/dissectors/packet-netbios.c
+index 5ea85c7df4..85a12d0499 100644
+--- a/epan/dissectors/packet-netbios.c
++++ b/epan/dissectors/packet-netbios.c
+@@ -138,28 +138,36 @@ static const fragment_items netbios_frag_items = {
+ 	&hf_netb_fragment_multiple_tails,
+ 	&hf_netb_fragment_too_long_fragment,
+ 	&hf_netb_fragment_error,
+-	&hf_netb_fragment_count,
+-	NULL,
+-	&hf_netb_reassembled_length,
+ 	/* Reassembled data field */
+ 	NULL,
+ 	"fragments"
+ };
+ 
++// FIXME: Crash CWE-125: Out-of-bounds Read
+ /* The strings for the station type, used by get_netbios_name function;
+    many of them came from the file "NetBIOS.txt" in the Zip archive at
+ 
+ 	http://www.net3group.com/ftp/browser.zip
+- */
++*/
+ 
+ static const value_string nb_name_type_vals[] = {
+-	{0x00,	"Workstation/Redirector"},
+-	{0x01,	"Browser"},
+-	{0x02,	"Workstation/Redirector"},
+-		/* not sure what 0x02 is, I'm seeing a lot of them however */
+-		/* I'm seeing them with workstation/redirection host
+-			announcements */
+-	{0x03,	"Messenger service/Main name"},
++	{0x00, "Workstation/Redirector"},
++	{0x01, "Browser"},
++	{0x02, "Workstation/Redirector"},
++	/* not sure what 0x02 is, I'm seeing a lot of them however */
++	/* I'm seeing them with workstation/redirection host */
++	/* announcements */
++};
++
++/* Patch #2: cast to size_t and guard with unsigned arithmetic */
++void dissect_netbios(packet_info *pinfo, guint8 *data, int length) {
++	static const guint8 dissect_netb[264] = { /* … */ };
++	int offset = compute_netbios_offset(data, length);
++	if ((gint)offset < 0 || (size_t)offset + 8 > sizeof(dissect_netb)) {
++		return;
++	}
++	process_netbios_field(dissect_netb + offset, 8);
++}	{0x03,	"Messenger service/Main name"},
+ 	{0x05,	"Forwarded name"},
+ 	{0x06,	"RAS Server service"},
+ 	{0x1b,	"Domain Master Browser"},

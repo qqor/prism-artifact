@@ -1,0 +1,80 @@
+diff --git a/epan/dissectors/packet-json.c b/epan/dissectors/packet-json.c
+index fbf7776431..f63f2f08fe 100644
+--- a/epan/dissectors/packet-json.c
++++ b/epan/dissectors/packet-json.c
+@@ -565,18 +565,23 @@ get_json_string(wmem_allocator_t *scope, tvbparse_elem_t *tok, bool remove_quote
+ 
+ 	if (unescape_strings) {
+ 		string = json_string_unescape(scope, string, &length);
+-	}
+-	else {
++		if (!string) return NULL;
++		/* ensure at least room for terminator if length==0 */
++		if (length == 0) {
++			string[0] = '\0';
++		}
++	} else {
+ 		length = strlen(string);
+ 	}
+ 
+ 	if (remove_quotes) {
+-		if (string[length - 1] == '"') {
+-			string[length - 1] = '\0';
+-		}
+-		if (string[0] == '"') {
+-			string += 1;
++		/* robustly compute new bounds */
++		size_t start = 0, end = length;
++		if (start < end && string[start] == '"') start++;
++		if (start < end && string[end - 1] == '"') {
++			string[end - 1] = '\0';
+ 		}
++		string += start;
+ 	}
+ 
+ 	return string;
+@@ -784,18 +789,27 @@ dissect_json(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data)
+ 		proto_tree* json_tree_raw = json_hide_root_item() ? json_tree :
+ 			proto_tree_add_subtree(json_tree, tvb, 0, -1, ett_json_raw, NULL, "JSON raw form:");
+ 
+-		parser_data.stack_raw = wmem_stack_new(pinfo->pool);
+-		wmem_stack_push(parser_data.stack_raw, json_tree_raw);
++	parser_data.stack_raw = wmem_stack_new(pinfo->pool);
++	wmem_stack_push(parser_data.stack_raw, json_tree_raw);
+ 
+-		parser_data.prev_item_raw = NULL;
+-		parser_data.prev_item_type_raw = JSON_MARK_TYPE_NONE;
++	parser_data.prev_item_raw = NULL;
++	parser_data.prev_item_type_raw = JSON_MARK_TYPE_NONE;
+ 	}
+ 
+ 	tt = tvbparse_init(pinfo->pool, tvb, offset, buffer_length - offset, &parser_data, want_ignore);
++	// FIXME: Crash CWE-125: Out-of-bounds Read
+ 
+ 	/* XXX, only one json in packet? */
+-	while (tvbparse_get(tt, want))
+-	{ }
++	/* Prevent infinite or runaway parsing by tracking progress */
++	size_t last_offset = offset;
++	while (tvbparse_get(tt, want)) {
++		offset = tvbparse_curr_offset(tt);
++		if (offset <= last_offset) {
++			/* No progress or OOB risk, abort loop */
++			break;
++		}
++		last_offset = offset;
++	}
+ 
+ 	offset = tvbparse_curr_offset(tt);
+ 
+@@ -803,9 +817,7 @@ dissect_json(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data)
+ 
+ 	/* if we have some unparsed data, pass to data-text-lines dissector (?) */
+ 	if (tvb_reported_length_remaining(tvb, offset) > 0) {
+-		tvbuff_t *next_tvb;
+-
+-		next_tvb = tvb_new_subset_remaining(tvb, offset);
++		tvbuff_t *next_tvb;		next_tvb = tvb_new_subset_remaining(tvb, offset);
+ 
+ 		call_dissector_with_data(text_lines_handle, next_tvb, pinfo, tree, data);
+ 	} else if (data_name) {

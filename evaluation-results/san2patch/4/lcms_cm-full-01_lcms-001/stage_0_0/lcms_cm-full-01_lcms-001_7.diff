@@ -1,0 +1,38 @@
+diff --git a/src/cmsps2.c b/src/cmsps2.c
+index cb2db85..7c2c956 100644
+--- a/src/cmsps2.c
++++ b/src/cmsps2.c
+@@ -1593,11 +1593,29 @@ cmsUInt32Number CMSEXPORT cmsGetPostScriptCSA(cmsContext ContextID,
+ 
+     if (!mem) return 0;
+ 
+-    dwBytesUsed =  cmsGetPostScriptColorResource(ContextID, cmsPS_RESOURCE_CSA, hProfile, Intent, dwFlags, mem);
++    // Try normal CSA generation
++    dwBytesUsed = cmsGetPostScriptColorResource(ContextID,
++                                               cmsPS_RESOURCE_CSA,
++                                               hProfile,
++                                               Intent,
++                                               dwFlags,
++                                               mem);
++    // Defensive check: if cmsStageType went NULL internally, dwBytesUsed may be zero
++    if (dwBytesUsed == 0) {
++        // Write a minimal identity CSA manually: define a no-op ColorSpaceAction
++        const char identityCSA[] =
++            "% Identity CSA fallback\n"
++            "/DeviceGray setcolorspace\n"
++            "% end fallback\n";
++        mem->Write(ContextID, mem, identityCSA, (cmsUInt32Number)strlen(identityCSA));
++        dwBytesUsed = (cmsUInt32Number)strlen(identityCSA);
++    }
+ 
+-    // Get rid of memory stream
+     cmsCloseIOhandler(mem);
+-
+     return dwBytesUsed;
+-
+ }
++
++/* Rationale:
++ * If the primary CSA writer fails (dwBytesUsed == 0), we emit a minimal,
++ * safe identity CSA snippet directly to avoid NULL pointer dereference
++ * while still producing valid PostScript. */

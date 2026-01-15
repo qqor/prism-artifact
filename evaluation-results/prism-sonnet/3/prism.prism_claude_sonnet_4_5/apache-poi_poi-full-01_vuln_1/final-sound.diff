@@ -1,0 +1,53 @@
+--- a/poi-scratchpad/src/main/java/org/apache/poi/hmef/attribute/MAPIAttribute.java
++++ b/poi-scratchpad/src/main/java/org/apache/poi/hmef/attribute/MAPIAttribute.java
+@@ -44,6 +44,9 @@
+    private static final int DEFAULT_MAX_RECORD_LENGTH = 1_000_000;
+    private static int MAX_RECORD_LENGTH = 1_000_000;
+    private static int MAX_RECORD_COUNT = 10_000;
++   // arbitrarily selected; may need to increase
++   private static final int DEFAULT_MAX_STRING_LENGTH = 100_000;
++   private static int MAX_STRING_LENGTH = DEFAULT_MAX_STRING_LENGTH;
+ 
+    private final MAPIProperty property;
+    private final int type;
+@@ -61,6 +64,20 @@
+     */
+    public static int getMaxRecordLength() {
+       return MAX_RECORD_LENGTH;
++   }
++
++   /**
++    * @param length the max string length allowed for MAPI attribute names
++    */
++   public static void setMaxStringLength(int length) {
++      MAX_STRING_LENGTH = length;
++   }
++
++   /**
++    * @return the max string length allowed for MAPI attribute names
++    */
++   public static int getMaxStringLength() {
++      return MAX_STRING_LENGTH;
+    }
+ 
+    /**
+@@ -168,7 +185,7 @@
+                   if (mplen < 0) {
+                      throw new IOException("Did not expect negative value: " + mplen);
+                   }
+-                  byte[] mpdata = new byte[mplen];
++                  byte[] mpdata = IOUtils.safelyAllocate(mplen, MAX_STRING_LENGTH);
+                   if (IOUtils.readFully(inp, mpdata) < 0) {
+                      throw new IOException("Not enough data to read " + mplen + " bytes for attribute name");
+                   }
+@@ -228,7 +245,9 @@
+           type == Types.DIRECTORY ||
+           type == Types.BINARY) {
+             // Need to read the length, as it varies
+-            return LittleEndian.readInt(inp);
++            int length = LittleEndian.readInt(inp);
++            IOUtils.safelyAllocateCheck(length, MAX_RECORD_LENGTH);
++            return length;
+       } else {
+             throw new IllegalArgumentException("Unknown type " + type);
+       }

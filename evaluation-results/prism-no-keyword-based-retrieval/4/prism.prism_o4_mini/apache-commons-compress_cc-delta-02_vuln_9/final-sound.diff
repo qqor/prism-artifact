@@ -1,0 +1,35 @@
+--- a/src/main/java/org/apache/commons/compress/compressors/lzw/LZWInputStream.java
++++ b/src/main/java/org/apache/commons/compress/compressors/lzw/LZWInputStream.java
+@@ -45,6 +45,10 @@
+     protected final BitInputStream in;
+     private int clearCode = -1;
+     private int codeSize = DEFAULT_CODE_SIZE;
++    /**
++     * Upper bound to prevent unbounded dictionary allocations (1 << maxCodeSize).
++     */
++    protected static final int MAX_REASONABLE_CODE_SIZE = 16;
+     private byte previousCodeFirstChar;
+     private int previousCode = UNUSED_PREFIX;
+     private int tableSize;
+@@ -176,6 +180,10 @@
+      * @throws IllegalArgumentException if {@code maxCodeSize} is out of bounds for {@code prefixes} and {@code characters}.
+      */
+     protected void initializeTables(final int maxCodeSize) {
++        if (maxCodeSize > MAX_REASONABLE_CODE_SIZE) {
++            throw new IllegalArgumentException("maxCodeSize " + maxCodeSize
++                + " exceeds allowed maximum of " + MAX_REASONABLE_CODE_SIZE);
++        }
+         // maxCodeSize shifted cannot be less than 256, otherwise the loop in initializeTables() will throw an ArrayIndexOutOfBoundsException
+         // maxCodeSize cannot be smaller than getCodeSize(), otherwise addEntry() will throw an ArrayIndexOutOfBoundsException
+         if (1 << maxCodeSize < 256 || getCodeSize() > maxCodeSize) {
+@@ -205,6 +213,10 @@
+     protected void initializeTables(final int maxCodeSize, final int memoryLimiKiB) throws MemoryLimitException {
+         if (maxCodeSize <= 0) {
+             throw new IllegalArgumentException("maxCodeSize is " + maxCodeSize + ", must be bigger than 0");
++        }
++        if (maxCodeSize > MAX_REASONABLE_CODE_SIZE) {
++            throw new IllegalArgumentException("maxCodeSize " + maxCodeSize
++                + " exceeds allowed maximum of " + MAX_REASONABLE_CODE_SIZE);
+         }
+ 
+         if (memoryLimiKiB > -1) {

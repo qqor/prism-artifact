@@ -1,0 +1,14 @@
+{
+  "project_name": "freerdp",
+  "vulnerability_identifier": "freerdp_fp-delta-02_vuln_002",
+  "source_directory": "/home/qqor/crete/.cache/official-afc-freerdp",
+  "llm_usage": {
+    "total_cost": 1.8280740000000002,
+    "prompt_tokens": 528028,
+    "completion_tokens": 16266
+  },
+  "variant": "sound",
+  "diff": "--- a/libfreerdp/crypto/x509_utils.c\n+++ b/libfreerdp/crypto/x509_utils.c\n@@ -433,7 +433,7 @@\n BOOL x509_validate_subject_aternative_names(const X509* cert) {\n     STACK_OF(GENERAL_NAME) *san_names = NULL;\n     int i, count;\n-    char *dns_name = NULL;\n+    unsigned char *dns_name = NULL;\n \tBOOL result = TRUE;\n \n     // Get Subject Alternative Names (SAN)\n@@ -448,29 +448,33 @@\n         GENERAL_NAME *gen_name = sk_GENERAL_NAME_value(san_names, i);\n \n         if (gen_name->type == GEN_DNS) {\n-\t\t\t// Allocate string length + 1 for security\n-\t\t\tdns_name = malloc( strlen((char *)ASN1_STRING_get0_data(gen_name->d.dNSName)) + 1);\n-\n-\t\t\tif (dns_name == NULL)\n+\t\t\t// Convert ASN1 string to UTF-8\n+\t\t\tint length = ASN1_STRING_to_UTF8(&dns_name, gen_name->d.dNSName);\n+\t\t\tif (length < 0) {\n+\t\t\t\tWLog_ERR(TAG, \"ASN1_STRING_to_UTF8() failed for DNS name: %s\",\n+\t\t\t\t         ERR_error_string(ERR_get_error(), NULL));\n+\t\t\t\tresult = FALSE;\n \t\t\t\tgoto end;\n+\t\t\t}\n \t\t\t\n-\t\t\tmemcpy(dns_name, (char *)ASN1_STRING_get0_data(gen_name->d.dNSName),  \n-\t\t\t\tASN1_STRING_length(gen_name->d.dNSName)) ;\n-\t\t\t\n-            if (!verify_san(dns_name)) {\n-\t\t\t\tfree(dns_name);\n+            if (!verify_san((const char*)dns_name)) {\n+\t\t\t\tOPENSSL_free(dns_name);\n+\t\t\t\tdns_name = NULL;\n \t\t\t\tresult = FALSE;\n \t\t\t\tgoto end;\n             } else {\n-\t\t\t\tfree(dns_name);\n+\t\t\t\tOPENSSL_free(dns_name);\n+\t\t\t\tdns_name = NULL;\n             }\n         }\n     }\n \n end:\n+    if (dns_name)\n+        OPENSSL_free(dns_name);\n     sk_GENERAL_NAME_pop_free(san_names, GENERAL_NAME_free);\n \n-\treturn TRUE;\n+\treturn result;\n }\n \n char* x509_utils_get_email(const X509* x509)\n",
+  "stdout": "",
+  "stderr": ""
+}

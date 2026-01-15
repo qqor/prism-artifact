@@ -1,0 +1,64 @@
+--- a/epan/dissectors/packet-aim.c
++++ b/epan/dissectors/packet-aim.c
+@@ -583,14 +583,30 @@
+ {
+ 	uint16_t buddyname_length;
+ 
+-	*name = wmem_alloc(pool, 256);
+-
+-	buddyname_length = tvb_get_ntohs(tvb, offset);
+-
+-	if (pool)
+-		memcpy(*name, tvb_get_ptr(tvb,offset,1), buddyname_length);
+-
+-	return buddyname_length;
++    buddyname_length = tvb_get_ntohs(tvb, offset);
++    {
++        guint32 total_len = tvb_reported_length(tvb);
++        guint32 max_len;
++        /* Validate that we have at least the length field and data */
++        if ((guint32)(offset + 2) > total_len) {
++            buddyname_length = 0;
++        } else {
++            max_len = total_len - (guint32)(offset + 2);
++            if (buddyname_length > max_len) {
++                buddyname_length = max_len;
++            }
++            /* Cap buddyname length to a safe maximum */
++            if (buddyname_length > 256) {
++                buddyname_length = 256;
++            }
++        }
++    }
++    if (pool) {
++        *name = wmem_alloc(pool, buddyname_length + 1);
++        memcpy(*name, tvb_get_ptr(tvb, offset + 2, buddyname_length), buddyname_length);
++        (*name)[buddyname_length] = '\0';
++    }
++    return buddyname_length;
+ }
+ 
+ 
+@@ -1596,10 +1612,18 @@
+ 	offset += 2;
+ 	hdr_data_field_length = tvb_get_ntohs(tvb, offset);
+ 	offset += 2;
+-
+-/* In the interest of speed, if "tree" is NULL, don't do any work not
+-   necessary to generate protocol tree items. */
+-	if (tree) {
++    {
++        guint32 avail = tvb_reported_length(tvb) - offset;
++        guint32 data_len = hdr_data_field_length < avail ? hdr_data_field_length : avail;
++        tvbuff_t *data_tvb = tvb_new_subset_length(tvb, offset, data_len);
++        tvb = data_tvb;
++        /* Reset offset since tvb is now limited to data field */
++        offset = 0;
++    }
++
++    /* In the interest of speed, if "tree" is NULL, don't do any work not
++       necessary to generate protocol tree items. */
++    if (tree) {
+ 		ti = proto_tree_add_item(tree, proto_aim, tvb, 0, -1, ENC_NA);
+ 		aim_tree = proto_item_add_subtree(ti, ett_aim);
+ 		proto_tree_add_uint(aim_tree, hf_aim_cmd_start, tvb, 0, 1, '*');

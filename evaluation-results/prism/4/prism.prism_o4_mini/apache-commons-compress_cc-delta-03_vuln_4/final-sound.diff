@@ -1,0 +1,56 @@
+--- a/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java
++++ b/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java
+@@ -219,8 +219,7 @@
+      * </p>
+      */
+     private static final Pattern PAX_EXTENDED_HEADER_FILE_TIMES_PATTERN =
+-            Pattern.compile("-?\\d{1,19}(?:\\.\\d*)?");
+-
++            Pattern.compile("-?\\d{1,19}(?:\\.\\d{0,9})?");
+     private static FileTime fileTimeFromOptionalSeconds(final long seconds) {
+         return seconds <= 0 ? null : FileTimes.fromUnixTime(seconds);
+     }
+@@ -271,15 +270,37 @@
+         if (!PAX_EXTENDED_HEADER_FILE_TIMES_PATTERN.matcher(value).matches()) {
+             throw new IOException("Corrupted PAX header. Time field value is invalid '" + value + "'");
+         }
+-
+-        final BigDecimal epochSeconds = new BigDecimal(value);
+-        final long seconds = epochSeconds.longValue();
+-        final long nanos = epochSeconds.remainder(BigDecimal.ONE).movePointRight(9).longValue();
++        String[] parts = value.split("\\.", 2);
++        String secondsPart = parts[0];
++        String fractionPart = parts.length > 1 ? parts[1] : "";
++        long seconds;
++        try {
++            seconds = Long.parseLong(secondsPart);
++        } catch (NumberFormatException e) {
++            throw new IOException("Corrupted PAX header. Time field value is invalid '" + value + "'", e);
++        }
++        // Trim or pad fraction to exactly 9 digits
++        if (fractionPart.length() > 9) {
++            fractionPart = fractionPart.substring(0, 9);
++        } else {
++            fractionPart = String.format("%-9s", fractionPart).replace(' ', '0');
++        }
++        long nanos;
++        if (fractionPart.isEmpty()) {
++            nanos = 0L;
++        } else {
++            try {
++                nanos = Long.parseLong(fractionPart);
++            } catch (NumberFormatException e) {
++                throw new IOException("Corrupted PAX header. Time field value is invalid '" + value + "'", e);
++            }
++        }
++        if (value.charAt(0) == '-') {
++            nanos = -nanos;
++        }
+         try {
+             return Instant.ofEpochSecond(seconds, nanos);
+         } catch (DateTimeException | ArithmeticException e) {
+-            // DateTimeException: Thrown if the instant exceeds the maximum or minimum instant.
+-            // ArithmeticException: Thrown if numeric overflow occurs.
+             throw new IOException("Corrupted PAX header. Time field value is invalid '" + value + "'", e);
+         }
+     }

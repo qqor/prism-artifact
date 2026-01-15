@@ -1,0 +1,44 @@
+diff --git a/libexif/apple/exif-mnote-data-apple.c b/libexif/apple/exif-mnote-data-apple.c
+index 83a9cb1..4b2c3ec 100644
+--- a/libexif/apple/exif-mnote-data-apple.c
++++ b/libexif/apple/exif-mnote-data-apple.c
+@@ -107,21 +107,30 @@ exif_mnote_data_apple_load(ExifMnoteData *md, const unsigned char *buf, unsigned
+     }
+ 
+     for (i = 0; i < tcount; i++) {
+-        d->entries[i].tag = exif_get_short(buf + ofs, d->order);
+-        d->entries[i].format = exif_get_short(buf + ofs + 2, d->order);
+-        d->entries[i].components = exif_get_long(buf + ofs + 4, d->order);
+-        d->entries[i].order = d->order;
++        /* Rationale: ensure header fields (2+2+4+4=12 bytes) are within buffer */
++        if (ofs + 12 > buf_size) {
++            exif_log(md->log, EXIF_LOG_CODE_CORRUPT_DATA,
++                     "ExifMnoteApplet", "Insufficient header data for entry %u (%u vs %u)",
++                     i, buf_size - ofs, 12);
++            break;
++        }
++        d->entries[i].tag        = exif_get_short(buf + ofs, d->order);
++        d->entries[i].format     = exif_get_short(buf + ofs + 2, d->order);
++        d->entries[i].components = exif_get_long (buf + ofs + 4, d->order);
++        d->entries[i].order      = d->order;
+         dsize = exif_format_get_size(d->entries[i].format) * d->entries[i].components;
+         if (dsize > 4) {
+             dofs = d->offset + exif_get_long(buf + ofs + 8, d->order);
+         } else {
+             dofs = ofs + 8;
+         }
+-	if (dofs > buf_size) {
+-		exif_log (md->log, EXIF_LOG_CODE_CORRUPT_DATA,
+-                                  "ExifMnoteApplet", "Tag size overflow detected (%u vs size %u)", dofs, buf_size);
+-		continue;
+-	}
++        /* Rationale: ensure reading dsize bytes at dofs stays within buffer */
++        if (dofs + dsize > buf_size) {
++            exif_log(md->log, EXIF_LOG_CODE_CORRUPT_DATA,
++                     "ExifMnoteApplet", "Tag size overflow detected (%u vs size %u)",
++                     dofs + dsize, buf_size);
++            continue;
++        }
+         ofs += 12;
+         d->entries[i].data = exif_mem_alloc(md->mem, dsize);
+         if (!d->entries[i].data) {

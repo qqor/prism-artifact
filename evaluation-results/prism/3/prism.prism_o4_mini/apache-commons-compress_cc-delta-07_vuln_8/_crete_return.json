@@ -1,0 +1,14 @@
+{
+  "project_name": "apache-commons-compress",
+  "vulnerability_identifier": "apache-commons-compress_cc-delta-07_vuln_8",
+  "source_directory": "/home/qqor/crete/.cache/official-afc-commons-compress",
+  "llm_usage": {
+    "total_cost": 0.1624073,
+    "prompt_tokens": 79115,
+    "completion_tokens": 17132
+  },
+  "variant": "sound",
+  "diff": "--- a/src/main/java/org/apache/commons/compress/archivers/examples/Expander.java\n+++ b/src/main/java/org/apache/commons/compress/archivers/examples/Expander.java\n@@ -506,21 +506,37 @@\n     }\n \n     private static Path createParentDirectory(Path root, Path target) throws IOException {\n-        Path relative =\n-                root.relativize(target.getParent());\n-        Path current = root.toAbsolutePath();\n-\n+        Path rootNormalized = root.toAbsolutePath().normalize();\n+        Path targetParent = target.getParent().toAbsolutePath().normalize();\n+        if (!targetParent.startsWith(rootNormalized)) {\n+            throw new IOException(\"Path traversal outside target directory: \" + targetParent);\n+        }\n+        Path relative = rootNormalized.relativize(targetParent);\n+        Path current = rootNormalized;\n+    \n         for (Path p : relative) {\n-            current = current.resolve(p);\n+            current = current.resolve(p).toAbsolutePath().normalize();\n+            if (!current.startsWith(rootNormalized)) {\n+                throw new IOException(\"Path traversal attempt: \" + current);\n+            }\n             if (Files.isSymbolicLink(current)) {\n-                current = Files.readSymbolicLink(current);\n-            }\n-            if (! Files.isDirectory(current)) {\n+                Path linkTarget = Files.readSymbolicLink(current);\n+                Path resolvedLink;\n+                if (linkTarget.isAbsolute()) {\n+                    resolvedLink = linkTarget.toAbsolutePath().normalize();\n+                } else {\n+                    resolvedLink = current.getParent().resolve(linkTarget).toAbsolutePath().normalize();\n+                }\n+                if (!resolvedLink.startsWith(rootNormalized)) {\n+                    throw new IOException(\"Symlink leads outside target directory: \" + resolvedLink);\n+                }\n+                current = resolvedLink;\n+            }\n+            if (!Files.isDirectory(current)) {\n                 Files.createDirectory(current);\n             }\n         }\n         return current;\n-\n     }\n \n \n",
+  "stdout": "",
+  "stderr": ""
+}

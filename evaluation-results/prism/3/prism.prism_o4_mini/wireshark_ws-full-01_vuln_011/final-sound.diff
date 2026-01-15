@@ -1,0 +1,54 @@
+--- a/epan/dissectors/packet-aim.c
++++ b/epan/dissectors/packet-aim.c
+@@ -581,16 +581,41 @@
+ static int
+ aim_get_buddyname(wmem_allocator_t *pool, uint8_t **name, tvbuff_t *tvb, int offset)
+ {
+-	uint16_t buddyname_length;
+-
+-	*name = wmem_alloc(pool, 256);
+-
+-	buddyname_length = tvb_get_ntohs(tvb, offset);
+-
+-	if (pool)
+-		memcpy(*name, tvb_get_ptr(tvb,offset,1), buddyname_length);
+-
+-	return buddyname_length;
++    uint16_t name_length_field;
++    uint16_t copy_length;
++    const uint8_t *ptr;
++    guint32 rem_len;
++
++    /* Ensure we have at least 2 bytes for the length field */
++    if (tvb_reported_length_remaining(tvb, offset) < 2) {
++        *name = wmem_alloc(pool, 1);
++        (*name)[0] = '\0';
++        return 0;
++    }
++
++    /* Read buddy-name length (network byte order) */
++    name_length_field = tvb_get_ntohs(tvb, offset);
++
++    /* Calculate remaining bytes after the length field */
++    rem_len = tvb_reported_length_remaining(tvb, offset + 2);
++
++    /* Cap the copy length to avoid overflow and overread */
++    copy_length = name_length_field;
++    if (copy_length > 255)
++        copy_length = 255;
++    if (copy_length > rem_len)
++        copy_length = rem_len;
++
++    /* Pointer to buddy-name data starts 2 bytes past offset */
++    ptr = tvb_get_ptr(tvb, offset + 2, copy_length);
++
++    /* Allocate buffer for name plus null terminator */
++    *name = wmem_alloc(pool, copy_length + 1);
++    memcpy(*name, ptr, copy_length);
++    (*name)[copy_length] = '\0';
++
++    /* Return the payload length field for offset calculations */
++    return name_length_field;
+ }
+ 
+ 

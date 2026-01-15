@@ -1,0 +1,39 @@
+--- a/libfreerdp/crypto/certificate.c
++++ b/libfreerdp/crypto/certificate.c
+@@ -1534,9 +1534,9 @@
+ 	WINPR_ASSERT(bio);
+ 	WINPR_ASSERT(ppem);
+ 
+-	const uint16_t blocksize = 2048;
+-	uint16_t offset = 0;
+-	uint16_t length = blocksize;
++	const size_t blocksize = 2048;
++	size_t offset = 0;
++	size_t length = blocksize;
+ 	char* pem = NULL;
+ 
+ 	*ppem = NULL;
+@@ -1545,6 +1545,10 @@
+ 
+ 	while (status != 0)
+ 	{
++		/* Prevent size_t wrap on very large inputs */
++		if (length > SIZE_MAX - blocksize - 1)
++			goto fail;
++
+ 		char* tmp = realloc(pem, length + 1);
+ 		if (!tmp)
+ 			goto fail;
+@@ -1553,7 +1557,11 @@
+ 
+ 		ERR_clear_error();
+ 
+-		status = BIO_read(bio, &pem[offset], (int)(length - offset));
++		{
++			size_t toRead = length - offset;
++			int chunk = (toRead > INT_MAX) ? INT_MAX : (int)toRead;
++			status = BIO_read(bio, &pem[offset], chunk);
++		}
+ 		if (status < 0)
+ 		{
+ 			WLog_ERR(TAG, "failed to read certificate");

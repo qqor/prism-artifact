@@ -1,0 +1,83 @@
+--- a/src/net_builtin.c
++++ b/src/net_builtin.c
+@@ -147,8 +147,12 @@
+ static void send_syn(struct mg_connection *c);
+ 
+ static void mkpay(struct pkt *pkt, void *p) {
+-  pkt->pay =
+-      mg_str_n((char *) p, (size_t) (&pkt->raw.buf[pkt->raw.len] - (char *) p));
++  if ((char *)p > &pkt->raw.buf[pkt->raw.len]) {
++    pkt->pay.buf = (char *)p;
++    pkt->pay.len = 0;
++  } else {
++    pkt->pay = mg_str_n((char *) p, (size_t) (&pkt->raw.buf[pkt->raw.len] - (char *) p));
++  }
+ }
+ 
+ static uint32_t csumup(uint32_t sum, const void *buf, size_t len) {
+@@ -794,17 +798,17 @@
+ static void rx_ip(struct mg_tcpip_if *ifp, struct pkt *pkt) {
+   uint16_t frag = mg_ntohs(pkt->ip->frag);
+   if (frag & IP_MORE_FRAGS_MSK || frag & IP_FRAG_OFFSET_MSK) {
+-    if (pkt->ip->proto == 17) pkt->udp = (struct udp *) (pkt->ip + 1);
+-    if (pkt->ip->proto == 6) pkt->tcp = (struct tcp *) (pkt->ip + 1);
++    if (pkt->ip->proto == 17) pkt->udp = (struct udp *) pkt->pay.buf;
++    if (pkt->ip->proto == 6) pkt->tcp = (struct tcp *) pkt->pay.buf;
+     struct mg_connection *c = getpeer(ifp->mgr, pkt, false);
+     if (c) mg_error(c, "Received fragmented packet");
+   } else if (pkt->ip->proto == 1) {
+-    pkt->icmp = (struct icmp *) (pkt->ip + 1);
++    pkt->icmp = (struct icmp *) pkt->pay.buf;
+     if (pkt->pay.len < sizeof(*pkt->icmp)) return;
+     mkpay(pkt, pkt->icmp + 1);
+     rx_icmp(ifp, pkt);
+   } else if (pkt->ip->proto == 17) {
+-    pkt->udp = (struct udp *) (pkt->ip + 1);
++    pkt->udp = (struct udp *) pkt->pay.buf;
+     if (pkt->pay.len < sizeof(*pkt->udp)) return;
+     mkpay(pkt, pkt->udp + 1);
+     MG_VERBOSE(("UDP %M:%hu -> %M:%hu len %u", mg_print_ip4, &pkt->ip->src,
+@@ -822,11 +826,12 @@
+       rx_udp(ifp, pkt);
+     }
+   } else if (pkt->ip->proto == 6) {
+-    pkt->tcp = (struct tcp *) (pkt->ip + 1);
++    pkt->tcp = (struct tcp *) pkt->pay.buf;
+     if (pkt->pay.len < sizeof(*pkt->tcp)) return;
+     mkpay(pkt, pkt->tcp + 1);
+     uint16_t iplen = mg_ntohs(pkt->ip->len);
+-    uint16_t off = (uint16_t) (sizeof(*pkt->ip) + ((pkt->tcp->off >> 4) * 4U));
++    uint16_t ihl = ((pkt->ip->ver & 0xF) * 4);
++    uint16_t off = (uint16_t) (ihl + ((pkt->tcp->off >> 4) * 4U));
+     if (iplen >= off) pkt->pay.len = (size_t) (iplen - off);
+     MG_VERBOSE(("TCP %M:%hu -> %M:%hu len %u", mg_print_ip4, &pkt->ip->src,
+                 mg_ntohs(pkt->tcp->sport), mg_print_ip4, &pkt->ip->dst,
+@@ -838,12 +843,12 @@
+ static void rx_ip6(struct mg_tcpip_if *ifp, struct pkt *pkt) {
+   // MG_DEBUG(("IP %d", (int) len));
+   if (pkt->ip6->proto == 1 || pkt->ip6->proto == 58) {
+-    pkt->icmp = (struct icmp *) (pkt->ip6 + 1);
++    pkt->icmp = (struct icmp *) pkt->pay.buf;
+     if (pkt->pay.len < sizeof(*pkt->icmp)) return;
+     mkpay(pkt, pkt->icmp + 1);
+     rx_icmp(ifp, pkt);
+   } else if (pkt->ip6->proto == 17) {
+-    pkt->udp = (struct udp *) (pkt->ip6 + 1);
++    pkt->udp = (struct udp *) pkt->pay.buf;
+     if (pkt->pay.len < sizeof(*pkt->udp)) return;
+     // MG_DEBUG(("  UDP %u %u -> %u", len, mg_htons(udp->sport),
+     // mg_htons(udp->dport)));
+@@ -888,8 +893,11 @@
+     }
+     if (pkt.raw.len < sizeof(*pkt.eth) + sizeof(*pkt.ip)) return;  // Truncated
+     if ((pkt.ip->ver >> 4) != 4) return;                           // Not IP
+-    if ((pkt.ip->ver & 0xF) > 5)                                   // Handle IPv4 options
+-        mkpay(&pkt, (char *)(pkt.ip) + ((pkt.ip->ver & 0xF)*4));
++    size_t ihl = ((pkt.ip->ver & 0xF) * 4);
++    if (ihl < sizeof(*pkt.ip)) return;
++    if (sizeof(*pkt.eth) + ihl > pkt.raw.len) return;
++    if ((pkt.ip->ver & 0xF) > 5)
++        mkpay(&pkt, (char *)(pkt.ip) + ihl);
+     else
+         mkpay(&pkt, pkt.ip + 1);
+ 

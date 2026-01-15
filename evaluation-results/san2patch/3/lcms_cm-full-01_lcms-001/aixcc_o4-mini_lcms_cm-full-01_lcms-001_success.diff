@@ -1,0 +1,63 @@
+diff --git a/src/cmslut.c b/src/cmslut.c
+index f117747..b713fad 100644
+--- a/src/cmslut.c
++++ b/src/cmslut.c
+@@ -1217,7 +1217,7 @@ void CMSEXPORT cmsStageFree(cmsStage* mpe)
+ 
+ cmsUInt32Number  CMSEXPORT cmsStageInputChannels(const cmsStage* mpe)
+ {
+-    return mpe ->InputChannels;
++return mpe ->InputChannels;
+ }
+ 
+ cmsUInt32Number  CMSEXPORT cmsStageOutputChannels(const cmsStage* mpe)
+@@ -1225,8 +1225,11 @@ cmsUInt32Number  CMSEXPORT cmsStageOutputChannels(const cmsStage* mpe)
+     return mpe ->OutputChannels;
+ }
+ 
+-cmsStageSignature CMSEXPORT cmsStageType(const cmsStage* mpe)
++// FIXME: Crash CWE-476: NULL Pointer Dereference
++ cmsStageSignature CMSEXPORT cmsStageType(const cmsStage* mpe)
+ {
++    // Rationale: Use assert to catch invalid pointer during debugging
++    assert(mpe != NULL);
+     return mpe -> Type;
+ }
+ 
+@@ -1237,8 +1240,7 @@ void* CMSEXPORT cmsStageData(const cmsStage* mpe)
+ 
+ cmsContext CMSEXPORT cmsGetStageContextID(const cmsStage* mpe)
+ {
+-    return mpe -> ContextID;
+-}
++    return mpe -> ContextID;}
+ 
+ cmsStage*  CMSEXPORT cmsStageNext(const cmsStage* mpe)
+ {
+diff --git a/src/cmsps2.c b/src/cmsps2.c
+index cb2db85..f9ffda9 100644
+--- a/src/cmsps2.c
++++ b/src/cmsps2.c
+@@ -893,6 +893,7 @@ cmsBool WriteInputLUT(cmsIOHANDLER* m, cmsHPROFILE hProfile, cmsUInt32Number Int
+             cmsPipeline* DeviceLink;
+             _cmsTRANSFORM* v = (_cmsTRANSFORM*) xform;
+             cmsBool rc;
++            cmsBool ok;
+ 
+             DeviceLink = cmsPipelineDup(v ->Lut);
+             if (DeviceLink == NULL) {
+@@ -901,7 +902,13 @@ cmsBool WriteInputLUT(cmsIOHANDLER* m, cmsHPROFILE hProfile, cmsUInt32Number Int
+             }
+ 
+             dwFlags |= cmsFLAGS_FORCE_CLUT;
+-            _cmsOptimizePipeline(m->ContextID, &DeviceLink, Intent, &InputFormat, &OutFrm, &dwFlags);
++            ok = _cmsOptimizePipeline(m->ContextID, &DeviceLink, Intent, &InputFormat, &OutFrm, &dwFlags);
++            if (!ok || DeviceLink == NULL) {
++                // Optimization failed or returned a NULL pipeline
++                if (DeviceLink) cmsPipelineFree(DeviceLink);
++                cmsDeleteTransform(xform);
++                return FALSE;
++            }
+ 
+             rc = EmitCIEBasedDEF(m, DeviceLink, Intent, &BlackPointAdaptedToD50);
+             cmsPipelineFree(DeviceLink);            

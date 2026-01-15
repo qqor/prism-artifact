@@ -1,0 +1,71 @@
+--- a/core/src/main/java/org/apache/logging/log4j/core/helpers/Constants.java
++++ b/core/src/main/java/org/apache/logging/log4j/core/helpers/Constants.java
+@@ -36,6 +36,11 @@
+     public static final String LOG4J_DEFAULT_STATUS_LEVEL = "Log4jDefaultStatusLevel";
+ 
+     /**
++     * Name of the system property to use to enable JNDI lookups.
++     */
++    public static final String LOG4J_ENABLE_JNDI_LOOKUP = "log4j2.enableJndiLookup";
++
++    /**
+      * JNDI context name string literal.
+      */
+     public static final String JNDI_CONTEXT_NAME = "java:comp/env/log4j/context-name";
+
+--- a/core/src/main/java/org/apache/logging/log4j/core/lookup/JndiLookup.java
++++ b/core/src/main/java/org/apache/logging/log4j/core/lookup/JndiLookup.java
+@@ -19,8 +19,12 @@
+ import javax.naming.InitialContext;
+ import javax.naming.NamingException;
+ 
++import org.apache.logging.log4j.Logger;
+ import org.apache.logging.log4j.core.LogEvent;
+ import org.apache.logging.log4j.core.config.plugins.Plugin;
++import org.apache.logging.log4j.core.helpers.Constants;
++import org.apache.logging.log4j.status.StatusLogger;
++import org.apache.logging.log4j.util.PropertiesUtil;
+ 
+ /**
+  * Looks up keys from JNDI resources.
+@@ -28,7 +32,10 @@
+ @Plugin(name = "jndi", category = "Lookup")
+ public class JndiLookup implements StrLookup {
+ 
+-    private static boolean ENABLE_JNDI = true;
++    private static final Logger LOGGER = StatusLogger.getLogger();
++
++    private static volatile boolean ENABLE_JNDI = PropertiesUtil.getProperties()
++            .getBooleanProperty(Constants.LOG4J_ENABLE_JNDI_LOOKUP, false);
+ 
+     /** JNDI resourcce path prefix used in a J2EE container */
+     static final String CONTAINER_JNDI_RESOURCE_PATH_PREFIX = "java:comp/env/";
+@@ -53,6 +60,14 @@
+     public String lookup(final LogEvent event, final String key) {
+         if (key == null || ! ENABLE_JNDI) {
+             return null;
++        }
++
++        // Only allow local java: scheme for security
++        if (key.contains(":")) {
++            if (!key.startsWith("java:")) {
++                LOGGER.warn("For security reasons, only java: scheme is allowed in JNDI lookups. Blocked lookup: {}", key);
++                return null;
++            }
+         }
+ 
+         try {
+
+--- a/core/src/main/java/org/apache/logging/log4j/core/lookup/Interpolator.java
++++ b/core/src/main/java/org/apache/logging/log4j/core/lookup/Interpolator.java
+@@ -63,7 +63,9 @@
+         this.defaultLookup = new MapLookup(new HashMap<String, String>());
+         lookups.put("sys", new SystemPropertiesLookup());
+         lookups.put("env", new EnvironmentLookup());
+-        lookups.put("jndi", new JndiLookup());
++        if (JndiLookup.isEnableJndi()) {
++            lookups.put("jndi", new JndiLookup());
++        }
+     }
+ 
+      /**

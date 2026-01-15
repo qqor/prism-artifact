@@ -1,0 +1,21 @@
+diff --git a/src/json.c b/src/json.c
+index 2a91900..e73bfdf 100644
+--- a/src/json.c
++++ b/src/json.c
+@@ -319,8 +319,14 @@ json_value * json_parse_ex (json_settings * settings,
+ 
+                     if ((uchar & 0xF800) == 0xD800) {
+                         json_uchar uchar2;
+-                        
+-                        if (end - state.ptr < 6 || (*++ state.ptr) != '\\' || (*++ state.ptr) != 'u' ||
++
++                        /* Rationale: separate bound-check for surrogate pair before any pointer increments */
++                        if (end - state.ptr < 6) {
++                            sprintf (error, "Invalid character value `%c` (at %d:%d)", b, line_and_col);
++                            goto e_failed;
++                        }
++                        /* then perform exact checks safely */
++                        if ((*++ state.ptr) != '\\' || (*++ state.ptr) != 'u' ||
+                             (uc_b1 = hex_value (*++ state.ptr)) == 0xFF ||
+                             (uc_b2 = hex_value (*++ state.ptr)) == 0xFF ||
+                             (uc_b3 = hex_value (*++ state.ptr)) == 0xFF ||

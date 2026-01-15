@@ -1,0 +1,14 @@
+{
+  "project_name": "pdfbox",
+  "vulnerability_identifier": "pdfbox_pdfbox-full-01_vuln_5",
+  "source_directory": "/tasks_new/pdfbox_pdfbox-full-01/official-afc-pdfbox",
+  "llm_usage": {
+    "total_cost": 0.5477285,
+    "prompt_tokens": 303147,
+    "completion_tokens": 48697
+  },
+  "variant": "sound",
+  "diff": "--- a/fontbox/src/main/java/org/apache/fontbox/type1/Type1Lexer.java\n+++ b/fontbox/src/main/java/org/apache/fontbox/type1/Type1Lexer.java\n@@ -48,7 +48,13 @@\n      * Log instance.\n      */\n     private static final Logger LOG = LogManager.getLogger(Type1Lexer.class);\n-    \n+\n+    /**\n+     * Maximum allowed CharString length to prevent unbounded memory allocation.\n+     * Typical Type 1 CharStrings are small; 10 MiB is a safe upper bound.\n+     */\n+    private static final int MAX_CHARSTRING_LENGTH = 10 * 1024 * 1024;\n+\n     private final ByteBuffer buffer;\n     private Token aheadToken;\n     private int openParens = 0;\n@@ -501,16 +507,32 @@\n      */\n     private Token readCharString(int length) throws IOException\n     {\n+        // Validate charstring length to prevent resource exhaustion\n+        if (length < 0)\n+        {\n+            throw new IOException(\"CharString length is negative: \" + length);\n+        }\n+        // Ensure there is at least one space byte plus the declared data\n+        int remaining = buffer.remaining();\n+        if (length + 1 > remaining)\n+        {\n+            throw new IOException(\"CharString length exceeds available data: \" + length);\n+        }\n+        // Enforce an upper bound to prevent OOM\n+        if (length > MAX_CHARSTRING_LENGTH)\n+        {\n+            throw new IOException(\"CharString length exceeds maximum allowed: \" + length);\n+        }\n         try\n         {\n-            buffer.get(); // space\n+            buffer.get(); // consume space delimiter\n             byte[] data = new byte[length];\n             buffer.get(data);\n             return new Token(data, Token.CHARSTRING);\n         }\n-        catch (BufferUnderflowException exception)\n-        {\n-            throw new IOException(\"Premature end of buffer reached\");\n+        catch (BufferUnderflowException e)\n+        {\n+            throw new IOException(\"Premature end of buffer reached\", e);\n         }\n     }\n }\n",
+  "stdout": "",
+  "stderr": ""
+}

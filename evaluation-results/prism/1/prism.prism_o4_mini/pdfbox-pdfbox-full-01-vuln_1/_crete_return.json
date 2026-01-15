@@ -1,0 +1,14 @@
+{
+  "project_name": "pdfbox",
+  "vulnerability_identifier": "pdfbox-pdfbox-full-01-vuln_1",
+  "source_directory": "/tasks/759aa21d-110a-4c3e-b36e-d2217562425d/official-afc-pdfbox",
+  "llm_usage": {
+    "total_cost": 0.07919890000000002,
+    "prompt_tokens": 29679,
+    "completion_tokens": 10580
+  },
+  "variant": "sound",
+  "diff": "--- a/pdfbox/src/main/java/org/apache/pdfbox/pdmodel/interactive/form/PDXFAResource.java\n+++ b/pdfbox/src/main/java/org/apache/pdfbox/pdmodel/interactive/form/PDXFAResource.java\n@@ -24,6 +24,8 @@\n import javax.xml.parsers.DocumentBuilder;\n import javax.xml.parsers.DocumentBuilderFactory;\n import javax.xml.parsers.ParserConfigurationException;\n+import org.xml.sax.InputSource;\n+import java.io.StringReader;\n \n import org.apache.pdfbox.cos.COSArray;\n import org.apache.pdfbox.cos.COSBase;\n@@ -133,10 +135,20 @@\n     public Document getDocument() throws IOException\n     {\n         DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();\n-        factory.setNamespaceAware(true);\n         try {\n+            // Disable external DTDs and entities to block SSRF\n+            factory.setFeature(\"http://apache.org/xml/features/disallow-doctype-decl\", true);\n+            factory.setFeature(\"http://xml.org/sax/features/external-general-entities\", false);\n+            factory.setFeature(\"http://xml.org/sax/features/external-parameter-entities\", false);\n+            factory.setFeature(\"http://apache.org/xml/features/nonvalidating/load-external-dtd\", false);\n+            factory.setXIncludeAware(false);\n+            factory.setExpandEntityReferences(false);\n+            factory.setNamespaceAware(true);\n             DocumentBuilder builder = factory.newDocumentBuilder();\n-            return builder.parse(new ByteArrayInputStream(this.getBytes()));\n+            try (ByteArrayInputStream in = new ByteArrayInputStream(this.getBytes())) {\n+                builder.setEntityResolver((publicId, systemId) -> new InputSource(new StringReader(\"\")));\n+                return builder.parse(in);\n+            }\n         } catch (ParserConfigurationException | SAXException e) {\n             throw new IOException(e);\n         }\n",
+  "stdout": "",
+  "stderr": ""
+}

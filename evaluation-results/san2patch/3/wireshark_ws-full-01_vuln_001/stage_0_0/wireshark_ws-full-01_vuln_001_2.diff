@@ -1,0 +1,21 @@
+diff --git a/epan/dissectors/packet-openvpn.c b/epan/dissectors/packet-openvpn.c
+index b5486db018..6dbb978514 100644
+--- a/epan/dissectors/packet-openvpn.c
++++ b/epan/dissectors/packet-openvpn.c
+@@ -242,8 +242,14 @@ dissect_openvpn_msg_common(tvbuff_t *tvb, packet_info *pinfo, proto_tree *openvp
+     }
+ 
+     if (tls_auth == true) {
+-      proto_tree_add_item(openvpn_tree, hf_openvpn_hmac, tvb, offset, tls_auth_hmac_size, ENC_NA);
+-      offset += tls_auth_hmac_size;
++        /* FIX: Ensure buffer and packet have enough bytes */
++        if (tls_auth_hmac_size > 32 || tvb_reported_length_remaining(tvb, offset) < tls_auth_hmac_size) {
++            expert_add_info_format(pinfo, openvpn_tree, PI_MALFORMED, PI_ERROR,
++                                   "HMAC size invalid or packet too short: %d bytes", tls_auth_hmac_size);
++            return 0;
++        }
++        proto_tree_add_item(openvpn_tree, hf_openvpn_hmac, tvb, offset, tls_auth_hmac_size, ENC_NA);
++        offset += tls_auth_hmac_size;
+     }
+ 
+     if (tls_auth == true || tls_crypt == true) {

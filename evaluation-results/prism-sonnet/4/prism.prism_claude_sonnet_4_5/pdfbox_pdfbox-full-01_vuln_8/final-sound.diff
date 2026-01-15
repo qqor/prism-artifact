@@ -1,0 +1,147 @@
+--- a/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/XrefParser.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/XrefParser.java
+@@ -22,6 +22,7 @@
+ import java.util.HashSet;
+ import java.util.Map;
+ import java.util.Optional;
++import java.util.Set;
+ import java.util.Map.Entry;
+ 
+ import org.apache.logging.log4j.LogManager;
+@@ -45,6 +46,11 @@
+     private static final char[] XREF_TABLE = { 'x', 'r', 'e', 'f' };
+     private static final char[] STARTXREF = { 's', 't', 'a', 'r', 't', 'x', 'r', 'e', 'f' };
+ 
++    /**
++     * Maximum length of xref chain to prevent timeout on malformed PDFs with circular references.
++     */
++    private static final int MAX_XREF_CHAIN_LENGTH = 100;
++
+     /** 
+      * Collects all Xref/trailer objects and resolves them into single
+      * object using startxref reference. 
+@@ -98,14 +104,24 @@
+         }
+         document.setStartXref(startXrefOffset);
+         long prev = startXrefOffset;
+-        //lastPrev prevents potential infinite loops in crafted files
+-        long lastPrev = -1;
+-        // ---- parse whole chain of xref tables/object streams using PREV reference
++        Set<Long> visitedXrefOffsets = new HashSet<>();
++        int chainLength = 0;
+         COSDictionary trailer = null;
+-        while (prev > 0 && prev != lastPrev)
+-        {
+-            lastPrev = prev;
+-            // seek to xref table
++        while (prev > 0)
++        {
++            if (visitedXrefOffsets.contains(prev))
++            {
++                throw new IOException("Circular reference detected in xref chain at offset " + prev);
++            }
++            visitedXrefOffsets.add(prev);
++            
++            chainLength++;
++            if (chainLength > MAX_XREF_CHAIN_LENGTH)
++            {
++                throw new IOException("Xref chain length exceeded maximum of " + MAX_XREF_CHAIN_LENGTH + 
++                        " entries. The PDF may be malformed.");
++            }
++            
+             source.seek(prev);
+             // skip white spaces
+             parser.skipSpaces();
+@@ -170,10 +186,6 @@
+                     trailer.setLong(COSName.PREV, prev);
+                 }
+             }
+-            if (prev == lastPrev)
+-            {
+-                throw new IOException("/Prev loop at offset " + prev);
+-            }
+         }
+         // ---- build valid xrefs out of the xref chain
+         xrefTrailerResolver.setStartxref(startXrefOffset);
+
+--- a/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/BruteForceParser.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/BruteForceParser.java
+@@ -57,6 +57,20 @@
+      * obj-marker.
+      */
+     private static final char[] OBJ_MARKER = { 'o', 'b', 'j' };
++
++    /**
++     * Maximum number of brute force xref search invocations to prevent timeout on malformed PDFs.
++     */
++    private static final int MAX_BF_SEARCH_INVOCATIONS = 5;
++
++    /**
++     * Maximum bytes to scan in findString() to prevent timeout on large malformed files.
++     */
++    private static final long MAX_FINDSTRING_BYTES = 100_000_000L;
++
++    private int bfSearchXrefInvocationCount = 0;
++    private List<Long> cachedXRefTablesOffsets = null;
++    private List<Long> cachedXRefStreamsOffsets = null;
+ 
+     /**
+      * trailer-marker.
+@@ -226,20 +240,31 @@
+      */
+     protected long bfSearchForXRef(long xrefOffset) throws IOException
+     {
++        if (bfSearchXrefInvocationCount >= MAX_BF_SEARCH_INVOCATIONS)
++        {
++            throw new IOException("Exceeded maximum brute force xref search invocations (" + 
++                    MAX_BF_SEARCH_INVOCATIONS + "). The PDF may be malformed.");
++        }
++        bfSearchXrefInvocationCount++;
++
+         long newOffset = -1;
+ 
+-        // initialize bfSearchXRefTablesOffsets -> not null
+-        List<Long> bfSearchXRefTablesOffsets = bfSearchForXRefTables();
+-        // initialize bfSearchXRefStreamsOffsets -> not null
+-        List<Long> bfSearchXRefStreamsOffsets = bfSearchForXRefStreams();
+-
+-        // TODO to be optimized, this won't work in every case
++        if (cachedXRefTablesOffsets == null)
++        {
++            cachedXRefTablesOffsets = bfSearchForXRefTables();
++        }
++        List<Long> bfSearchXRefTablesOffsets = new ArrayList<>(cachedXRefTablesOffsets);
++
++        if (cachedXRefStreamsOffsets == null)
++        {
++            cachedXRefStreamsOffsets = bfSearchForXRefStreams();
++        }
++        List<Long> bfSearchXRefStreamsOffsets = new ArrayList<>(cachedXRefStreamsOffsets);
++
+         long newOffsetTable = searchNearestValue(bfSearchXRefTablesOffsets, xrefOffset);
+ 
+-        // TODO to be optimized, this won't work in every case
+         long newOffsetStream = searchNearestValue(bfSearchXRefStreamsOffsets, xrefOffset);
+ 
+-        // choose the nearest value
+         if (newOffsetTable > -1 && newOffsetStream > -1)
+         {
+             long differenceTable = xrefOffset - newOffsetTable;
+@@ -782,9 +807,17 @@
+         long position = -1L;
+         int stringLength = string.length;
+         int counter = 0;
++        long bytesRead = 0;
+         int readChar = source.read();
+         while (readChar != -1)
+         {
++            bytesRead++;
++            if (bytesRead > MAX_FINDSTRING_BYTES)
++            {
++                throw new IOException("Brute force string search exceeded maximum scan length of " + 
++                        MAX_FINDSTRING_BYTES + " bytes. The PDF may be malformed or too large.");
++            }
++            
+             if (readChar == string[counter])
+             {
+                 if (counter == 0)

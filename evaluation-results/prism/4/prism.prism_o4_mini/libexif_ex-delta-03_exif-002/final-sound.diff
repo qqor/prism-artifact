@@ -1,0 +1,48 @@
+--- a/libexif/exif-data.c
++++ b/libexif/exif-data.c
+@@ -918,14 +918,37 @@
+ 			LOG_TOO_SMALL;
+ 			return;
+ 		}
+-		d++;
+-		ds--;
+-		len = (((unsigned int)d[0]) << 8) | d[1];
+-		exif_log (data->priv->log, EXIF_LOG_CODE_DEBUG, "ExifData",
+-			  "We have to deal with %i byte(s) of EXIF data.",
+-			  len);
+-		d += 2;
+-		ds = len - 2;	/* we do not want the full rest size, but only the size of the tag */
++		{
++			unsigned int orig_ds = ds;
++			/* We must have at least 1 marker byte + 2 length bytes */
++			if (orig_ds < 3) {
++				/* too short to contain a valid APP1 segment; skip */
++				return;
++			}
++			/* skip the marker byte */
++			d++;
++			ds--;
++			/* read the 16-bit segment length */
++			len = (((unsigned int)d[0]) << 8) | d[1];
++			exif_log (data->priv->log, EXIF_LOG_CODE_DEBUG, "ExifData",
++				  "We have to deal with %u byte(s) of EXIF data.", len);
++			/* skip the length bytes */
++			d += 2;
++			/* clamp payload to actual buffer */
++			{
++				unsigned int payload = (len >= 2) ? len - 2 : 0;
++				unsigned int remain = orig_ds - 3;
++				if (payload > remain) {
++					exif_log (data->priv->log, EXIF_LOG_CODE_DEBUG, "ExifData",
++						  "APP1 segment length (%u) past end of buffer (%u)",
++						  payload, remain);
++					payload = remain;
++				}
++				if (payload > 0xfffe)
++					payload = 0xfffe;
++				ds = payload;
++			}
++		}
+ 	}
+ 
+ 	/*

@@ -1,0 +1,78 @@
+--- a/src/net_builtin.c
++++ b/src/net_builtin.c
+@@ -380,19 +380,26 @@
+ }
+ 
+ static void rx_icmp(struct mg_tcpip_if *ifp, struct pkt *pkt) {
+-  // MG_DEBUG(("ICMP %d", (int) len));
+-  if (pkt->icmp->type == 8 && pkt->ip != NULL && pkt->ip->dst == ifp->ip) {
+-    size_t hlen = sizeof(struct eth) + sizeof(struct ip) + sizeof(struct icmp);
+-    size_t space = ifp->tx.len - hlen, plen = pkt->pay.len;
+-    if (plen > space) plen = space;
+-    struct ip *ip = tx_ip(ifp, pkt->eth->src, 1, ifp->ip, pkt->ip->src,
+-                          sizeof(struct icmp) + plen);
+-    struct icmp *icmp = (struct icmp *) (ip + 1);
+-    memset(icmp, 0, sizeof(*icmp));        // Set csum to 0
+-    memcpy(icmp + 1, pkt->pay.buf, plen);  // Copy RX payload to TX
+-    icmp->csum = ipcsum(icmp, sizeof(*icmp) + plen);
+-    ether_output(ifp, hlen + plen);
+-  }
++  if (pkt->pay.len < sizeof(struct icmp)) return;
++  struct icmp *in_icmp = (struct icmp *) pkt->pay.buf;
++  if (in_icmp->type != 8 || pkt->ip == NULL || pkt->ip->dst != ifp->ip) return;
++  size_t hlen = sizeof(struct eth) + sizeof(struct ip) + sizeof(struct icmp);
++  size_t space = ifp->tx.len - hlen;
++  size_t data_len = pkt->pay.len - sizeof(struct icmp);
++  if (data_len > space) data_len = space;
++  struct ip *out_ip = tx_ip(ifp, pkt->eth->src, 1, ifp->ip, pkt->ip->src,
++                            sizeof(struct icmp) + data_len);
++  struct icmp *out_icmp = (struct icmp *) (out_ip + 1);
++  out_icmp->type = 0;
++  out_icmp->code = 0;
++  out_icmp->id   = in_icmp->id;
++  out_icmp->seq  = in_icmp->seq;
++  memcpy((char *)out_icmp + sizeof(struct icmp),
++         (char *)in_icmp + sizeof(struct icmp),
++         data_len);
++  out_icmp->csum = 0;
++  out_icmp->csum = ipcsum((uint16_t *) out_icmp, sizeof(struct icmp) + data_len);
++  ether_output(ifp, hlen + data_len);
+ }
+ 
+ static void rx_dhcp_client(struct mg_tcpip_if *ifp, struct pkt *pkt) {
+@@ -799,9 +806,6 @@
+     struct mg_connection *c = getpeer(ifp->mgr, pkt, false);
+     if (c) mg_error(c, "Received fragmented packet");
+   } else if (pkt->ip->proto == 1) {
+-    pkt->icmp = (struct icmp *) (pkt->ip + 1);
+-    if (pkt->pay.len < sizeof(*pkt->icmp)) return;
+-    mkpay(pkt, pkt->icmp + 1);
+     rx_icmp(ifp, pkt);
+   } else if (pkt->ip->proto == 17) {
+     pkt->udp = (struct udp *) (pkt->ip + 1);
+@@ -838,9 +842,6 @@
+ static void rx_ip6(struct mg_tcpip_if *ifp, struct pkt *pkt) {
+   // MG_DEBUG(("IP %d", (int) len));
+   if (pkt->ip6->proto == 1 || pkt->ip6->proto == 58) {
+-    pkt->icmp = (struct icmp *) (pkt->ip6 + 1);
+-    if (pkt->pay.len < sizeof(*pkt->icmp)) return;
+-    mkpay(pkt, pkt->icmp + 1);
+     rx_icmp(ifp, pkt);
+   } else if (pkt->ip6->proto == 17) {
+     pkt->udp = (struct udp *) (pkt->ip6 + 1);
+@@ -888,10 +889,11 @@
+     }
+     if (pkt.raw.len < sizeof(*pkt.eth) + sizeof(*pkt.ip)) return;  // Truncated
+     if ((pkt.ip->ver >> 4) != 4) return;                           // Not IP
+-    if ((pkt.ip->ver & 0xF) > 5)                                   // Handle IPv4 options
+-        mkpay(&pkt, (char *)(pkt.ip) + ((pkt.ip->ver & 0xF)*4));
+-    else
+-        mkpay(&pkt, pkt.ip + 1);
++    uint8_t ihl = pkt.ip->ver & 0x0F;
++    if (ihl < 5) return;
++    size_t ip_hlen = (size_t)ihl * 4;
++    if (pkt.raw.len < sizeof(*pkt.eth) + ip_hlen) return;
++    mkpay(&pkt, (char *)pkt.ip + ip_hlen);
+ 
+     rx_ip(ifp, &pkt);
+   } else {

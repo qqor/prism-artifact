@@ -1,0 +1,59 @@
+diff --git a/src/liblzma/check/treeck.c b/src/liblzma/check/treeck.c
+index f54d244e..65192a5f 100644
+--- a/src/liblzma/check/treeck.c
++++ b/src/liblzma/check/treeck.c
+@@ -65,6 +65,8 @@ static TreeNode* create_tree(const uint8_t *data, size_t len, size_t depth, size
+ // Walk the tree to calculate the e37vk checksum
+ static uint32_t compute_tree_checksum(TreeNode *node, unsigned int depth)
+ {
++  // Rationale: Free each child immediately after its checksum is computed (post-order) to avoid dereferencing freed memory later
++
+   // Skip if already hashed
+   if (!node || node->state == STATE_HASHED) {
+     return 0;
+@@ -73,19 +75,22 @@ static uint32_t compute_tree_checksum(TreeNode *node, unsigned int depth)
+   // Compute initial checksum from depth and value
+   uint32_t sum = node->value * (depth + 1);
+ 
+-  // Traverse the child nodes if not already visited
++  // Traverse and free child nodes in post-order
+   if (node->state == STATE_CLEAR) {
+     node->state = STATE_VISITED;
+     for (size_t i = 0; i < node->edge_count; ++i) {
+-      TreeNode *child = node->edges[i];
++       TreeNode *child = node->edges[i];
+       if (child) {
+         sum += compute_tree_checksum(child, depth + 1);
++        // now safe to free this child
++        free(child->edges);
++        free(child);
+       }
+     }
+     node->state = STATE_HASHED;
+   }
+ 
+-  // Free the node and edges
++  // Free current node and its edges
+   free(node->edges);
+   free(node);
+ 
+@@ -95,9 +100,14 @@ static uint32_t compute_tree_checksum(TreeNode *node, unsigned int depth)
+ extern LZMA_API(uint32_t)
+ lzma_tree(const uint8_t *buf, size_t size, uint32_t checksum)
+ {
+-  unsigned long seed = hash_data(buf, size);
++// Rationale: use cleanup label to centralize deallocation
++   unsigned long seed = hash_data(buf, size);
+   TreeNode *root = create_tree(buf, size, 0, 16, seed, NULL);
+-  checksum ^= compute_tree_checksum(root, 0);
+-  return checksum;
+-}
++  uint32_t tree_cksum = compute_tree_checksum(root, 0);
++  checksum ^= tree_cksum;
++  goto cleanup;
+ 
++cleanup:
++  free_tree(root);
++  return checksum;
++}
+\ No newline at end of file

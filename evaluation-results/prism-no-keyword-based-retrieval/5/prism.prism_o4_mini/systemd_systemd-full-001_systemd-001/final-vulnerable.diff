@@ -1,0 +1,110 @@
+--- a/src/udev/udev-rules.c
++++ b/src/udev/udev-rules.c
+@@ -1171,68 +1171,45 @@
+         
+         m = str + is_escaped + is_case_insensitive + is_prefix_match;
+ 
+-        if (!is_escaped) {
+-                /* unescape double quotation '\"'->'"' */
+-                for (j = m, i = m + 1; *i != '"'; i++, j++) {
+-                        if (*i == '\0')
+-                                return -EINVAL;
+-                        if (i[0] == '\\' && i[1] == '"')
+-                                i++;
+-                        *j = *i;
+-                }
+-                /*
+-                 * The return value must be terminated by two subsequent NULs
+-                 * so it could be safely interpreted as nulstr.
+-                 */
+-                if (is_prefix_match){
+-                        j[0] = '*';
+-                        j[1] = '\0';
+-                        j[2] = '\0';
+-                } else {
+-                        j[0] = '\0';
+-                        j[1] = '\0';
+-                }
+-                str = m;            
+-        } else {
+-                _cleanup_free_ char *unescaped = NULL;
+-                ssize_t l;
+-
+-                /* find the end position of value */
+-                for (i = m + 1; *i != '"'; i++) {
+-                        if (i[0] == '\\')
+-                                i++;
+-                        if (*i == '\0')
+-                                return -EINVAL;
+-                }
+-
+-                l = cunescape_length(m + 1, i - (m + 1), 0, &unescaped);
+-                if (l < 0)
+-                        return l;
+-
+-                assert(l <= i - (m + 1));
+-
+-                /*
+-                * The return value must be terminated by two subsequent NULs
+-                * so it could be safely interpreted as nulstr.
+-                */
+-                if (is_prefix_match){
+-                        /* need more room to make rule glob match */
+-                        memcpy(str + pos - 1, unescaped, l + 1);
+-                        str[pos + l - 1] = '*';
+-                        str[pos + l] = '\0';
+-                        str[pos + l + 1] = '\0';
+-                        m = str + pos - 1;
+-
+-                } else {
+-                        memcpy(m, unescaped, l + 1);
+-                        m[l] = '\0';
+-                        m[l + 1] = '\0';
+-                }
+-                str = m;
+-
+-        }
+-
+-        *ret_value = str;
++        /* find the end of the quoted value */
++        for (i = m + 1; ; ) {
++            if (*i == '\0')
++                return -EINVAL;
++            if (i[0] == '\\' && i[1] == '"') {
++                i += 2;
++                continue;
++            }
++            if (*i == '"')
++                break;
++            i++;
++        }
++
++        /* compute unescaped length */
++        _cleanup_free_ char *unescaped = NULL;
++        ssize_t l = cunescape_length(m + 1,
++                                     i - (m + 1),
++                                     is_escaped ? UNESCAPE_RELAX : 0,
++                                     &unescaped);
++        if (l < 0)
++            return (int)l;
++
++        /* allocate output buffer */
++        size_t extra = is_prefix_match ? 3U : 2U;
++        size_t out_size = (size_t)l + extra;
++        char *out_buf = malloc(out_size);
++        if (!out_buf)
++            return -ENOMEM;
++
++        /* copy unescaped data */
++        memcpy(out_buf, unescaped, (size_t)l);
++        if (is_prefix_match)
++            out_buf[l++] = '*';
++
++        /* append two NUL terminators */
++        out_buf[l++] = '\0';
++        out_buf[l++] = '\0';
++
++        *ret_value = out_buf;
+         *ret_endpos = i + 1;
+         *ret_is_case_insensitive = is_case_insensitive;
+         return 0;

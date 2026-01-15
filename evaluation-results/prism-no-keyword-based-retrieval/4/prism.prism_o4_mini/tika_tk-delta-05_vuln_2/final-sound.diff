@@ -1,0 +1,26 @@
+--- a/tika-app/src/main/java/org/apache/tika/cli/TikaCLI.java
++++ b/tika-app/src/main/java/org/apache/tika/cli/TikaCLI.java
+@@ -1157,13 +1157,17 @@
+             } catch (IllegalArgumentException e) {
+                 LOG.warn("couldn't url decode name {}", normalizedName);
+             }
+-            File outputFile = new File(extractDir, normalizedName);
+-            //if file already exists, prepend uuid
++            java.nio.file.Path base = extractDir.toPath();
++            java.nio.file.Path candidate = base.resolve(normalizedName).normalize();
++            if (!candidate.startsWith(base)) {
++                LOG.warn("Illegal entry name \"{}\" resolves outside extraction directory; using safe fallback filename.", normalizedName);
++                String safeName = "file" + count++ + ext;
++                candidate = base.resolve(safeName);
++            }
++            File outputFile = candidate.toFile();
+             if (outputFile.exists()) {
+-                String fileName = FilenameUtils.getName(normalizedName);
+-                outputFile = new File(extractDir, UUID
+-                        .randomUUID()
+-                        .toString() + "-" + fileName);
++                String fileName = FilenameUtils.getName(candidate.getFileName().toString());
++                outputFile = base.resolve(UUID.randomUUID().toString() + "-" + fileName).toFile();
+             }
+             return outputFile;
+         }

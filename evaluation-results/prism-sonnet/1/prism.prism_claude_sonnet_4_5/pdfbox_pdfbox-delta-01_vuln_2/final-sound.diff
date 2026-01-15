@@ -1,0 +1,103 @@
+--- a/pdfbox/src/main/java/org/apache/pdfbox/ocr/OCRStreamEngine.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/ocr/OCRStreamEngine.java
+@@ -11,6 +11,7 @@
+ import java.io.Writer;
+ import java.nio.file.FileVisitResult;
+ import java.nio.file.Files;
++import java.nio.file.InvalidPathException;
+ import java.nio.file.Path;
+ import java.nio.file.Paths;
+ import java.nio.file.SimpleFileVisitor;
+@@ -22,6 +23,9 @@
+ 
+ import javax.imageio.ImageIO;
+ 
++import org.apache.logging.log4j.Logger;
++import org.apache.logging.log4j.LogManager;
++
+ import org.apache.pdfbox.pdmodel.PDDocument;
+ import org.apache.pdfbox.pdmodel.PDPageTree;
+ import org.apache.pdfbox.rendering.PDFRenderer;
+@@ -33,6 +37,7 @@
+  */
+ public class OCRStreamEngine {
+ 
++    private static final Logger LOG = LogManager.getLogger(OCRStreamEngine.class);
+     private static final String TESSERACT_PATH_KEY = "tesseract-path";
+     private PDFRenderer pdfRenderer = null;
+     private String tesseractPath = "tesseract";
+@@ -112,7 +117,30 @@
+                 }
+             });
+         } catch (IOException e) {
+-            //log
++            LOG.warn("Failed to delete temporary OCR directory: {}", tmpDir, e);
++        }
++    }
++
++    /**
++     * Validates that the given path points to an executable file.
++     * This prevents OS command injection through PDF metadata.
++     *
++     * @param path the path to validate
++     * @return true if the path is valid and executable, false otherwise
++     */
++    private boolean isValidTesseractPath(String path) {
++        if (path == null || path.isEmpty()) {
++            return false;
++        }
++        try {
++            Path tessPath = Paths.get(path);
++            // Must exist, be a regular file (not directory), and be executable
++            return Files.exists(tessPath) && 
++                   Files.isRegularFile(tessPath) && 
++                   Files.isExecutable(tessPath);
++        } catch (InvalidPathException e) {
++            LOG.warn("Invalid path syntax for tesseract: {}", path);
++            return false;
+         }
+     }
+ 
+@@ -155,10 +183,38 @@
+     }
+ 
+     private String runTesseract(Path image) throws IOException {
+-        String actualTessPath = pdDocument.getDocumentInformation()
+-                .getCustomMetadataValue(TESSERACT_PATH_KEY);
+-        if (actualTessPath == null || actualTessPath.isEmpty()) {
+-            actualTessPath = tesseractPath;
++        // Start with programmatic/default configuration (application-controlled)
++        String actualTessPath = tesseractPath;
++        
++        // Check if metadata override is explicitly enabled via system property
++        // This provides defense-in-depth while maintaining backward compatibility
++        if (Boolean.getBoolean("pdfbox.ocr.allow-metadata-override")) {
++            String metadataPath = pdDocument.getDocumentInformation()
++                    .getCustomMetadataValue(TESSERACT_PATH_KEY);
++            
++            if (metadataPath != null && !metadataPath.isEmpty()) {
++                // Validate metadata path before using it
++                if (isValidTesseractPath(metadataPath)) {
++                    LOG.info("Using tesseract path from PDF metadata: {}", metadataPath);
++                    actualTessPath = metadataPath;
++                } else {
++                    LOG.warn("Invalid tesseract path from PDF metadata (not executable): {}, using default", 
++                            metadataPath);
++                }
++            }
++        } else {
++            // Log if metadata is present but override is disabled
++            String metadataPath = pdDocument.getDocumentInformation()
++                    .getCustomMetadataValue(TESSERACT_PATH_KEY);
++            if (metadataPath != null && !metadataPath.isEmpty()) {
++                LOG.debug("Ignoring tesseract path from PDF metadata (override disabled): {}", metadataPath);
++            }
++        }
++        
++        // Final validation of the path to be used (whether from metadata, config, or default)
++        if (!isValidTesseractPath(actualTessPath)) {
++            throw new IOException("Tesseract executable not found or not executable: " + actualTessPath + 
++                                ". Please ensure Tesseract OCR is installed and the path is correct.");
+         }
+ 
+         Path txt = Paths.get(image.toAbsolutePath().toString());

@@ -1,0 +1,24 @@
+--- a/fontbox/src/main/java/org/apache/fontbox/type1/Type1Lexer.java
++++ b/fontbox/src/main/java/org/apache/fontbox/type1/Type1Lexer.java
+@@ -501,6 +501,21 @@
+      */
+     private Token readCharString(int length) throws IOException
+     {
++        final int MAX_CHARSTRING_LENGTH = 10 * 1024 * 1024; // 10 MB
++        // Reject negative or excessively large lengths to prevent OOM
++        if (length < 0) {
++            throw new IOException("Invalid charstring length (negative): " + length);
++        }
++        if (length > MAX_CHARSTRING_LENGTH) {
++            throw new IOException("Charstring length exceeds maximum allowed: " + length);
++        }
++        // Ensure enough bytes remain (including the mandatory space byte)
++        int requiredBytes = length + 1;
++        if (buffer.remaining() < requiredBytes) {
++            throw new IOException("Premature end of buffer reached (needed "
++                + requiredBytes + ", remaining "
++                + buffer.remaining() + ")");
++        }
+         try
+         {
+             buffer.get(); // space

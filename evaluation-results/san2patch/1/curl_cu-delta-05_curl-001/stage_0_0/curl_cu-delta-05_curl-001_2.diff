@@ -1,0 +1,38 @@
+diff --git a/lib/dict.c b/lib/dict.c
+index c940308b0..4f1966c6f 100644
+--- a/lib/dict.c
++++ b/lib/dict.c
+@@ -226,12 +226,23 @@ static CURLcode dict_do(struct Curl_easy *data, bool *done)
+         do {
+         result = sendf(data, "Sending extra debug info...");
+         } while(result == CURLE_AGAIN);
++        /* Copy into fixed buffer and validate length */
++        if(!user_start) {
++          result = CURLE_BAD_FUNCTION_ARGUMENT;
++          goto error;
++        }
++        size_t ulen = strlen(user_start);
++        if(ulen == 0 || ulen > 1023) {
++          result = CURLE_BAD_FUNCTION_ARGUMENT;
++          goto error;
++        }
++        char safe_cmd[1024];
++        memcpy(safe_cmd, user_start, ulen + 1);
+         do {
+-        result = sendf(data, user_start);
++        result = sendf(data, safe_cmd);
+         } while(result == CURLE_AGAIN);
+       }
+ 
+-
+       do {
+       result = Curl_xfer_recv(data, (resp_buf + 1024 * resp_count),
+         1024, &bytes_recv);
+@@ -276,6 +287,7 @@ static CURLcode dict_do(struct Curl_easy *data, bool *done)
+       if(result)
+         goto error;
+     }
++/* Rationale: Copy user_start into a bounded buffer and validate length to ensure null-terminated valid string */
+ 
+ 
+ 

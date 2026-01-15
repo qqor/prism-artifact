@@ -1,0 +1,122 @@
+--- a/src/net_builtin.c
++++ b/src/net_builtin.c
+@@ -147,8 +147,14 @@
+ static void send_syn(struct mg_connection *c);
+ 
+ static void mkpay(struct pkt *pkt, void *p) {
+-  pkt->pay =
+-      mg_str_n((char *) p, (size_t) (&pkt->raw.buf[pkt->raw.len] - (char *) p));
++  char *raw_start = pkt->raw.buf;
++  char *raw_end = raw_start + pkt->raw.len;
++  char *start = (char *) p;
++  if (start < raw_start || start > raw_end) {
++    pkt->pay = mg_str_n(raw_end, 0);
++  } else {
++    pkt->pay = mg_str_n(start, (size_t)(raw_end - start));
++  }
+ }
+ 
+ static uint32_t csumup(uint32_t sum, const void *buf, size_t len) {
+@@ -380,19 +386,45 @@
+ }
+ 
+ static void rx_icmp(struct mg_tcpip_if *ifp, struct pkt *pkt) {
+-  // MG_DEBUG(("ICMP %d", (int) len));
+-  if (pkt->icmp->type == 8 && pkt->ip != NULL && pkt->ip->dst == ifp->ip) {
+-    size_t hlen = sizeof(struct eth) + sizeof(struct ip) + sizeof(struct icmp);
+-    size_t space = ifp->tx.len - hlen, plen = pkt->pay.len;
+-    if (plen > space) plen = space;
+-    struct ip *ip = tx_ip(ifp, pkt->eth->src, 1, ifp->ip, pkt->ip->src,
+-                          sizeof(struct icmp) + plen);
+-    struct icmp *icmp = (struct icmp *) (ip + 1);
+-    memset(icmp, 0, sizeof(*icmp));        // Set csum to 0
+-    memcpy(icmp + 1, pkt->pay.buf, plen);  // Copy RX payload to TX
+-    icmp->csum = ipcsum(icmp, sizeof(*icmp) + plen);
+-    ether_output(ifp, hlen + plen);
+-  }
++  size_t eth_hlen = sizeof(struct eth);
++  /* Validate IP context */
++  if (pkt->ip == NULL) return;
++  /* Compute and validate IP header length */
++  uint8_t ihl = (pkt->ip->ver & 0x0F) * 4;
++  if (ihl < sizeof(struct ip)) return;
++  size_t raw_len = pkt->raw.len;
++  if (raw_len < eth_hlen + ihl + sizeof(struct icmp)) return;
++
++  /* Locate ICMP header */
++  char *raw_start = pkt->raw.buf;
++  char *raw_end = raw_start + raw_len;
++  struct icmp *icmp_hdr = (struct icmp *)(raw_start + eth_hlen + ihl);
++  size_t hdr_len = sizeof(*icmp_hdr);
++  size_t payload_len = pkt->pay.len;
++  if ((char *)icmp_hdr + hdr_len + payload_len > raw_end) return;
++
++  /* Verify checksum */
++  uint16_t recv_cksum = icmp_hdr->cksum;
++  icmp_hdr->cksum = 0;
++  if (ipcsum(icmp_hdr, hdr_len + payload_len) != recv_cksum) return;
++
++  /* Process echo request */
++  if (icmp_hdr->type != 8 || pkt->ip->dst != ifp->ip) return;
++
++  size_t reply_hlen = eth_hlen + ihl + hdr_len;
++  size_t tx_space = ifp->tx.len - reply_hlen;
++  size_t max_payload = raw_len - reply_hlen;
++  size_t plen = payload_len;
++  if (plen > max_payload) plen = max_payload;
++  if (plen > tx_space) plen = tx_space;
++
++  struct ip *rip = tx_ip(ifp, pkt->eth->src, 1, ifp->ip, pkt->ip->src,
++                         hdr_len + plen);
++  struct icmp *ricmp = (struct icmp *)(rip + 1);
++  memset(ricmp, 0, hdr_len);
++  memcpy(ricmp + 1, pkt->pay.buf, plen);
++  ricmp->cksum = ipcsum(ricmp, hdr_len + plen);
++  ether_output(ifp, reply_hlen + plen);
+ }
+ 
+ static void rx_dhcp_client(struct mg_tcpip_if *ifp, struct pkt *pkt) {
+@@ -799,8 +831,13 @@
+     struct mg_connection *c = getpeer(ifp->mgr, pkt, false);
+     if (c) mg_error(c, "Received fragmented packet");
+   } else if (pkt->ip->proto == 1) {
+-    pkt->icmp = (struct icmp *) (pkt->ip + 1);
+-    if (pkt->pay.len < sizeof(*pkt->icmp)) return;
++    /* Compute and validate IP header length */
++    uint8_t ihl = (pkt->ip->ver & 0x0F) * 4;
++    if (ihl < sizeof(struct ip) ||
++        pkt->raw.len < sizeof(struct eth) + ihl + sizeof(struct icmp)) {
++      return;
++    }
++    pkt->icmp = (struct icmp *)(pkt->raw.buf + sizeof(struct eth) + ihl);
+     mkpay(pkt, pkt->icmp + 1);
+     rx_icmp(ifp, pkt);
+   } else if (pkt->ip->proto == 17) {
+@@ -881,17 +918,17 @@
+     rx_ip6(ifp, &pkt);
+   } else if (pkt.eth->type == mg_htons(0x800)) {
+     pkt.ip = (struct ip *) (pkt.eth + 1);
+-    if (pkt.raw.len < sizeof(*pkt.eth) + sizeof(*pkt.ip)) return;  // Truncated
++    size_t eth_hlen = sizeof(*pkt.eth);
++    // Validate minimum IP header
++    if (pkt.raw.len < eth_hlen + sizeof(*pkt.ip)) return;
++    // Compute and validate dynamic IP header length
++    uint8_t ihl = (pkt.ip->ver & 0x0F) * 4;
++    if (ihl < sizeof(*pkt.ip) || pkt.raw.len < eth_hlen + ihl) return;
+     // Truncate frame to what IP header tells us
+-    if ((size_t) mg_ntohs(pkt.ip->len) + sizeof(struct eth) < pkt.raw.len) {
+-      pkt.raw.len = (size_t) mg_ntohs(pkt.ip->len) + sizeof(struct eth);
+-    }
+-    if (pkt.raw.len < sizeof(*pkt.eth) + sizeof(*pkt.ip)) return;  // Truncated
+-    if ((pkt.ip->ver >> 4) != 4) return;                           // Not IP
+-    if ((pkt.ip->ver & 0xF) > 5)                                   // Handle IPv4 options
+-        mkpay(&pkt, (char *)(pkt.ip) + ((pkt.ip->ver & 0xF)*4));
+-    else
+-        mkpay(&pkt, pkt.ip + 1);
++    if ((size_t) mg_ntohs(pkt.ip->len) + eth_hlen < pkt.raw.len) {
++      pkt.raw.len = (size_t) mg_ntohs(pkt.ip->len) + eth_hlen;
++    }
++    mkpay(&pkt, pkt.raw.buf + eth_hlen + ihl);
+ 
+     rx_ip(ifp, &pkt);
+   } else {

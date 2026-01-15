@@ -1,0 +1,66 @@
+--- a/core/src/main/java/org/apache/logging/log4j/core/lookup/JndiLookup.java
++++ b/core/src/main/java/org/apache/logging/log4j/core/lookup/JndiLookup.java
+@@ -19,6 +19,11 @@
+ import javax.naming.InitialContext;
+ import javax.naming.NamingException;
+ 
++import java.util.Set;
++import java.util.HashSet;
++import java.util.Arrays;
++import org.apache.logging.log4j.status.StatusLogger;
++import org.apache.logging.log4j.util.PropertiesUtil;
+ import org.apache.logging.log4j.core.LogEvent;
+ import org.apache.logging.log4j.core.config.plugins.Plugin;
+ 
+@@ -28,10 +33,16 @@
+ @Plugin(name = "jndi", category = "Lookup")
+ public class JndiLookup implements StrLookup {
+ 
+-    private static boolean ENABLE_JNDI = true;
++    private static final StatusLogger LOGGER = StatusLogger.getLogger();
++    private static boolean ENABLE_JNDI;
++    private static final Set<String> REMOTE_SCHEMES = new HashSet<>(Arrays.asList("ldap", "ldaps", "rmi", "dns", "iiop"));
+ 
+-    /** JNDI resourcce path prefix used in a J2EE container */
++    /** JNDI resource path prefix used in a J2EE container */
+     static final String CONTAINER_JNDI_RESOURCE_PATH_PREFIX = "java:comp/env/";
++
++    static {
++        ENABLE_JNDI = PropertiesUtil.getProperties().getBooleanProperty("log4j2.enableJndi", true);
++    }
+ 
+     /**
+      * Get the value of the JNDI resource.
+@@ -51,14 +62,29 @@
+      */
+     @Override
+     public String lookup(final LogEvent event, final String key) {
+-        if (key == null || ! ENABLE_JNDI) {
++        if (key == null) {
+             return null;
+         }
+-
++        if (!ENABLE_JNDI) {
++            LOGGER.warn("JNDI lookups are disabled by property log4j2.enableJndi");
++            return null;
++        }
++        String jndiName = key.trim();
++        if (!jndiName.startsWith(CONTAINER_JNDI_RESOURCE_PATH_PREFIX)) {
++            int colonPos = jndiName.indexOf(':');
++            if (colonPos > 0) {
++                String scheme = jndiName.substring(0, colonPos).toLowerCase();
++                if (REMOTE_SCHEMES.contains(scheme)) {
++                    LOGGER.warn("Remote JNDI lookup for scheme {} is blocked for security reasons", scheme);
++                    return null;
++                }
++            }
++        }
+         try {
+             InitialContext ctx = new InitialContext();
+-            return (String) ctx.lookup(convertJndiName(key));
++            return (String) ctx.lookup(convertJndiName(jndiName));
+         } catch (NamingException e) {
++            LOGGER.warn("JNDI lookup failed for name {}", jndiName, e);
+             return null;
+         }
+     }

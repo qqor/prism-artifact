@@ -1,0 +1,33 @@
+diff --git a/epan/dissectors/packet-netbios.c b/epan/dissectors/packet-netbios.c
+index 5ea85c7df4..6bee0632f6 100644
+--- a/epan/dissectors/packet-netbios.c
++++ b/epan/dissectors/packet-netbios.c
+@@ -195,7 +195,8 @@ static reassembly_table netbios_reassembly_table;
+ /* defragmentation of NetBIOS Frame */
+ static bool netbios_defragment = true;
+ 
+-/* See
++// FIXME: Crash CWE-125: Out-of-bounds Read
++ /* See
+ 
+ 	http://publibz.boulder.ibm.com/cgi-bin/bookmgr_OS390/BOOKS/BK8P7001/CCONTENTS
+ 
+@@ -208,7 +209,17 @@ static bool netbios_defragment = true;
+ 
+ /* the strings for the command types  */
+ 
+-static const value_string cmd_vals[] = {
++/* Candidate 3: Use C11 memmove_s for bounds-checked copy */
++static inline void netbios_copy8_s(size_t offset, void *dst) {
++    size_t len = sizeof(dissect_netb);
++    size_t avail = offset < len ? len - offset : 0;
++    size_t to_copy = avail < 8 ? avail : 8;
++    /* memmove_s(dest, destMax, src, count) */
++    memmove_s(dst, 8, dissect_netb + offset, to_copy);
++    if (to_copy < 8) {
++        memset((uint8_t*)dst + to_copy, 0, 8 - to_copy);
++    }
++}static const value_string cmd_vals[] = {
+ 	{ NB_ADD_GROUP,			"Add Group Name Query" },
+ 	{ NB_ADD_NAME,			"Add Name Query" },
+ 	{ NB_NAME_IN_CONFLICT,		"Name In Conflict" },

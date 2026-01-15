@@ -1,0 +1,71 @@
+--- a/poi/src/main/java/org/apache/poi/ss/formula/functions/Countif.java
++++ b/poi/src/main/java/org/apache/poi/ss/formula/functions/Countif.java
+@@ -377,21 +377,31 @@
+          * @return {@code null} if the specified value contains no special wildcard characters.
+          */
+         public static Pattern getWildCardPattern(String value) {
++            final int MAX_PATTERN_LENGTH = 10000;
++            if (value != null && value.length() > MAX_PATTERN_LENGTH) {
++                value = value.substring(0, MAX_PATTERN_LENGTH);
++            }
++            
+             int len = value.length();
+             StringBuilder sb = new StringBuilder(len);
+             boolean hasWildCard = false;
++            boolean lastWasPossessiveStar = false;
++            
+             for(int i=0; i<len; i++) {
+                 char ch = value.charAt(i);
+                 switch(ch) {
+-                    case '?':  //Any single character
++                    case '?':
+                         hasWildCard = true;
+-                        // match exactly one character
+-                        sb.append('.');
++                        if (!lastWasPossessiveStar) {
++                            sb.append('.');
++                        }
+                         continue;
+-                    case '*': //Zero or more characters
++                    case '*':
+                         hasWildCard = true;
+-                        // match one or more occurrences of any character
+-                        sb.append(".*");
++                        if (!lastWasPossessiveStar) {
++                            sb.append(".*+");
++                            lastWasPossessiveStar = true;
++                        }
+                         continue;
+                     case '~':
+                         if (i+1<len) {
+@@ -401,12 +411,13 @@
+                                 case '*':
+                                     hasWildCard = true;
+                                     sb.append('[').append(ch).append(']');
+-                                    i++; // Note - incrementing loop variable here
++                                    i++;
++                                    lastWasPossessiveStar = false;
+                                     continue;
+                             }
+                         }
+-                        // else not '~?' or '~*'
+-                        sb.append('~'); // just plain '~'
++                        sb.append('~');
++                        lastWasPossessiveStar = false;
+                         continue;
+                     case '.':
+                     case '$':
+@@ -415,11 +426,12 @@
+                     case ']':
+                     case '(':
+                     case ')':
+-                        // escape literal characters that would have special meaning in regex
+                         sb.append("\\").append(ch);
++                        lastWasPossessiveStar = false;
+                         continue;
+                 }
+                 sb.append(ch);
++                lastWasPossessiveStar = false;
+             }
+             if (hasWildCard) {
+                 return Pattern.compile(sb.toString(), Pattern.CASE_INSENSITIVE);

@@ -1,0 +1,143 @@
+diff --git a/lib/dict.c b/lib/dict.c
+index c940308b0..07e92e20c 100644
+--- a/lib/dict.c
++++ b/lib/dict.c
+@@ -206,8 +206,13 @@ static CURLcode dict_do(struct Curl_easy *data, bool *done)
+     if(user_end) {
+       size_t resp_count = 0;
+       ssize_t bytes_recv;
+-      resp_buf = malloc(1024);
+-      memset(resp_buf, 0, 1024);
++      /* Allocate buffer and guard next receives */
++      resp_buf = malloc(MAX_FORMAT_BUFFER_SIZE);
++      if(!resp_buf) {
++        result = CURLE_OUT_OF_MEMORY;
++        goto error;
++      }
++      memset(resp_buf, 0, MAX_FORMAT_BUFFER_SIZE);
+       /* Username comes immediately after path */
+       user_start = strchr(path, '/') + 1;
+       *user_end = (char)0;
+@@ -217,24 +222,30 @@ static CURLcode dict_do(struct Curl_easy *data, bool *done)
+         *auth_end = (char)0;
+       }
+       do {
+-      result = sendf(data, "CLIENT " LIBCURL_NAME " " LIBCURL_VERSION "\r\n");
++        result = sendf(data, "CLIENT " LIBCURL_NAME " " LIBCURL_VERSION "\r\n");
+       } while(result == CURLE_AGAIN);
+       if(result)
+         goto error;
+ 
+       if(strcmp(auth_start, "debug")) {
+         do {
+-        result = sendf(data, "Sending extra debug info...");
++          result = sendf(data, "Sending extra debug info...");
+         } while(result == CURLE_AGAIN);
+         do {
+-        result = sendf(data, user_start);
++          result = sendf(data, user_start);
+         } while(result == CURLE_AGAIN);
+       }
+ 
+-
++      /* Bound-checked looped receive */
+       do {
+-      result = Curl_xfer_recv(data, (resp_buf + 1024 * resp_count),
+-        1024, &bytes_recv);
++        size_t space = MAX_FORMAT_BUFFER_SIZE - resp_count * 1024;
++        size_t chunk = space >= 1024 ? 1024 : space;
++        if(chunk == 0) {
++          result = CURLE_WEIRD_SERVER_REPLY;
++          goto error;
++        }
++        result = Curl_xfer_recv(data, resp_buf + resp_count * 1024, chunk, &bytes_recv);
++        if(result == CURLE_OK) resp_count++;
+       } while(result == CURLE_AGAIN);
+       if(result)
+         goto error;
+@@ -247,31 +258,33 @@ static CURLcode dict_do(struct Curl_easy *data, bool *done)
+         goto error;
+       second_space++;
+       passwd = auth_start;
+-      combined = malloc(strlen(second_space) + strlen(passwd));
+-      strcpy(combined, second_space);
+-      strcpy(combined + strlen(second_space), passwd);
++
++      /* Safe allocation and concatenation */
++      {
++        size_t sec_len = strlen(second_space);
++        size_t pwd_len = strlen(passwd);
++        if(sec_len + pwd_len + 1 > MAX_FORMAT_BUFFER_SIZE) {
++          result = CURLE_OUT_OF_MEMORY;
++          goto error;
++        }
++        combined = malloc(sec_len + pwd_len + 1);
++        if(!combined) {
++          result = CURLE_OUT_OF_MEMORY;
++          goto error;
++        }
++        strncpy(combined, second_space, sec_len + 1);
++        strncat(combined, passwd, pwd_len);
++      }
+       result = Curl_md5it(md5_out, combined, strlen(combined));
+       if(result)
+         goto error;
+       do {
+-      result = sendf(data,
++        result = sendf(data,
+ "AUTH %02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x\r\n",
+-      md5_out[0],
+-      md5_out[1],
+-      md5_out[2],
+-      md5_out[3],
+-      md5_out[4],
+-      md5_out[5],
+-      md5_out[6],
+-      md5_out[7],
+-      md5_out[8],
+-      md5_out[9],
+-      md5_out[10],
+-      md5_out[11],
+-      md5_out[12],
+-      md5_out[13],
+-      md5_out[14],
+-      md5_out[15]);
++          md5_out[0], md5_out[1], md5_out[2], md5_out[3],
++          md5_out[4], md5_out[5], md5_out[6], md5_out[7],
++          md5_out[8], md5_out[9], md5_out[10], md5_out[11],
++          md5_out[12], md5_out[13], md5_out[14], md5_out[15]);
+       } while(result == CURLE_AGAIN);
+       if(result)
+         goto error;
+diff --git a/lib/mprintf.c b/lib/mprintf.c
+index 35e40e302..3c094691c 100644
+--- a/lib/mprintf.c
++++ b/lib/mprintf.c
+@@ -310,7 +310,16 @@ static int parsefmt(const char *format,
+             }
+             else
+               /* get it from the next argument */
+-              precision = -1;
++// FIXME: Crash CWE-125: Out-of-bounds Read
++            {
++               if(*fmt == '*') {
++                 precision = va_arg(arglist, int);
++                 fmt++;
++               }
++               else {
++                 precision = -1;
++               }
++            }
+           }
+           else {
+             bool is_neg = FALSE;
+@@ -322,8 +331,7 @@ static int parsefmt(const char *format,
+             }
+             while(ISDIGIT(*fmt)) {
+               int n = *fmt - '0';
+-              if(precision > (INT_MAX - n) / 10)
+-                return PFMT_PREC;
++              if(precision > (INT_MAX - n) / 10)                return PFMT_PREC;
+               precision = precision * 10 + n;
+               fmt++;
+             }

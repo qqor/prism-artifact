@@ -1,0 +1,50 @@
+diff --git a/libfreerdp/crypto/certificate.c b/libfreerdp/crypto/certificate.c
+index 30820bbc4..1debedb3b 100644
+--- a/libfreerdp/crypto/certificate.c
++++ b/libfreerdp/crypto/certificate.c
+@@ -1585,8 +1585,10 @@ char* freerdp_certificate_get_pem(const rdpCertificate* cert, size_t* pLength)
+ }
+ 
+ char* freerdp_certificate_get_pem_ex(const rdpCertificate* cert, size_t* pLength,
+-                                     BOOL withCertChain)
++		                             BOOL withCertChain)
+ {
++	/* Rationale: Enforce maximum PEM data size to prevent heap buffer overflow */
++	static const size_t MAX_PEM_DATA_SIZE = 65536;
+ 	WINPR_ASSERT(cert);
+ 
+ 	if (!cert->x509)
+@@ -1596,6 +1598,7 @@ char* freerdp_certificate_get_pem_ex(const rdpCertificate* cert, size_t* pLength
+ 	 * Don't manage certificates internally, leave it up entirely to the external client
+ 	 * implementation
+ 	 */
++	// FIXME: Crash CWE-787: Out-of-bounds Write
+ 	BIO* bio = BIO_new(BIO_s_mem());
+ 
+ 	if (!bio)
+@@ -1628,11 +1631,23 @@ char* freerdp_certificate_get_pem_ex(const rdpCertificate* cert, size_t* pLength
+ 		}
+ 	}
+ 
++	/* Enforce maximum PEM data size before reading to prevent buffer overflow */
++	BUF_MEM* mem = NULL;
++	BIO_get_mem_ptr(bio, &mem);
++	if (!mem || mem->length > MAX_PEM_DATA_SIZE)
++	{
++		WLog_ERR(TAG, "PEM data too large: %zu", mem ? mem->length : 0);
++		goto fail;
++	}
++
+ 	// Updated rfc to handle specific policy issues
+ 	// https://datatracker.ietf.org/doc/html/rfc7299
+-	if ( freerdp_certificate_policies(cert, "2.23.140.1.2.1") ) {
++	if (freerdp_certificate_policies(cert, "2.23.140.1.2.1"))
++	{
+ 		(void)freerdp_bio_read_pem_with_policy(bio, &pem, pLength);
+-	} else {
++	}
++	else
++	{
+ 		(void)bio_read_pem(bio, &pem, pLength);
+ 	}
+ 

@@ -1,0 +1,80 @@
+--- a/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-text-module/src/main/java/org/apache/tika/parser/csv/CellFormatter.java
++++ b/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-text-module/src/main/java/org/apache/tika/parser/csv/CellFormatter.java
+@@ -37,6 +37,52 @@
+             "&fraction_format=\"(?:(#{1,20}) )?(#{1,20})/(#{1,20})\"");
+ 
+     private final Matcher fractionFormatMatcher = FRACTION_FORMAT.matcher("");
++
++    private static final int MAX_DENOMINATOR_LENGTH = 8;
++
++    private static int[] approximateFraction(double value, int maxDenominator) {
++        int sign = value < 0 ? -1 : 1;
++        value = Math.abs(value);
++        if (Double.isNaN(value) || Double.isInfinite(value)) {
++            return new int[]{0, 1};
++        }
++        int numerator0 = 0;
++        int numerator1 = 1;
++        int denominator0 = 1;
++        int denominator1 = 0;
++        double x = value;
++        while (true) {
++            int a = (int) Math.floor(x);
++            int denom2 = a * denominator1 + denominator0;
++            if (denom2 > maxDenominator) {
++                break;
++            }
++            int num2 = a * numerator1 + numerator0;
++            numerator0 = numerator1;
++            numerator1 = num2;
++            denominator0 = denominator1;
++            denominator1 = denom2;
++            double fracPart = x - a;
++            if (fracPart == 0) {
++                break;
++            }
++            x = 1.0 / fracPart;
++        }
++        double err1 = (denominator1 != 0) ? Math.abs((double) numerator1 / denominator1 - value)
++                                         : Double.MAX_VALUE;
++        double err0 = (denominator0 != 0) ? Math.abs((double) numerator0 / denominator0 - value)
++                                         : Double.MAX_VALUE;
++        int finalNum;
++        int finalDen;
++        if (denominator1 != 0 && err1 < err0) {
++            finalNum = numerator1;
++            finalDen = denominator1;
++        } else {
++            finalNum = numerator0;
++            finalDen = denominator0;
++        }
++        return new int[]{sign * finalNum, finalDen};
++    }
+     String format(String cell) {
+         if (cell == null) {
+             cell = "";
+@@ -61,18 +107,13 @@
+         double decPart = Math.abs(val) - wholePart;
+         int denomLength = denomFormat.length();
+ 
+-        double minVal = 1.0;
+-        double currDenom = Math.pow(10, denomLength) - 1d;
+-        double currNum = 0;
+-        for (int i = (int)(Math.pow(10, denomLength) - 1d); i > 0; i--) {
+-            for (int i2 = (int)(Math.pow(10, denomLength) - 1d); i2 >= 0; i2--) {
+-                if (minVal >= Math.abs((double)i2 / (double)i - decPart)) {
+-                    currDenom = i;
+-                    currNum = i2;
+-                    minVal = Math.abs((double) i2 / (double) i - decPart);
+-                }
+-            }
++        if (denomLength > MAX_DENOMINATOR_LENGTH) {
++            denomLength = MAX_DENOMINATOR_LENGTH;
+         }
++        int maxDenominator = (int) Math.pow(10, denomLength) - 1;
++        int[] frac = approximateFraction(decPart, maxDenominator);
++        double currNum = frac[0];
++        double currDenom = frac[1];
+         sign = (sign == null) ? "" : sign;
+         wholeFormat = (wholeFormat == null) ? "#" : wholeFormat;
+ 

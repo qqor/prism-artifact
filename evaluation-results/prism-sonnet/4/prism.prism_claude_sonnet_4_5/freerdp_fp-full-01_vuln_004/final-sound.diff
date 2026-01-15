@@ -1,0 +1,77 @@
+--- a/libfreerdp/core/mcs.h
++++ b/libfreerdp/core/mcs.h
+@@ -144,7 +144,7 @@
+ 	BOOL globalChannelJoined;
+ 	BOOL messageChannelJoined;
+ 
+-	INT8 channelCount;
++	UINT32 channelCount;
+ 	rdpMcsChannel* channels;
+ };
+ 
+
+--- a/libfreerdp/core/gcc.c
++++ b/libfreerdp/core/gcc.c
+@@ -1854,16 +1854,19 @@
+ 	if (blockLength < 4)
+ 		return FALSE;
+ 
+-	Stream_Read_UINT8(s, mcs->channelCount); /* channelCount */
+-
+-	if (blockLength < 4 + (UINT8)mcs->channelCount * 12)
+-		return FALSE;
+-
+-	if (mcs->channelCount > CHANNEL_MAX_COUNT)
+-		return FALSE;
++	UINT8 channelCount = 0;
++	Stream_Read_UINT8(s, channelCount); /* channelCount */
++
++	if (blockLength < 4 + channelCount * 12)
++		return FALSE;
++
++	if (channelCount > CHANNEL_MAX_COUNT)
++		return FALSE;
++
++	mcs->channelCount = channelCount;
+ 
+ 	/* channelDefArray */
+-	for (UINT32 i = 0; i < mcs->channelCount; i++)
++	for (UINT32 i = 0; i < channelCount; i++)
+ 	{
+ 		/**
+ 		 * CHANNEL_DEF
+@@ -1908,7 +1911,12 @@
+ 		WINPR_ASSERT(length <= UINT16_MAX);
+ 		if (!gcc_write_user_data_header(s, CS_NET, (UINT16)length))
+ 			return FALSE;
+-		Stream_Write_UINT32(s, mcs->channelCount); /* channelCount */
++		if (mcs->channelCount > UINT8_MAX)
++		{
++			WLog_ERR(TAG, "channelCount %" PRIu32 " exceeds UINT8_MAX", mcs->channelCount);
++			return FALSE;
++		}
++		Stream_Write_UINT8(s, (UINT8)mcs->channelCount); /* channelCount */
+ 
+ 		/* channelDefArray */
+ 		for (UINT32 i = 0; i < mcs->channelCount; i++)
+@@ -1927,7 +1935,7 @@
+ 	UINT16 channelId = 0;
+ 	UINT16 MCSChannelId = 0;
+ 	UINT16 channelCount = 0;
+-	INT8 parsedChannelCount = 0;
++	UINT16 parsedChannelCount = 0;
+ 	WINPR_ASSERT(s);
+ 	WINPR_ASSERT(mcs);
+ 	if (!Stream_CheckAndLogRequiredLength(TAG, s, 4))
+@@ -1944,6 +1952,11 @@
+ 
+ 		/* we ensure that the response is not bigger than the request */
+ 
++		if (channelCount > CHANNEL_MAX_COUNT)
++		{
++			WLog_ERR(TAG, "Server returned invalid channelCount: %" PRIu16 " > CHANNEL_MAX_COUNT", channelCount);
++			return FALSE;
++		}
+ 		mcs->channelCount = channelCount;
+ 	}
+ 

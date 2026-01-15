@@ -1,0 +1,59 @@
+--- a/src/json.h
++++ b/src/json.h
+@@ -7,9 +7,7 @@
+ #define MG_JSON_MAX_DEPTH 30
+ #endif
+ 
+-#ifndef MG_JSON_MAX_NESTING
+-#define MG_JSON_MAX_NESTING 60
+-#endif
++_Static_assert(MG_JSON_MAX_DEPTH > 0, "MG_JSON_MAX_DEPTH must be positive");
+ 
+ // Error return values - negative. Successful returns are >= 0
+ enum { MG_JSON_TOO_DEEP = -1, MG_JSON_INVALID = -2, MG_JSON_NOT_FOUND = -3 };
+
+--- a/src/json.c
++++ b/src/json.c
+@@ -128,13 +128,14 @@
+   int len = (int) json.len;
+   enum { S_VALUE, S_KEY, S_COLON, S_COMMA_OR_EOO } expecting = S_VALUE;
+   unsigned char nesting[MG_JSON_MAX_DEPTH];
++  _Static_assert(sizeof(nesting) == MG_JSON_MAX_DEPTH,
++                 "nesting[] size must match MG_JSON_MAX_DEPTH");
+   int i = 0;             // Current offset in `s`
+   int j = 0;             // Offset in `s` we're looking for (return value)
+   int depth = 0;         // Current depth (nesting level)
+   int ed = 0;            // Expected depth
+   int pos = 1;           // Current position in `path`
+   int ci = -1, ei = -1;  // Current and expected index in array
+-
+   if (toklen) *toklen = 0;
+   if (path[0] != '$') return MG_JSON_INVALID;
+ 
+@@ -164,16 +165,14 @@
+         // p("V %s [%.*s] %d %d %d %d\n", path, pos, path, depth, ed, ci, ei);
+         if (depth == ed) j = i;
+         if (c == '{') {
+-          if (depth > MG_JSON_MAX_NESTING) return MG_JSON_TOO_DEEP;
+           if (depth == ed && path[pos] == '.' && ci == ei) {
+             // If we start the object, reset array indices
+             ed++, pos++, ci = ei = -1;
+           }
+-          nesting[depth++] = c;
++          if (push_nesting(nesting, &depth, c) != 0) return MG_JSON_TOO_DEEP;
+           expecting = S_KEY;
+           break;
+         } else if (c == '[') {
+-          if (depth > MG_JSON_MAX_NESTING) return MG_JSON_TOO_DEEP;
+           if (depth == ed && path[pos] == '[' && ei == ci) {
+             ed++, pos++, ci = 0;
+             for (ei = 0; path[pos] != ']' && path[pos] != '\0'; pos++) {
+@@ -182,7 +181,7 @@
+             }
+             if (path[pos] != 0) pos++;
+           }
+-          nesting[depth++] = c;
++          if (push_nesting(nesting, &depth, c) != 0) return MG_JSON_TOO_DEEP;
+           break;
+         } else if (c == ']' && depth > 0) {  // Empty array
+           MG_EOO(']');

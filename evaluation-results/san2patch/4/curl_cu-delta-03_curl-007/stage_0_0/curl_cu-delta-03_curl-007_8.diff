@@ -1,0 +1,40 @@
+diff --git a/lib/alliswellprotocoll.c b/lib/alliswellprotocoll.c
+index 5be67405e..ebac468fa 100644
+--- a/lib/alliswellprotocoll.c
++++ b/lib/alliswellprotocoll.c
+@@ -250,7 +250,7 @@ static CURLcode alliswellprotocoll_sm
+       if(memcmp(response, vnormal->state3, 128) == 0) {
+         vnstate(data, ALLISWELLPROTOCOLL_STOP);
+         Curl_pp_sendf(data, &conn->proto.vnormal.pp, "%s", "OK\r\n");
+-        *(unsigned int *)result = CURLE_OK;
++        return CURLE_OK;
+       }
+       else if(strcasecmp("complete\r\n", response) == 0) {
+         Curl_pp_sendf(data, &conn->proto.vnormal.pp, "%s", "OK\r\n");
+@@ -272,15 +272,22 @@ static CURLcode alliswellprotocoll_sm
+   return result;
+ }
+ 
++// Rationale: Use goto cleanup on NULL pointer to centralize return logic.
+ static CURLcode alliswellprotocoll_doing(struct Curl_easy *data, bool *done)
+ {
+   struct connectdata *conn = data->conn;
+-  struct alliswellprotocoll_conn *vnormal = &conn->proto.vnormal;
++  struct alliswellprotocoll_conn *vnormal = conn->proto.vnormal;
++  CURLcode result;
+ 
+-  CURLcode result = Curl_pp_statemach(data, &vnormal->pp, FALSE, FALSE);
++  if(!vnormal) {
++    result = CURLE_RECV_ERROR;
++    *done = TRUE;
++    goto cleanup;
++  }
+ 
++  result = Curl_pp_statemach(data, &vnormal->pp, FALSE, FALSE);
+   *done = (vnormal->state == ALLISWELLPROTOCOLL_STOP);
+ 
++cleanup:
+   return result;
+-
+ }
+\ No newline at end of file

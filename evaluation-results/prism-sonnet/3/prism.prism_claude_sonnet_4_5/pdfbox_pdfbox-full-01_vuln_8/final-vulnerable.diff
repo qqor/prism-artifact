@@ -1,0 +1,162 @@
+--- a/fontbox/src/main/java/org/apache/fontbox/type1/Type1Parser.java
++++ b/fontbox/src/main/java/org/apache/fontbox/type1/Type1Parser.java
+@@ -43,6 +43,12 @@
+     // constants for encryption
+     private static final int EEXEC_KEY = 55665;
+     private static final int CHARSTRING_KEY = 4330;
++    
++    // constants for iteration limits to prevent timeout
++    private static final int MAX_SCAN_ITERATIONS = 100;
++    private static final int MAX_NESTING_ITERATIONS = 1000;
++    private static final int MAX_DICT_LENGTH = 10000;
++    private static final int MAX_TOKEN_SEARCH_ITERATIONS = 1000;
+ 
+     // state
+     private Type1Lexer lexer;
+@@ -107,6 +113,10 @@
+ 
+         // font dict
+         int length = read(Token.INTEGER).intValue();
++        if (length < 0 || length > MAX_DICT_LENGTH)
++        {
++            throw new IOException("Invalid font dict length: " + length);
++        }
+         read(Token.NAME, "dict");
+         // found in some TeX fonts
+         readMaybe(Token.NAME, "dup");
+@@ -214,18 +224,35 @@
+             // 0 1 255 {1 index exch /.notdef put } for
+             // we have to check "readonly" and "def" too
+             // as some fonts don't provide any dup-values, see PDFBOX-2134
+-            while (!(lexer.peekKind(Token.NAME)
+-                    && (lexer.peekToken().getText().equals("dup")
+-                            || lexer.peekToken().getText().equals("readonly")
+-                            || lexer.peekToken().getText().equals("def"))))
+-            {
++            Token token = lexer.peekToken();
++            int searchIterations = 0;
++            while (token != null && 
++                   !(token.getKind() == Token.NAME && 
++                     (token.getText().equals("dup") || 
++                      token.getText().equals("readonly") || 
++                      token.getText().equals("def"))))
++            {
++                if (++searchIterations > MAX_SCAN_ITERATIONS)
++                {
++                    throw new IOException("Exceeded maximum iterations searching for encoding tokens");
++                }
+                 lexer.nextToken();
+-            }
+-            
++                token = lexer.peekToken();
++            }
++            if (token == null)
++            {
++                throw new IOException("Unexpected EOF while reading encoding");
++            }
++
+             Map<Integer, String> codeToName = new HashMap<>();
++            int dupIterations = 0;
+             while (lexer.peekKind(Token.NAME) &&
+                     lexer.peekToken().getText().equals("dup"))
+             {
++                if (++dupIterations > MAX_SCAN_ITERATIONS)
++                {
++                    throw new IOException("Exceeded maximum iterations processing encoding dup entries");
++                }
+                 read(Token.NAME, "dup");
+                 int code = read(Token.INTEGER).intValue();
+                 String name = read(Token.LITERAL).getText();
+@@ -318,6 +345,10 @@
+         Map<String, List<Token>> dict = new HashMap<>();
+ 
+         int length = read(Token.INTEGER).intValue();
++        if (length < 0 || length > MAX_DICT_LENGTH)
++        {
++            throw new IOException("Invalid simple dict length: " + length);
++        }
+         read(Token.NAME, "dict");
+         readMaybe(Token.NAME, "dup");
+ 
+@@ -392,8 +423,13 @@
+         if (token.getKind() == Token.START_ARRAY)
+         {
+             int openArray = 1;
++            int iterations = 0;
+             while (true)
+             {
++                if (++iterations > MAX_NESTING_ITERATIONS)
++                {
++                    throw new IOException("Exceeded maximum iterations processing array");
++                }
+                 if (lexer.peekToken() == null)
+                 {
+                     return value;
+@@ -471,8 +507,13 @@
+         List<Token> value = new ArrayList<>();
+ 
+         int openProc = 1;
++        int iterations = 0;
+         while (true)
+         {
++            if (++iterations > MAX_NESTING_ITERATIONS)
++            {
++                throw new IOException("Exceeded maximum iterations processing procedure");
++            }
+             if (lexer.peekToken() == null)
+             {
+                 throw new IOException("Malformed procedure: missing token");
+@@ -510,8 +551,13 @@
+     private void readProcVoid() throws IOException
+     {
+         int openProc = 1;
++        int iterations = 0;
+         while (true)
+         {
++            if (++iterations > MAX_NESTING_ITERATIONS)
++            {
++                throw new IOException("Exceeded maximum iterations processing procedure");
++            }
+             if (lexer.peekToken() == null)
+             {
+                 throw new IOException("Malformed procedure: missing token");
+@@ -554,8 +600,13 @@
+ 
+         // find /Private dict
+         Token peekToken = lexer.peekToken();
++        int privateSearchIterations = 0;
+         while (peekToken != null && !"Private".equals(peekToken.getText()))
+         {
++            if (++privateSearchIterations > MAX_TOKEN_SEARCH_ITERATIONS)
++            {
++                throw new IOException("Exceeded maximum iterations searching for /Private token");
++            }
+             // for a more thorough validation, the presence of "begin" before Private
+             // determines how code before and following charstrings should look
+             // it is not currently checked anyway
+@@ -570,6 +621,10 @@
+         // Private dict
+         read(Token.LITERAL, "Private");
+         int length = read(Token.INTEGER).intValue();
++        if (length < 0 || length > MAX_DICT_LENGTH)
++        {
++            throw new IOException("Invalid Private dict length: " + length);
++        }
+         read(Token.NAME, "dict");
+         // actually could also be "/Private 10 dict def Private begin"
+         // instead of the "dup"
+@@ -637,9 +692,14 @@
+         // some fonts have "2 index" here, others have "end noaccess put"
+         // sometimes followed by "put". Either way, we just skip until
+         // the /CharStrings dict is found
++        int charStringsSearchIterations = 0;
+         while (!(lexer.peekKind(Token.LITERAL)
+                 && lexer.peekToken().getText().equals("CharStrings")))
+         {
++            if (++charStringsSearchIterations > MAX_TOKEN_SEARCH_ITERATIONS)
++            {
++                throw new IOException("Exceeded maximum iterations searching for /CharStrings token");
++            }
+             lexer.nextToken();
+         }
+ 

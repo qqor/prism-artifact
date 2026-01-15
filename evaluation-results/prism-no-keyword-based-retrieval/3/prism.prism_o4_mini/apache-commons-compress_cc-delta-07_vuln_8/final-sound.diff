@@ -1,0 +1,34 @@
+--- a/src/main/java/org/apache/commons/compress/archivers/examples/Expander.java
++++ b/src/main/java/org/apache/commons/compress/archivers/examples/Expander.java
+@@ -71,7 +71,11 @@
+         final Path targetDirPath = nullTarget ? null : targetDirectory.normalize();
+         T nextEntry = supplier.get();
+         while (nextEntry != null) {
+-            final Path targetPath = nullTarget ? null : nextEntry.resolveIn(targetDirPath);
++            final Path targetPath = nullTarget ? null : nextEntry.resolveIn(targetDirPath).normalize();
++            if (!nullTarget && !targetPath.startsWith(targetDirPath)) {
++                throw new IOException(String.format("Archive slip '%s' + '%s' -> '%s'",
++                        targetDirPath, nextEntry.getName(), targetPath));
++            }
+             if (nextEntry.isDirectory()) {
+                 if (!nullTarget && !Files.isDirectory(targetPath) && Files.createDirectories(targetPath) == null) {
+                     throw new IOException("Failed to create directory " + targetPath);
+@@ -477,8 +481,16 @@
+             if (zae.isUnixSymlink()) {
+                 String targetName = IOUtils.toString(archive.getInputStream(zae),
+                         StandardCharsets.UTF_8);
+-                Path link = targetDirectory.resolve(zae.getName());
+-                Path target = targetDirectory.resolve(targetName);
++                Path link = targetDirectory.resolve(zae.getName()).normalize();
++                if (!link.startsWith(targetDirectory)) {
++                    throw new IOException(String.format("Zip slip '%s' + '%s' -> '%s'",
++                            targetDirectory, zae.getName(), link));
++                }
++                Path target = targetDirectory.resolve(targetName).normalize();
++                if (!target.startsWith(targetDirectory)) {
++                    throw new IOException(String.format("Zip slip '%s' + '%s' -> '%s'",
++                            targetDirectory, targetName, target));
++                }
+                 Path parent = createParentDirectory(targetDirectory, link);
+ 
+                 if (!Files.isSameFile(link.getParent(), parent)) {

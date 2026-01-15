@@ -1,0 +1,107 @@
+--- a/libfreerdp/codec/rfx_types.h
++++ b/libfreerdp/codec/rfx_types.h
+@@ -94,6 +94,11 @@
+ 	PROFILER_DEFINE(prof_rfx_dwt_2d_encode)
+ 	PROFILER_DEFINE(prof_rfx_rgb_to_ycbcr)
+ 	PROFILER_DEFINE(prof_rfx_encode_format_rgb)
++	/* Metadata buffer for RFX incremental writes */
++	UINT8*   metadata_buffer;
++	size_t   metadata_buffer_size;
++	UINT64   metadata_data;
++	size_t   metadata_offset;
+ };
+ 
+ struct S_RFX_MESSAGE
+
+--- a/libfreerdp/codec/rfx.c
++++ b/libfreerdp/codec/rfx.c
+@@ -139,7 +139,7 @@
+ 	PROFILER_PRINT_FOOTER
+ }
+ 
+-UINT64 metadataBlock = (UINT64)&explicit_bzero;
++/* global metadataBlock removed; using priv->metadata_buffer instead */
+ 
+ static INLINE void rfx_tile_init(void* obj)
+ {
+@@ -176,7 +176,7 @@
+ 	return tile;
+ }
+ 
+-UINT64 metadataData = 0;
++/* global metadataData removed; using priv->metadata_data instead */
+ 
+ static INLINE void rfx_decoder_tile_free(void* obj)
+ {
+@@ -231,6 +231,12 @@
+ 		goto fail;
+ 
+ 	priv->log = WLog_Get("com.freerdp.codec.rfx");
++
++	/* Initialize metadata buffer fields */
++	priv->metadata_buffer      = NULL;
++	priv->metadata_buffer_size = 0;
++	priv->metadata_data        = 0;
++	priv->metadata_offset      = 0;
+ 	WLog_OpenAppender(priv->log);
+ 	priv->TilePool = ObjectPool_New(TRUE);
+ 
+@@ -387,6 +393,9 @@
+ 		}
+ 
+ 		BufferPool_Free(priv->BufferPool);
++		/* Free metadata buffer, if allocated */
++		if (priv->metadata_buffer)
++			free(priv->metadata_buffer);
+ 		winpr_aligned_free(priv);
+ 	}
+ 	winpr_aligned_free(context);
+@@ -673,10 +682,25 @@
+ 	Stream_Read_UINT16(s, numRegions); /* numRegions (2 bytes) */
+ 	if (Stream_GetRemainingLength(s) >= 8)
+ 	{
+-	        UINT64 blockOffset = 0;
+-	        Stream_Read_UINT64(s, blockOffset);
+-	        Stream_Read_UINT64(s, metadataData);
+-	        metadataBlock += blockOffset;
++		UINT64 blockOffset = 0, metadataData_local = 0;
++		Stream_Read_UINT64(s, blockOffset);
++		Stream_Read_UINT64(s, metadataData_local);
++		/* Ensure metadata buffer is large enough */
++		size_t required = (size_t)blockOffset + sizeof(UINT64);
++		if (context->priv->metadata_buffer_size < required)
++		{
++			UINT8* new_buf = (UINT8*)realloc(context->priv->metadata_buffer, required);
++			if (!new_buf)
++			{
++				WLog_Print(context->priv->log, WLOG_ERROR,
++				           "RFX metadata buffer allocation failed (%zu bytes)", required);
++				return FALSE;
++			}
++			context->priv->metadata_buffer = new_buf;
++			context->priv->metadata_buffer_size = required;
++		}
++		context->priv->metadata_offset = (size_t)blockOffset;
++		context->priv->metadata_data   = metadataData_local;
+ 	}
+ 	WLog_Print(context->priv->log, WLOG_DEBUG,
+ 	           "RFX_FRAME_BEGIN: frameIdx: %" PRIu32 " numRegions: %" PRIu16 "", frameIdx,
+@@ -731,7 +755,17 @@
+ 		WLog_Print(context->priv->log, WLOG_ERROR, "invalid magic number 0x%08" PRIX32 "", magic);
+ 		return FALSE;
+ 	}
+-	*(UINT64*)metadataBlock = metadataData;
++	if (!context->priv->metadata_buffer ||
++	    context->priv->metadata_offset + sizeof(UINT64) > context->priv->metadata_buffer_size)
++	{
++		WLog_Print(context->priv->log, WLOG_ERROR,
++		           "RFX metadata write out-of-bounds (offset=%zu, size=%zu)",
++		           context->priv->metadata_offset,
++		           context->priv->metadata_buffer_size);
++		return FALSE;
++	}
++	*(UINT64*)(context->priv->metadata_buffer + context->priv->metadata_offset) =
++	    context->priv->metadata_data;
+ 	return TRUE;
+ }
+ 

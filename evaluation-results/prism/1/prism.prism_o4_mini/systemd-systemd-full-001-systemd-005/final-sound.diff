@@ -1,0 +1,44 @@
+--- a/src/shared/parse-argument.c
++++ b/src/shared/parse-argument.c
+@@ -65,19 +65,25 @@
+          */
+ 
+         if (isempty(path)) {
+-                *arg = mfree(*arg);
++                *arg = NULL;
+                 return 0;
+         }
+ 
+         r = path_make_absolute_cwd(path, &p);
+-        if (r < 0)
++        if (r < 0) {
++                *arg = NULL;
+                 return log_error_errno(r, "Failed to parse path \"%s\" and make it absolute: %m", path);
++        }
+ 
+         path_simplify(p);
+-        if (suppress_root && empty_or_root(p))
+-                p = mfree(p);
++        if (suppress_root && empty_or_root(p)) {
++                free(p);
++                *arg = NULL;
++                return 0;
++        }
+ 
+-        return free_and_replace(*arg, p);
++        *arg = p;
++        return 0;
+ }
+ 
+ int parse_signal_argument(const char *s, int *ret) {
+
+--- a/src/basic/alloc-util.h
++++ b/src/basic/alloc-util.h
+@@ -104,6 +104,7 @@
+ 
+ static inline void freep(void *p) {
+         free(*(void**) p);
++        *(void**) p = NULL;
+ }
+ 
+ #define _cleanup_free_ _cleanup_(freep)

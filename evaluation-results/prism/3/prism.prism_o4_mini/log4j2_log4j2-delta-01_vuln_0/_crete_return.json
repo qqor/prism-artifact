@@ -1,0 +1,14 @@
+{
+  "project_name": "log4j2",
+  "vulnerability_identifier": "log4j2_log4j2-delta-01_vuln_0",
+  "source_directory": "/home/qqor/crete/.cache/official-afc-logging-log4j2",
+  "llm_usage": {
+    "total_cost": 0.2039598,
+    "prompt_tokens": 92626,
+    "completion_tokens": 23198
+  },
+  "variant": "sound",
+  "diff": "--- a/core/src/main/java/org/apache/logging/log4j/core/lookup/JndiLookup.java\n+++ b/core/src/main/java/org/apache/logging/log4j/core/lookup/JndiLookup.java\n@@ -28,7 +28,13 @@\n @Plugin(name = \"jndi\", category = \"Lookup\")\n public class JndiLookup implements StrLookup {\n \n-    private static boolean ENABLE_JNDI = true;\n+    private static boolean ENABLE_JNDI = initEnableJndi();\n+\n+    private static boolean initEnableJndi() {\n+        String prop = org.apache.logging.log4j.util.PropertiesUtil.getProperties()\n+                         .getStringProperty(\"log4j2.enableJndiLookup\");\n+        return Boolean.parseBoolean(prop);\n+    }\n \n     /** JNDI resourcce path prefix used in a J2EE container */\n     static final String CONTAINER_JNDI_RESOURCE_PATH_PREFIX = \"java:comp/env/\";\n@@ -55,9 +61,18 @@\n             return null;\n         }\n \n+        String name = convertJndiName(key);\n+        // Block remote JNDI lookups\n+        if (name.contains(\"://\")) {\n+            return null;\n+        }\n+        // Only allow local JNDI resource lookups\n+        if (!name.startsWith(CONTAINER_JNDI_RESOURCE_PATH_PREFIX)) {\n+            return null;\n+        }\n         try {\n             InitialContext ctx = new InitialContext();\n-            return (String) ctx.lookup(convertJndiName(key));\n+            return (String) ctx.lookup(name);\n         } catch (NamingException e) {\n             return null;\n         }\n",
+  "stdout": "",
+  "stderr": ""
+}

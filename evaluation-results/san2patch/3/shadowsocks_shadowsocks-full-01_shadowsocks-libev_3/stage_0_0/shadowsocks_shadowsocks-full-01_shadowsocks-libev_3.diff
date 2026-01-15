@@ -1,0 +1,42 @@
+diff --git a/src/json.c b/src/json.c
+index 2a91900..7f7c07e 100644
+--- a/src/json.c
++++ b/src/json.c
+@@ -621,28 +621,23 @@ json_value * json_parse_ex (json_settings * settings,
+                         {
+                            goto e_unknown_value;
+                         }
++                         case 'n':
++// FIXME: Crash CWE-125: Out-of-bounds Read
+ 
+-                        if (!new_value (&state, &top, &root, &alloc, json_boolean))
+-                           goto e_alloc_failure;
+-
+-                        flags |= flag_next;
+-                        break;
+-
+-                     case 'n':
+-
+-                        if ((end - state.ptr) < 3 || *(++ state.ptr) != 'u' ||
+-                            *(++ state.ptr) != 'l' || *(++ state.ptr) != 'l')
++                        /* Rationale: use memcmp to validate literal */
++                        if ((size_t)(end - state.ptr) < 4 ||
++                            memcmp(state.ptr, "null", 4) != 0)
+                         {
+                            goto e_unknown_value;
+                         }
++                        /* advance past 'u','l','l' */
++                        state.ptr += 3;
+ 
+                         if (!new_value (&state, &top, &root, &alloc, json_null))
+-                           goto e_alloc_failure;
++                            goto e_alloc_failure;
+ 
+                         flags |= flag_next;
+-                        break;
+-
+-                     default:
++                        break;                     default:
+ 
+                         if (isdigit (b) || b == '-')
+                         {

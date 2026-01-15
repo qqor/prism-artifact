@@ -1,0 +1,127 @@
+--- a/fontbox/src/main/java/org/apache/fontbox/type1/Type1Lexer.java
++++ b/fontbox/src/main/java/org/apache/fontbox/type1/Type1Lexer.java
+@@ -49,6 +49,8 @@
+      */
+     private static final Logger LOG = LogManager.getLogger(Type1Lexer.class);
+     
++    private static final int MAX_CONSECUTIVE_SKIPS = 10000;
++    
+     private final ByteBuffer buffer;
+     private Token aheadToken;
+     private int openParens = 0;
+@@ -116,6 +118,7 @@
+      */
+     private Token readToken(Token prevToken) throws IOException
+     {
++        int consecutiveSkips = 0;
+         boolean skip;
+         do
+         {
+@@ -197,11 +200,25 @@
+                 else if (Character.isWhitespace(c))
+                 {
+                     skip = true;
++                    consecutiveSkips++;
++                    if (consecutiveSkips > MAX_CONSECUTIVE_SKIPS)
++                    {
++                        throw new DamagedFontException(
++                            "Excessive whitespace or NULL bytes at position " + 
++                            buffer.position());
++                    }
+                 }
+                 else if (c == 0)
+                 {
+                     LOG.warn("NULL byte in font, skipped");
+                     skip = true;
++                    consecutiveSkips++;
++                    if (consecutiveSkips > MAX_CONSECUTIVE_SKIPS)
++                    {
++                        throw new DamagedFontException(
++                            "Excessive whitespace or NULL bytes at position " + 
++                            buffer.position());
++                    }
+                 }
+                 else
+                 {
+
+--- a/fontbox/src/main/java/org/apache/fontbox/type1/Type1Parser.java
++++ b/fontbox/src/main/java/org/apache/fontbox/type1/Type1Parser.java
+@@ -43,6 +43,9 @@
+     // constants for encryption
+     private static final int EEXEC_KEY = 55665;
+     private static final int CHARSTRING_KEY = 4330;
++    
++    // maximum iterations for unbounded search loops
++    private static final int MAX_SEARCH_ITERATIONS = 100000;
+ 
+     // state
+     private Type1Lexer lexer;
+@@ -214,12 +217,23 @@
+             // 0 1 255 {1 index exch /.notdef put } for
+             // we have to check "readonly" and "def" too
+             // as some fonts don't provide any dup-values, see PDFBOX-2134
++            int encodingSearchIterations = 0;
+             while (!(lexer.peekKind(Token.NAME)
+                     && (lexer.peekToken().getText().equals("dup")
+                             || lexer.peekToken().getText().equals("readonly")
+                             || lexer.peekToken().getText().equals("def"))))
+             {
++                if (lexer.peekToken() == null)
++                {
++                    throw new IOException("Unexpected end of file while parsing encoding");
++                }
+                 lexer.nextToken();
++                encodingSearchIterations++;
++                if (encodingSearchIterations > MAX_SEARCH_ITERATIONS)
++                {
++                    throw new DamagedFontException(
++                        "Excessive tokens while searching for encoding entries");
++                }
+             }
+             
+             Map<Integer, String> codeToName = new HashMap<>();
+@@ -553,6 +567,7 @@
+         lexer = new Type1Lexer(decrypted);
+ 
+         // find /Private dict
++        int searchIterations = 0;
+         Token peekToken = lexer.peekToken();
+         while (peekToken != null && !"Private".equals(peekToken.getText()))
+         {
+@@ -560,6 +575,13 @@
+             // determines how code before and following charstrings should look
+             // it is not currently checked anyway
+             lexer.nextToken();
++            searchIterations++;
++            if (searchIterations > MAX_SEARCH_ITERATIONS)
++            {
++                throw new DamagedFontException(
++                    "Exceeded maximum iterations (" + MAX_SEARCH_ITERATIONS + 
++                    ") searching for /Private token");
++            }
+             peekToken = lexer.peekToken();
+         }
+         if (peekToken == null)
+@@ -637,10 +659,22 @@
+         // some fonts have "2 index" here, others have "end noaccess put"
+         // sometimes followed by "put". Either way, we just skip until
+         // the /CharStrings dict is found
++        int charStringsSearchIterations = 0;
+         while (!(lexer.peekKind(Token.LITERAL)
+                 && lexer.peekToken().getText().equals("CharStrings")))
+         {
++            if (lexer.peekToken() == null)
++            {
++                throw new IOException("Unexpected end of file while searching for CharStrings");
++            }
+             lexer.nextToken();
++            charStringsSearchIterations++;
++            if (charStringsSearchIterations > MAX_SEARCH_ITERATIONS)
++            {
++                throw new DamagedFontException(
++                    "Exceeded maximum iterations (" + MAX_SEARCH_ITERATIONS + 
++                    ") searching for /CharStrings");
++            }
+         }
+ 
+         // CharStrings dict

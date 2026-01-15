@@ -1,0 +1,14 @@
+{
+  "project_name": "wireshark",
+  "vulnerability_identifier": "wireshark_ws-delta-02_vuln_004",
+  "source_directory": "/home/qqor/crete/.cache/official-afc-wireshark",
+  "llm_usage": {
+    "total_cost": 0.7731273,
+    "prompt_tokens": 628583,
+    "completion_tokens": 18565
+  },
+  "variant": "sound",
+  "diff": "--- a/epan/dissectors/packet-icmp.c\n+++ b/epan/dissectors/packet-icmp.c\n@@ -924,12 +924,19 @@\n \tswitch(c_type) {\n \t\tcase ICMP_EXT_ECHO_IDENT_NAME:\n \t\t\t/* Identification Name must be printable*/\n-\t\t\ttvb_memcpy(tvb, ident_name, offset, obj_length - 4);\n-\n-\t\t\tfor (unsigned i = 0; i < obj_length - 4; i++)\n-\t\t\t\tif (!g_ascii_isprint(ident_name[i]))\n-\t\t\t\t\tbreak;\n-\n+\t\t\t{\n+\t\t\t\t/* Clamp the copy length to avoid overflow of ident_name[] */\n+\t\t\t\tsize_t data_len = (obj_length > 4) ? (size_t)(obj_length - 4) : 0;\n+\t\t\t\tsize_t copy_len = MIN(data_len, (size_t)ICMP_MAX_IDENT_NAME_LENGTH);\n+\n+\t\t\t\ttvb_memcpy(tvb, ident_name, offset, copy_len);\n+\n+\t\t\t\t/* Only check the printable range we safely copied */\n+\t\t\t\tfor (size_t i = 0; i < copy_len; i++) {\n+\t\t\t\t\tif (!g_ascii_isprint(ident_name[i]))\n+\t\t\t\t\t\tbreak;\n+\t\t\t\t}\n+\t\t\t}\n \t\t\tproto_tree_add_item(ext_object_tree, hf_icmp_int_ident_name_string, tvb, offset, obj_length - 4, ENC_ASCII);\n \t\t\tbreak;\n \t\tcase ICMP_EXT_ECHO_IDENT_INDEX:\n",
+  "stdout": "",
+  "stderr": ""
+}

@@ -1,0 +1,40 @@
+--- a/libexif/exif-data.c
++++ b/libexif/exif-data.c
+@@ -195,26 +195,27 @@
+ 		doff = offset + 8;
+ 
+ 	/* Sanity checks */
+-	if (doff >= size) {
++	if (size < 8 || offset > size - 8) {
+ 		exif_log (data->priv->log, EXIF_LOG_CODE_DEBUG, "ExifData",
+-				  "Tag starts past end of buffer (%u > %u)", doff, size);
++				  "Tag starts past end of buffer or invalid offset (%u + 8 > %u)",
++				  offset, size);
+ 		return 0;
+ 	}
+-
++	doff = offset + 8;
++	/* Ensure the tag data of length s fits in remaining bytes */
+ 	if (s > size - doff) {
+ 		exif_log (data->priv->log, EXIF_LOG_CODE_DEBUG, "ExifData",
+-				  "Tag data goes past end of buffer (%u > %u)", doff+s, size);
++				  "Tag data goes past end of buffer (%u + %u > %u)",
++				  doff, s, size);
+ 		return 0;
+ 	}
+-
+ 	entry->data = exif_data_alloc (data, s);
+-	if (entry->data) {
+-		entry->size = s;
+-		memcpy (entry->data, d + doff, s);
+-	} else {
+-		EXIF_LOG_NO_MEMORY(data->priv->log, "ExifData", s);
++	if (!entry->data) {
++		EXIF_LOG_NO_MEMORY (data->priv->log, "ExifData", s);
+ 		return 0;
+ 	}
++	entry->size = s;
++	memcpy (entry->data, d + doff, s);
+ 
+ 	/* If this is the MakerNote, remember the offset */
+ 	if (entry->tag == EXIF_TAG_MAKER_NOTE) {

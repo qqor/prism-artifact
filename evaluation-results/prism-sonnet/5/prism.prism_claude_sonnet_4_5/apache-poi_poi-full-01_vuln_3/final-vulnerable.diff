@@ -1,0 +1,153 @@
+--- a/poi/src/main/java/org/apache/poi/hssf/record/RecordFactory.java
++++ b/poi/src/main/java/org/apache/poi/hssf/record/RecordFactory.java
+@@ -84,6 +84,9 @@
+         if (record instanceof MulRKRecord) {
+             return convertRKRecords((MulRKRecord)record);
+         }
++        if (record instanceof MulBlankRecord) {
++            return convertBlankRecords((MulBlankRecord)record);
++        }
+         return new Record[] { record, };
+     }
+ 
+@@ -120,19 +123,62 @@
+      */
+     public static NumberRecord[] convertRKRecords(MulRKRecord mrk) {
+         int numColumns = mrk.getNumColumns();
++        int firstCol = mrk.getFirstColumn();
++        int lastCol = mrk.getLastColumn();
++        
+         if (numColumns < 0) {
+-            throw new RecordFormatException("Cannot create RKRecords with negative number of columns: " + numColumns);
++            throw new RecordFormatException(
++                "Invalid MulRKRecord: negative column count (" + numColumns + 
++                "). firstColumn=" + firstCol + ", lastColumn=" + lastCol);
++        }
++        
++        if (firstCol < 0 || firstCol > 255) {
++            throw new RecordFormatException(
++                "Invalid MulRKRecord: firstColumn (" + firstCol + 
++                ") is outside valid range [0, 255]");
++        }
++        
++        if (lastCol < 0 || lastCol > 255) {
++            throw new RecordFormatException(
++                "Invalid MulRKRecord: lastColumn (" + lastCol + 
++                ") is outside valid range [0, 255]");
++        }
++        
++        if (numColumns > 256) {
++            throw new RecordFormatException(
++                "Invalid MulRKRecord: column count (" + numColumns + 
++                ") exceeds maximum (256). firstColumn=" + firstCol + 
++                ", lastColumn=" + lastCol);
++        }
++        
++        if (numColumns > 0) {
++            try {
++                mrk.getXFAt(numColumns - 1);
++                mrk.getRKNumberAt(numColumns - 1);
++            } catch (ArrayIndexOutOfBoundsException e) {
++                throw new RecordFormatException(
++                    "Invalid MulRKRecord: array size mismatch. Expected at least " + 
++                    numColumns + " RK entries but array access failed at index " + 
++                    (numColumns - 1) + " (firstColumn=" + firstCol + 
++                    ", lastColumn=" + lastCol + ")", e);
++            }
+         }
+ 
+         NumberRecord[] mulRecs = new NumberRecord[numColumns];
+         for (int k = 0; k < numColumns; k++) {
+-            NumberRecord nr = new NumberRecord();
+-
+-            nr.setColumn((short) (k + mrk.getFirstColumn()));
+-            nr.setRow(mrk.getRow());
+-            nr.setXFIndex(mrk.getXFAt(k));
+-            nr.setValue(mrk.getRKNumberAt(k));
+-            mulRecs[k] = nr;
++            try {
++                NumberRecord nr = new NumberRecord();
++                nr.setColumn((short) (k + firstCol));
++                nr.setRow(mrk.getRow());
++                nr.setXFIndex(mrk.getXFAt(k));
++                nr.setValue(mrk.getRKNumberAt(k));
++                mulRecs[k] = nr;
++            } catch (ArrayIndexOutOfBoundsException e) {
++                throw new RecordFormatException(
++                    "MulRKRecord array access failed at column offset " + k + 
++                    ". numColumns=" + numColumns + ", firstColumn=" + firstCol + 
++                    ", lastColumn=" + lastCol, e);
++            }
+         }
+         return mulRecs;
+     }
+@@ -144,14 +190,61 @@
+      * @return the equivalent array of {@link BlankRecord BlankRecords}
+      */
+     public static BlankRecord[] convertBlankRecords(MulBlankRecord mbk) {
+-        BlankRecord[] mulRecs = new BlankRecord[mbk.getNumColumns()];
+-        for (int k = 0; k < mbk.getNumColumns(); k++) {
+-            BlankRecord br = new BlankRecord();
+-
+-            br.setColumn((short) (k + mbk.getFirstColumn()));
+-            br.setRow(mbk.getRow());
+-            br.setXFIndex(mbk.getXFAt(k));
+-            mulRecs[k] = br;
++        int numColumns = mbk.getNumColumns();
++        int firstCol = mbk.getFirstColumn();
++        int lastCol = mbk.getLastColumn();
++        
++        if (numColumns < 0) {
++            throw new RecordFormatException(
++                "Invalid MulBlankRecord: negative column count (" + numColumns + 
++                "). firstColumn=" + firstCol + ", lastColumn=" + lastCol);
++        }
++        
++        if (firstCol < 0 || firstCol > 255) {
++            throw new RecordFormatException(
++                "Invalid MulBlankRecord: firstColumn (" + firstCol + 
++                ") is outside valid range [0, 255]");
++        }
++        
++        if (lastCol < 0 || lastCol > 255) {
++            throw new RecordFormatException(
++                "Invalid MulBlankRecord: lastColumn (" + lastCol + 
++                ") is outside valid range [0, 255]");
++        }
++        
++        if (numColumns > 256) {
++            throw new RecordFormatException(
++                "Invalid MulBlankRecord: column count (" + numColumns + 
++                ") exceeds maximum (256). firstColumn=" + firstCol + 
++                ", lastColumn=" + lastCol);
++        }
++        
++        if (numColumns > 0) {
++            try {
++                mbk.getXFAt(numColumns - 1);
++            } catch (ArrayIndexOutOfBoundsException e) {
++                throw new RecordFormatException(
++                    "Invalid MulBlankRecord: array size mismatch. Expected at least " + 
++                    numColumns + " XF entries but array access failed at index " + 
++                    (numColumns - 1) + " (firstColumn=" + firstCol + 
++                    ", lastColumn=" + lastCol + ")", e);
++            }
++        }
++
++        BlankRecord[] mulRecs = new BlankRecord[numColumns];
++        for (int k = 0; k < numColumns; k++) {
++            try {
++                BlankRecord br = new BlankRecord();
++                br.setColumn((short) (k + firstCol));
++                br.setRow(mbk.getRow());
++                br.setXFIndex(mbk.getXFAt(k));
++                mulRecs[k] = br;
++            } catch (ArrayIndexOutOfBoundsException e) {
++                throw new RecordFormatException(
++                    "MulBlankRecord array access failed at column offset " + k + 
++                    ". numColumns=" + numColumns + ", firstColumn=" + firstCol + 
++                    ", lastColumn=" + lastCol, e);
++            }
+         }
+         return mulRecs;
+     }

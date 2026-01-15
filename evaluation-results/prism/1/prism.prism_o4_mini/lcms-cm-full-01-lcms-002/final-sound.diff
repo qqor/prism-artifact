@@ -1,0 +1,27 @@
+--- a/src/cmsvirt.c
++++ b/src/cmsvirt.c
+@@ -1068,8 +1068,10 @@
+ {
+     _cmsTRANSFORM* v = (_cmsTRANSFORM*) xform;
+     cmsHPROFILE hICC = NULL;
+-    cmsUInt32Number i, nColors;
++    cmsUInt32Number idx, nColors;
+     cmsNAMEDCOLORLIST *nc2 = NULL, *Original = NULL;
++    /* Buffer for named‐color index input: holds max channels × max bytes */
++    cmsUInt8Number PixelBuffer[cmsMAXCHANNELS * sizeof(cmsUInt32Number)];
+ 
+     // Create an empty placeholder
+     hICC = cmsCreateProfilePlaceholder(v->ContextID);
+@@ -1099,8 +1101,10 @@
+         | BYTES_SH(2) | CHANNELS_SH(cmsChannelsOfColorSpace(v ->ExitColorSpace)));
+ 
+     // Apply the transfor to colorants.
+-    for (i=0; i < nColors; i++) {
+-        cmsDoTransform(xform, &i, nc2 ->List[i].DeviceColorant, 1);
++    for (idx = 0; idx < nColors; idx++) {
++        /* Place index into bytes for input unpacking */
++        memcpy(PixelBuffer, &idx, sizeof(idx));
++        cmsDoTransform(xform, PixelBuffer, nc2 ->List[idx].DeviceColorant, 1);
+     }
+ 
+     if (!cmsWriteTag(hICC, cmsSigNamedColor2Tag, (void*) nc2)) goto Error;

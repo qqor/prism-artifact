@@ -1,0 +1,34 @@
+diff --git a/libexif/apple/exif-mnote-data-apple.c b/libexif/apple/exif-mnote-data-apple.c
+index 83a9cb1..8720798 100644
+--- a/libexif/apple/exif-mnote-data-apple.c
++++ b/libexif/apple/exif-mnote-data-apple.c
+@@ -107,6 +107,12 @@ exif_mnote_data_apple_load(ExifMnoteData *md, const unsigned char *buf, unsigned
+     }
+ 
+     for (i = 0; i < tcount; i++) {
++        /* Ensure at least the full 12-byte header is available before reading */
++        if (buf_size - ofs < 12) {
++            exif_log(md->log, EXIF_LOG_CODE_CORRUPT_DATA,
++                     "ExifMnoteApple", "Warning: truncated Apple MakerNote header at offset %u, skipping", ofs);
++            break;
++        }
+         d->entries[i].tag = exif_get_short(buf + ofs, d->order);
+         d->entries[i].format = exif_get_short(buf + ofs + 2, d->order);
+         d->entries[i].components = exif_get_long(buf + ofs + 4, d->order);
+@@ -117,11 +123,11 @@ exif_mnote_data_apple_load(ExifMnoteData *md, const unsigned char *buf, unsigned
+         } else {
+             dofs = ofs + 8;
+         }
+-	if (dofs > buf_size) {
+-		exif_log (md->log, EXIF_LOG_CODE_CORRUPT_DATA,
+-                                  "ExifMnoteApplet", "Tag size overflow detected (%u vs size %u)", dofs, buf_size);
+-		continue;
+-	}
++        if (dofs > buf_size) {
++            exif_log (md->log, EXIF_LOG_CODE_CORRUPT_DATA,
++                                  "ExifMnoteApple", "Tag size overflow detected (%u vs size %u)", dofs, buf_size);
++            continue;
++        }
+         ofs += 12;
+         d->entries[i].data = exif_mem_alloc(md->mem, dsize);
+         if (!d->entries[i].data) {

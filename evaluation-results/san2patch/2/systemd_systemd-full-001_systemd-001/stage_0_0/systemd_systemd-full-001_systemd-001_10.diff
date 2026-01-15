@@ -1,0 +1,36 @@
+diff --git a/src/udev/udev-rules.c b/src/udev/udev-rules.c
+index 9f9a970a6c..aa7c3cdf26 100644
+--- a/src/udev/udev-rules.c
++++ b/src/udev/udev-rules.c
+@@ -503,7 +503,8 @@ static int rule_line_add_token(UdevRuleLine *rule_line, UdevRuleTokenType type,
+         assert(type >= 0 && type < _TK_TYPE_MAX);
+         assert(op >= 0 && op < _OP_TYPE_MAX);
+ 
+-        if (type < _TK_M_MAX) {
++        /* Rationale: Duplicate value into buffer with proper null-termination to avoid out-of-bounds writes using strndup. */
++if (type < _TK_M_MAX) {
+                 assert(value);
+                 assert(IN_SET(op, OP_MATCH, OP_NOMATCH));
+ 
+@@ -514,7 +515,7 @@ static int rule_line_add_token(UdevRuleLine *rule_line, UdevRuleTokenType type,
+                 else if (streq(value, "?*")) {
+                         /* Convert KEY=="?*" -> KEY!="" */
+                         match_type = MATCH_TYPE_EMPTY;
+-                        op = op == OP_MATCH ? OP_NOMATCH : OP_MATCH;
++                         op = op == OP_MATCH ? OP_NOMATCH : OP_MATCH;
+                 } else if (string_is_glob(value))
+                         match_type = MATCH_TYPE_GLOB;
+                 else
+@@ -522,6 +523,12 @@ static int rule_line_add_token(UdevRuleLine *rule_line, UdevRuleTokenType type,
+ 
+                 if (type_has_nulstr_value(type)) {
+                         /* Convert value string to nulstr. */
++                        /* Duplicate value to ensure space for trailing '\0' */
++                        char *copy = strndup(value, strlen(value));
++                        if (!copy)
++                                return -ENOMEM;
++                        value = copy;
++
+                         bool bar = true, empty = false;
+                         char *a, *b;
+ 

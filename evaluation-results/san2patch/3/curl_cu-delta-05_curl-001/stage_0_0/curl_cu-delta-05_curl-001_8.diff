@@ -1,0 +1,51 @@
+diff --git a/lib/dict.c b/lib/dict.c
+index c940308b0..c86ddb842 100644
+--- a/lib/dict.c
++++ b/lib/dict.c
+@@ -129,20 +129,33 @@ static CURLcode sendf(struct Curl_easy *data,
+ 
+ static CURLcode sendf(struct Curl_easy *data, const char *fmt, ...)
+ {
++  #define MAX_DICT_ARG_LEN 1024
++  char buf[MAX_DICT_ARG_LEN + 1];
+   size_t bytes_written;
+   size_t write_len;
+   CURLcode result = CURLE_OK;
+   char *s;
+   char *sptr;
+   va_list ap;
++
++  /* Format into fixed-size buffer first to enforce limit */
+   va_start(ap, fmt);
+-  s = vaprintf(fmt, ap); /* returns an allocated string */
++  int len = vsnprintf(buf, sizeof(buf), fmt, ap);
+   va_end(ap);
++  if(len < 0)
++    return CURLE_OUT_OF_MEMORY;
++  if(len > MAX_DICT_ARG_LEN) {
++    failf(data, "DICT output too long (%d > %d)", len, MAX_DICT_ARG_LEN);
++    return CURLE_BAD_FUNCTION_ARGUMENT;
++  }
++
++  /* Duplicate safe buffer */
++  s = strdup(buf);
+   if(!s)
+-    return CURLE_OUT_OF_MEMORY; /* failure */
++    return CURLE_OUT_OF_MEMORY;
+ 
+   bytes_written = 0;
+-  write_len = strlen(s);
++  write_len = (size_t)len;
+   sptr = s;
+ 
+   for(;;) {
+@@ -155,8 +168,7 @@ static CURLcode sendf(struct Curl_easy *data, const char *fmt, ...)
+     Curl_debug(data, CURLINFO_DATA_OUT, sptr, (size_t)bytes_written);
+ 
+     if((size_t)bytes_written != write_len) {
+-      /* if not all was written at once, we must advance the pointer, decrease
+-         the size left and try again! */
++      /* if not all was written at once, advance pointer, decrease size and retry */
+       write_len -= bytes_written;
+       sptr += bytes_written;
+     }

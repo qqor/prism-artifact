@@ -1,0 +1,108 @@
+--- a/include/freerdp/codec/rfx.h
++++ b/include/freerdp/codec/rfx.h
+@@ -68,11 +68,17 @@
+ 		BYTE* YData;
+ 		BYTE* CbData;
+ 		BYTE* CrData;
+-		BYTE* YCbCrData;
+-	} RFX_TILE;
++        BYTE* YCbCrData;
++    } RFX_TILE;
+ 
+-	typedef struct S_RFX_MESSAGE_LIST RFX_MESSAGE_LIST;
+-	typedef struct S_RFX_MESSAGE RFX_MESSAGE;
++    typedef struct
++    {
++        BYTE* data;
++        UINT32 size;
++    } RFX_METADATA_BLOCK;
++
++    typedef struct S_RFX_MESSAGE_LIST RFX_MESSAGE_LIST;
++    typedef struct S_RFX_MESSAGE RFX_MESSAGE;
+ 	typedef struct S_RFX_CONTEXT RFX_CONTEXT;
+ 
+ 	FREERDP_API BOOL rfx_process_message(RFX_CONTEXT* context, const BYTE* data, UINT32 length,
+
+--- a/libfreerdp/codec/rfx_types.h
++++ b/libfreerdp/codec/rfx_types.h
+@@ -123,6 +123,8 @@
+ 	UINT32 tilesDataSize;
+ 
+ 	BOOL freeArray;
++	UINT32 numMetadataBlocks;
++	RFX_METADATA_BLOCK* metadataBlocks;
+ };
+ 
+ struct S_RFX_MESSAGE_LIST
+
+--- a/libfreerdp/codec/rfx.c
++++ b/libfreerdp/codec/rfx.c
+@@ -725,13 +725,45 @@
+ 		return FALSE;
+ 	}
+ 
++	/* ensure enough data for magic and length */
++	if (!Stream_CheckAndLogRequiredLengthWLog(context->priv->log, s, 8))
++		return FALSE;
+ 	Stream_Read_UINT32(s, magic); /* magic (4 bytes), 0xCACCACCA */
+ 	if (magic != WF_MAGIC)
+ 	{
+ 		WLog_Print(context->priv->log, WLOG_ERROR, "invalid magic number 0x%08" PRIX32 "", magic);
+ 		return FALSE;
+ 	}
+-	*(UINT64*)metadataBlock = metadataData;
++	/* read metadata length */
++	{
++		UINT32 length = 0;
++		Stream_Read_UINT32(s, length);
++		/* check that we have the full metadata payload */
++		if (!Stream_CheckAndLogRequiredLengthWLog(context->priv->log, s, length))
++			return FALSE;
++
++		/* grow metadataBlocks array */
++		{
++			RFX_METADATA_BLOCK* tmp = winpr_aligned_recalloc(message->metadataBlocks,
++			    message->numMetadataBlocks + 1, sizeof(RFX_METADATA_BLOCK), 16);
++			if (!tmp)
++				return FALSE;
++			message->metadataBlocks = tmp;
++		}
++
++		/* allocate and read metadata payload */
++		{
++			BYTE* data = winpr_aligned_malloc(length, 16);
++			if (!data)
++				return FALSE;
++			Stream_Read(s, data, length);
++
++			message->metadataBlocks[message->numMetadataBlocks].data = data;
++			message->metadataBlocks[message->numMetadataBlocks].size = length;
++			message->numMetadataBlocks++;
++		}
++	}
++	*pExpectedBlockType = WBT_FRAME_BEGIN;
+ 	return TRUE;
+ }
+ 
+@@ -1472,6 +1504,21 @@
+ 
+ 	winpr_aligned_free(message->rects);
+ 
++	if (message->metadataBlocks)
++	{
++		for (size_t i = 0; i < message->numMetadataBlocks; ++i)
++		{
++			if (message->metadataBlocks[i].data)
++			{
++				winpr_aligned_free(message->metadataBlocks[i].data);
++				message->metadataBlocks[i].data = NULL;
++			}
++		}
++		winpr_aligned_free(message->metadataBlocks);
++		message->metadataBlocks = NULL;
++		message->numMetadataBlocks = 0;
++	}
++
+ 	if (message->tiles)
+ 	{
+ 		for (size_t i = 0; i < message->numTiles; i++)

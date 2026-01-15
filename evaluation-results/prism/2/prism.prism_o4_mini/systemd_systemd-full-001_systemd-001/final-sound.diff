@@ -1,0 +1,45 @@
+--- a/src/udev/udev-rules.c
++++ b/src/udev/udev-rules.c
+@@ -1182,15 +1182,23 @@
+                 }
+                 /*
+                  * The return value must be terminated by two subsequent NULs
+-                 * so it could be safely interpreted as nulstr.
++                * so it could be safely interpreted as nulstr.
+                  */
+-                if (is_prefix_match){
+-                        j[0] = '*';
+-                        j[1] = '\0';
+-                        j[2] = '\0';
+-                } else {
+-                        j[0] = '\0';
+-                        j[1] = '\0';
++                {
++                        char *orig_buf = str;
++                        char *alloc_end = orig_buf + strlen(orig_buf);
++                        if (is_prefix_match) {
++                                if (j + 2 > alloc_end)
++                                        return -ENOBUFS;
++                                j[0] = '*';
++                                j[1] = '\0';
++                                j[2] = '\0';
++                        } else {
++                                if (j + 1 > alloc_end)
++                                        return -ENOBUFS;
++                                j[0] = '\0';
++                                j[1] = '\0';
++                        }
+                 }
+                 str = m;            
+         } else {
+@@ -1216,6 +1224,10 @@
+                 * so it could be safely interpreted as nulstr.
+                 */
+                 if (is_prefix_match){
++                        char *orig_buf = str;
++                        char *alloc_end = orig_buf + strlen(orig_buf);
++                        if (orig_buf + pos + l + 1 > alloc_end)
++                                return -ENOBUFS;
+                         /* need more room to make rule glob match */
+                         memcpy(str + pos - 1, unescaped, l + 1);
+                         str[pos + l - 1] = '*';

@@ -1,0 +1,50 @@
+diff --git a/src/cmsps2.c b/src/cmsps2.c
+index cb2db85..19a6904 100644
+--- a/src/cmsps2.c
++++ b/src/cmsps2.c
+@@ -778,11 +778,14 @@ int EmitCIEBasedDEF(cmsIOHANDLER* m, cmsPipeline* Pipeline, cmsUInt32Number Inte
+ 
+     default:
+         return 0;
+-
+     }
+ 
+     _cmsIOPrintf(m, "<<\n");
+ 
++    /* Early exit if no stage */
++    if (mpe == NULL)
++        return 0;
++
+     if (cmsStageType(mpe) == cmsSigCurveSetElemType) {
+ 
+         _cmsIOPrintf(m, "/DecodeDEF [ ");
+@@ -888,7 +891,8 @@ cmsBool WriteInputLUT(cmsIOHANDLER* m, cmsHPROFILE hProfile, cmsUInt32Number Int
+             break;
+ 
+     case 3:
+-    case 4: {
++    // Rationale: Iterate through all stages and ensure each stage’s type is supported
++case 4: {
+             cmsUInt32Number OutFrm = TYPE_Lab_16;
+             cmsPipeline* DeviceLink;
+             _cmsTRANSFORM* v = (_cmsTRANSFORM*) xform;
+@@ -901,6 +905,19 @@ cmsBool WriteInputLUT(cmsIOHANDLER* m, cmsHPROFILE hProfile, cmsUInt32Number Int
+             }
+ 
+             dwFlags |= cmsFLAGS_FORCE_CLUT;
++            // Validate all stages
++            {
++                cmsUInt32Number n = cmsPipelineGetElemCount(DeviceLink);
++                for (cmsUInt32Number i = 0; i < n; ++i) {
++                    cmsStage* st = cmsPipelineGetPtrToStage(DeviceLink, i);
++                    if (cmsStageType(st) == 0) {
++                        cmsPipelineFree(DeviceLink);
++                        cmsDeleteTransform(xform);
++                        return FALSE;
++                    }
++                }
++            }
++
+             _cmsOptimizePipeline(m->ContextID, &DeviceLink, Intent, &InputFormat, &OutFrm, &dwFlags);
+ 
+             rc = EmitCIEBasedDEF(m, DeviceLink, Intent, &BlackPointAdaptedToD50);

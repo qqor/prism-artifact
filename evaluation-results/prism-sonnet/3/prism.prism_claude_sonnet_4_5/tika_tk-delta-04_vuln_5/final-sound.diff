@@ -1,0 +1,64 @@
+--- a/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-pkg-module/src/main/java/org/apache/tika/parser/pkg/PackageParser.java
++++ b/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-pkg-module/src/main/java/org/apache/tika/parser/pkg/PackageParser.java
+@@ -65,6 +65,7 @@
+ import org.apache.tika.exception.TikaException;
+ import org.apache.tika.extractor.EmbeddedDocumentExtractor;
+ import org.apache.tika.extractor.EmbeddedDocumentUtil;
++import org.apache.tika.io.FilenameUtils;
+ import org.apache.tika.io.TemporaryResources;
+ import org.apache.tika.io.TikaInputStream;
+ import org.apache.tika.metadata.Metadata;
+@@ -219,15 +220,23 @@
+             entrydata.set(Metadata.CONTENT_LENGTH, Long.toString(size));
+         }
+         if (name != null && name.length() > 0) {
+-            name = name.replace("\\", "/");
+-            entrydata.set(TikaCoreProperties.RESOURCE_NAME_KEY, name);
++            String originalName = name.replace("\\", "/");
++            String sanitizedName = FilenameUtils.getName(originalName);
++            
++            if (sanitizedName == null || sanitizedName.isEmpty()) {
++                sanitizedName = "file";
++            }
++            
++            entrydata.set(TikaCoreProperties.RESOURCE_NAME_KEY, sanitizedName);
++            entrydata.set(TikaCoreProperties.ORIGINAL_RESOURCE_NAME, originalName);
++            
+             AttributesImpl attributes = new AttributesImpl();
+             attributes.addAttribute("", "class", "class", "CDATA", "embedded");
+-            attributes.addAttribute("", "id", "id", "CDATA", name);
++            attributes.addAttribute("", "id", "id", "CDATA", sanitizedName);
+             xhtml.startElement("div", attributes);
+             xhtml.endElement("div");
+ 
+-            entrydata.set(TikaCoreProperties.EMBEDDED_RELATIONSHIP_ID, name);
++            entrydata.set(TikaCoreProperties.EMBEDDED_RELATIONSHIP_ID, sanitizedName);
+         }
+         return entrydata;
+     }
+
+--- a/tika-pipes/tika-emitters/tika-emitter-fs/src/main/java/org/apache/tika/pipes/emitter/fs/FileSystemEmitter.java
++++ b/tika-pipes/tika-emitters/tika-emitter-fs/src/main/java/org/apache/tika/pipes/emitter/fs/FileSystemEmitter.java
+@@ -85,6 +85,22 @@
+         }
+         if (basePath != null) {
+             output = basePath.resolve(emitKey);
++            
++            try {
++                Path realOutput = output.toRealPath();
++                Path realBase = basePath.toRealPath();
++                if (!realOutput.startsWith(realBase)) {
++                    throw new TikaEmitterException(
++                        "Path escapes base directory. EmitKey: " + emitKey);
++                }
++            } catch (IOException e) {
++                Path normalizedOutput = output.normalize().toAbsolutePath();
++                Path normalizedBase = basePath.normalize().toAbsolutePath();
++                if (!normalizedOutput.startsWith(normalizedBase)) {
++                    throw new TikaEmitterException(
++                        "Path escapes base directory. EmitKey: " + emitKey);
++                }
++            }
+         } else {
+             output = Paths.get(emitKey);
+         }

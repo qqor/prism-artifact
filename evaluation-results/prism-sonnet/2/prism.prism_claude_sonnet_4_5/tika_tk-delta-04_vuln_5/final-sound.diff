@@ -1,0 +1,24 @@
+--- a/tika-pipes/tika-emitters/tika-emitter-fs/src/main/java/org/apache/tika/pipes/emitter/fs/FileSystemEmitter.java
++++ b/tika-pipes/tika-emitters/tika-emitter-fs/src/main/java/org/apache/tika/pipes/emitter/fs/FileSystemEmitter.java
+@@ -144,7 +144,21 @@
+ 
+     @Override
+     public void emit(String path, InputStream inputStream, Metadata userMetadata, ParseContext parseContext) throws IOException, TikaEmitterException {
++        if (path.contains("\u0000")) {
++            throw new IllegalArgumentException("Path must not contain null bytes (\\u0000). " +
++                    "Potential security issue detected in path: " + path);
++        }
++        
+         Path target = basePath.resolve(path);
++        
++        // Validate that the resolved path stays within the base directory
++        Path normalizedTarget = target.toAbsolutePath().normalize();
++        Path normalizedBase = basePath.toAbsolutePath().normalize();
++        if (!normalizedTarget.startsWith(normalizedBase)) {
++            throw new IllegalArgumentException(
++                    "Emit path must resolve to be within the base output directory. " +
++                    "Potential path traversal detected. Base: " + basePath + ", Path: " + path);
++        }
+ 
+         if (!Files.isDirectory(target.getParent())) {
+             Files.createDirectories(target.getParent());

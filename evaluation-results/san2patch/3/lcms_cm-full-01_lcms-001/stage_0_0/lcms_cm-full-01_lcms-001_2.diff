@@ -1,0 +1,42 @@
+diff --git a/src/cmsps2.c b/src/cmsps2.c
+index cb2db85..c7dd37b 100644
+--- a/src/cmsps2.c
++++ b/src/cmsps2.c
+@@ -1049,7 +1049,6 @@ cmsUInt32Number GenerateCSA(cmsContext ContextID,
+     }
+     else {
+ 
+-
+         // Any profile class are allowed (including devicelink), but
+         // output (PCS) colorspace must be XYZ or Lab
+         cmsColorSpaceSignature ColorSpace = cmsGetPCS(hProfile);
+@@ -1066,15 +1065,23 @@ cmsUInt32Number GenerateCSA(cmsContext ContextID,
+         lut = _cmsReadInputLUT(hProfile, Intent);
+         if (lut == NULL) goto Error;
+ 
+-
+-        // Tone curves + matrix can be implemented without any LUT
+-        if (cmsPipelineCheckAndRetreiveStages(lut, 2, cmsSigCurveSetElemType, cmsSigMatrixElemType, &Shaper, &Matrix)) {
+-
++        // Check that pipeline has at least two stages before optimization
++        if (lut->nStages >= 2 &&
++            cmsPipelineCheckAndRetreiveStages(lut, 2,
++                                             cmsSigCurveSetElemType,
++                                             cmsSigMatrixElemType,
++                                             &Shaper, &Matrix)) {
++
++            // Double-check stage pointers
++            if (!Shaper || !Matrix) {
++                cmsSignalError(ContextID, cmsERROR_RANGE,
++                               "Invalid LUT pipeline stages");
++                goto Error;
++            }
+             if (!WriteInputMatrixShaper(mem, hProfile, Matrix, Shaper)) goto Error;
+-
+         }
+         else {
+-           // We need a LUT for the rest
++           // We need a LUT for the rest or no valid pipeline
+            if (!WriteInputLUT(mem, hProfile, Intent, dwFlags)) goto Error;
+         }
+     }

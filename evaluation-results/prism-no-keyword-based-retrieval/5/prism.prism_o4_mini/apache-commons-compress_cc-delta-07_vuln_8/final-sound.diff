@@ -1,0 +1,87 @@
+--- a/src/main/java/org/apache/commons/compress/archivers/ArchiveEntry.java
++++ b/src/main/java/org/apache/commons/compress/archivers/ArchiveEntry.java
+@@ -74,11 +74,32 @@
+      */
+     default Path resolveIn(final Path parentPath) throws IOException {
+         final String name = getName();
+-        final Path outputFile = parentPath.resolve(name).normalize();
+-        if (!outputFile.startsWith(parentPath)) {
+-            throw new IOException(String.format("Zip slip '%s' + '%s' -> '%s'", parentPath, name, outputFile));
++        // Sanitize entry name to use forward slashes
++        String sanitized = name.replace('\\', '/');
++        // Reject absolute paths and Windows drive-letter prefixes
++        if (sanitized.startsWith("/") || sanitized.matches("^[A-Za-z]:.*")) {
++            throw new IOException("Illegal entry name: " + name);
+         }
+-        return outputFile;
++        Path result = parentPath;
++        for (String segment : sanitized.split("/")) {
++            if (segment.isEmpty() || ".".equals(segment)) {
++                continue;
++            }
++            if ("..".equals(segment)) {
++                if (result.equals(parentPath)) {
++                    throw new IOException("Entry escapes target directory: " + name);
++                }
++                result = result.getParent();
++            } else {
++                result = result.resolve(segment);
++            }
++        }
++        // Final normalization and safety check
++        result = result.normalize();
++        if (!result.startsWith(parentPath)) {
++            throw new IOException(String.format("Zip slip '%s' + '%s' -> '%s'", parentPath, name, result));
++        }
++        return result;
+     }
+ 
+ }
+
+--- a/src/main/java/org/apache/commons/compress/archivers/examples/Expander.java
++++ b/src/main/java/org/apache/commons/compress/archivers/examples/Expander.java
+@@ -477,27 +477,26 @@
+             if (zae.isUnixSymlink()) {
+                 String targetName = IOUtils.toString(archive.getInputStream(zae),
+                         StandardCharsets.UTF_8);
+-                Path link = targetDirectory.resolve(zae.getName());
+-                Path target = targetDirectory.resolve(targetName);
+-                Path parent = createParentDirectory(targetDirectory, link);
+-
+-                if (!Files.isSameFile(link.getParent(), parent)) {
+-                    link = parent.relativize(link.getFileName()).normalize();
++                // Resolve link path safely
++                Path link = ((org.apache.commons.compress.archivers.ArchiveEntry) zae)
++                        .resolveIn(targetDirectory);
++                // Resolve and sanitize symlink target
++                Path target = targetDirectory.resolve(targetName).normalize();
++                if (!target.startsWith(targetDirectory)) {
++                    throw new IOException(String.format("Zip slip '%s' + '%s' -> '%s'",
++                            targetDirectory, targetName, target));
+                 }
+-                if (!Files.isRegularFile(link) && !Files.isSymbolicLink(link)) {
++                // Ensure parent directories exist for link
++                createParentDirectory(targetDirectory, link);
++                if (!Files.exists(link)) {
+                     Files.createSymbolicLink(link, target);
+                 }
+-            } else if (! zae.isDirectory()) {
+-                Path target = targetDirectory.resolve(zae.getName()).normalize();
+-                if (!target.startsWith(targetDirectory)) {
+-                    throw new IOException(String.format("Zip slip '%s' + '%s' -> '%s'",
+-                            targetDirectory, zae.getName(), target));
+-                }
+-                Path parent = createParentDirectory(targetDirectory, target);
+-                if (! target.getParent().toAbsolutePath().normalize().equals(
+-                        parent.toAbsolutePath().normalize())) {
+-                    target = parent.normalize().resolve(target.getFileName());
+-                }
++            } else if (!zae.isDirectory()) {
++                // Resolve file path safely
++                Path target = ((org.apache.commons.compress.archivers.ArchiveEntry) zae)
++                        .resolveIn(targetDirectory);
++                // Ensure parent directories exist
++                createParentDirectory(targetDirectory, target);
+                 try (InputStream is = archive.getInputStream(zae)) {
+                     Files.copy(is, target);
+                 }

@@ -1,0 +1,35 @@
+--- a/pdfbox/src/main/java/org/apache/pdfbox/pdmodel/PDPageTree.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/pdmodel/PDPageTree.java
+@@ -44,6 +44,8 @@
+ public class PDPageTree implements COSObjectable, Iterable<PDPage>
+ {
+     private static final Logger LOG = LogManager.getLogger(PDPageTree.class);
++    // Maximum depth for PageTree traversal to avoid performance issues
++    private static final int MAX_PAGE_TREE_DEPTH = 100;
+     private final COSDictionary root;
+     private final PDDocument document; // optional
+ 
+@@ -183,16 +185,21 @@
+ 
+         private PageIterator(COSDictionary node)
+         {
++            int level = 0;
+             List<COSDictionary> kids = enqueueKids(node);
+-            while (!kids.isEmpty())
++            while (!kids.isEmpty() && level < MAX_PAGE_TREE_DEPTH)
+             {
+                 List<COSDictionary> newKids = new ArrayList<>();
+-
+                 for (COSDictionary kid : kids)
+                 {
+                     newKids.addAll(enqueueKids(kid));
+                 }
+                 kids = newKids;
++                level++;
++            }
++            if (level >= MAX_PAGE_TREE_DEPTH)
++            {
++                LOG.warn("Page tree traversal exceeded max depth {}", MAX_PAGE_TREE_DEPTH);
+             }
+         }
+ 

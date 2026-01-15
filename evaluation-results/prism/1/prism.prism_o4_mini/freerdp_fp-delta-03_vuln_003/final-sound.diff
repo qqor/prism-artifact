@@ -1,0 +1,186 @@
+--- a/libfreerdp/codec/rfx.c
++++ b/libfreerdp/codec/rfx.c
+@@ -139,8 +139,9 @@
+ 	PROFILER_PRINT_FOOTER
+ }
+ 
+-UINT64 metadataBlock = (UINT64)&explicit_bzero;
+-
++#ifndef MAX_METADATA_SIZE
++#define MAX_METADATA_SIZE (1U << 20) /* 1 MiB cap on metadata */
++#endif
+ static INLINE void rfx_tile_init(void* obj)
+ {
+ 	RFX_TILE* tile = (RFX_TILE*)obj;
+@@ -176,8 +177,7 @@
+ 	return tile;
+ }
+ 
+-UINT64 metadataData = 0;
+-
++/* metadataData removed */
+ static INLINE void rfx_decoder_tile_free(void* obj)
+ {
+ 	RFX_TILE* tile = (RFX_TILE*)obj;
+@@ -671,68 +671,107 @@
+ 	Stream_Read_UINT32(
+ 	    s, frameIdx); /* frameIdx (4 bytes), if codec is in video mode, must be ignored */
+ 	Stream_Read_UINT16(s, numRegions); /* numRegions (2 bytes) */
+-	if (Stream_GetRemainingLength(s) >= 8)
+-	{
+-	        UINT64 blockOffset = 0;
+-	        Stream_Read_UINT64(s, blockOffset);
+-	        Stream_Read_UINT64(s, metadataData);
+-	        metadataBlock += blockOffset;
+-	}
+-	WLog_Print(context->priv->log, WLOG_DEBUG,
+-	           "RFX_FRAME_BEGIN: frameIdx: %" PRIu32 " numRegions: %" PRIu16 "", frameIdx,
+-	           numRegions);
+-	return TRUE;
+-}
+-
++    /* metadata block handling removed */
++}
+ static INLINE BOOL rfx_process_message_frame_end(RFX_CONTEXT* WINPR_RESTRICT context,
+                                                  RFX_MESSAGE* WINPR_RESTRICT message,
+                                                  wStream* WINPR_RESTRICT s,
+                                                  UINT16* WINPR_RESTRICT pExpectedBlockType)
+ {
+-	WINPR_ASSERT(context);
+-	WINPR_ASSERT(context->priv);
+-	WINPR_ASSERT(message);
+-	WINPR_ASSERT(s);
+-	WINPR_ASSERT(pExpectedBlockType);
+-
+-	if (*pExpectedBlockType != WBT_FRAME_END)
+-	{
+-		WLog_Print(context->priv->log, WLOG_ERROR, "message unexpected, wants WBT_FRAME_END");
+-		return FALSE;
+-	}
+-
+-	*pExpectedBlockType = WBT_FRAME_BEGIN;
+-	WLog_Print(context->priv->log, WLOG_DEBUG, "RFX_FRAME_END");
+-	return TRUE;
++    WINPR_ASSERT(context);
++    WINPR_ASSERT(context->priv);
++    WINPR_ASSERT(message);
++    WINPR_ASSERT(s);
++    WINPR_ASSERT(pExpectedBlockType);
++
++    if (*pExpectedBlockType != WBT_FRAME_END)
++    {
++        WLog_Print(context->priv->log, WLOG_ERROR, "message unexpected, wants WBT_FRAME_END");
++        return FALSE;
++    }
++
++    *pExpectedBlockType = WBT_FRAME_BEGIN;
++    WLog_Print(context->priv->log, WLOG_DEBUG, "RFX_FRAME_END");
++    return TRUE;
+ }
+ 
+ static INLINE BOOL rfx_process_message_metadata(RFX_CONTEXT* WINPR_RESTRICT context,
+-												RFX_MESSAGE* WINPR_RESTRICT message,
+-												wStream* WINPR_RESTRICT s,
+-												UINT16* WINPR_RESTRICT pExpectedBlockType)
+-{
+-	UINT32 magic = 0;
+-
+-	WINPR_ASSERT(context);
+-	WINPR_ASSERT(context->priv);
+-	WINPR_ASSERT(message);
+-	WINPR_ASSERT(s);
+-	WINPR_ASSERT(pExpectedBlockType);
+-
+-	if (*pExpectedBlockType != WBT_FRAME_END)
+-	{
+-		WLog_Print(context->priv->log, WLOG_ERROR, "message unexpected wants WBT_FRAME_END (0x%x)", *pExpectedBlockType);
+-		return FALSE;
+-	}
+-
+-	Stream_Read_UINT32(s, magic); /* magic (4 bytes), 0xCACCACCA */
+-	if (magic != WF_MAGIC)
+-	{
+-		WLog_Print(context->priv->log, WLOG_ERROR, "invalid magic number 0x%08" PRIX32 "", magic);
+-		return FALSE;
+-	}
+-	*(UINT64*)metadataBlock = metadataData;
+-	return TRUE;
++                                                RFX_MESSAGE* WINPR_RESTRICT message,
++                                                wStream* WINPR_RESTRICT s,
++                                                UINT16* WINPR_RESTRICT pExpectedBlockType)
++{
++    UINT32 magic;
++    UINT16 regionType;
++    UINT16 numTileSets;
++
++    WINPR_ASSERT(context);
++    WINPR_ASSERT(context->priv);
++    WINPR_ASSERT(message);
++    WINPR_ASSERT(s);
++    WINPR_ASSERT(pExpectedBlockType);
++
++    if (*pExpectedBlockType != WBT_FRAME_END)
++    {
++        WLog_Print(context->priv->log, WLOG_ERROR, "message unexpected, wants WBT_FRAME_END (0x%x)", *pExpectedBlockType);
++        return FALSE;
++    }
++
++    /* Read total metadata size */
++    if (!Stream_CheckAndLogRequiredLengthWLog(context->priv->log, s, 4))
++        return FALSE;
++
++    UINT32 totalMetadataSize = 0;
++    Stream_Read_UINT32(s, totalMetadataSize);
++    if (totalMetadataSize > MAX_METADATA_SIZE)
++    {
++        WLog_Print(context->priv->log, WLOG_ERROR, "metadata size too large: %" PRIu32 "", totalMetadataSize);
++        return FALSE;
++    }
++
++    /* Allocate and read metadata blob */
++    BYTE* metadata_buffer = calloc(1, totalMetadataSize);
++    if (!metadata_buffer)
++        return FALSE;
++    if (!Stream_CheckAndLogRequiredLengthWLog(context->priv->log, s, totalMetadataSize))
++    {
++        free(metadata_buffer);
++        return FALSE;
++    }
++    Stream_Read(s, metadata_buffer, totalMetadataSize);
++
++    /* Parse metadata blob */
++    wStream* ms = Stream_New(metadata_buffer, totalMetadataSize);
++    if (!ms)
++    {
++        free(metadata_buffer);
++        return FALSE;
++    }
++    Stream_Read_UINT32(ms, magic);
++    if (magic != WF_MAGIC)
++    {
++        WLog_Print(context->priv->log, WLOG_ERROR, "invalid magic number 0x%08" PRIX32 "", magic);
++        Stream_Free(ms, FALSE);
++        free(metadata_buffer);
++        return FALSE;
++    }
++    Stream_Read_UINT16(ms, regionType);
++    Stream_Read_UINT16(ms, numTileSets);
++    Stream_Free(ms, FALSE);
++    free(metadata_buffer);
++
++    if (regionType != CBT_REGION)
++    {
++        WLog_Print(context->priv->log, WLOG_ERROR, "invalid region type 0x%04" PRIX16 "", regionType);
++        return FALSE;
++    }
++    if (numTileSets != 0x0001)
++    {
++        WLog_Print(context->priv->log, WLOG_ERROR, "invalid number of tilesets (%" PRIu16 ")", numTileSets);
++        return FALSE;
++    }
++
++    *pExpectedBlockType = WBT_FRAME_END;
++    return TRUE;
+ }
+ 
+ static INLINE BOOL rfx_resize_rects(RFX_MESSAGE* WINPR_RESTRICT message)

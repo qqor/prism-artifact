@@ -1,0 +1,80 @@
+--- a/fontbox/src/main/java/org/apache/fontbox/pfb/PfbParser.java
++++ b/fontbox/src/main/java/org/apache/fontbox/pfb/PfbParser.java
+@@ -89,10 +89,31 @@
+      * Create a new object.
+      * @param filename  the file name
+      * @throws IOException if an IO-error occurs.
+-     */
++*/
++    /**
++     * Reads up to maxBytes from the given InputStream, throwing if exceeded.
++     */
++    private static byte[] readUpTo(final InputStream in, final int maxBytes) throws IOException {
++        java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
++        byte[] buf = new byte[8192];
++        int readCount;
++        int totalRead = 0;
++        while ((readCount = in.read(buf)) != -1) {
++            totalRead += readCount;
++            if (totalRead > maxBytes) {
++                throw new IOException("PFB input exceeds maximum allowed size: " + totalRead);
++            }
++            out.write(buf, 0, readCount);
++        }
++        return out.toByteArray();
++    }
+     public PfbParser(final String filename) throws IOException 
+     {
+-        this(Files.readAllBytes(Paths.get(filename)));
++        byte[] pfb;
++        try (InputStream fis = Files.newInputStream(Paths.get(filename))) {
++            pfb = readUpTo(fis, MAX_LENGTH);
++        }
++        parsePfb(pfb);
+     }
+ 
+     /**
+@@ -102,7 +123,7 @@
+      */
+     public PfbParser(final InputStream in) throws IOException 
+     {
+-        byte[] pfb = in.readAllBytes();
++        byte[] pfb = readUpTo(in, MAX_LENGTH);
+         parsePfb(pfb);
+     }
+ 
+@@ -123,6 +144,9 @@
+      */
+     private void parsePfb(final byte[] pfb) throws IOException 
+     {
++        if (pfb.length > MAX_LENGTH) {
++            throw new IOException("PFB input exceeds maximum allowed size: " + pfb.length);
++        }
+         if (pfb.length < PFB_HEADER_LENGTH)
+         {
+             throw new IOException("PFB header missing");
+@@ -158,9 +182,12 @@
+             size += in.read() << 16;
+             size += in.read() << 24;
+             LOG.debug("record type: {}, segment size: {}", recordType, size);
++            if (size < 0 || size > MAX_LENGTH) {
++                throw new IOException("PFB segment size invalid or too large: " + size);
++            }
+             long newTotal = total + size;
+             if (newTotal > MAX_LENGTH) {
+-                throw new IOException("record size would be too large: " + newTotal);
++                throw new IOException("Cumulative PFB size would exceed limit: " + newTotal);
+             }
+ 
+             byte[] ar = new byte[size];
+@@ -179,6 +206,10 @@
+         // come first, then the binary segments, then the last ASCII segment if it is
+         // 0000... cleartomark
+         
++        // enforce overall size limit before allocating final buffer
++        if (total > MAX_LENGTH) {
++            throw new IOException("Total PFB size would exceed limit: " + total);
++        }
+         pfbdata = new byte[total];
+         byte[] cleartomarkSegment = null;
+         int dstPos = 0;

@@ -1,0 +1,42 @@
+diff --git a/lib/doh.c b/lib/doh.c
+index 8769372e0..342765533 100644
+--- a/lib/doh.c
++++ b/lib/doh.c
+@@ -1402,15 +1402,16 @@ CURLcode Curl_doh_is_resolved(struct Curl_easy *data,
+ void Curl_doh_close(struct Curl_easy *data)
+ {
+   struct doh_probes *doh = data->req.doh;
+-  if(doh && data->multi) {
++  // Rationale: Delay resetting easy_mid until after probe_data is closed to maintain correct mid for debug logging.
++if(doh && data->multi) {
+     struct Curl_easy *probe_data;
+     curl_off_t mid;
++
+     size_t slot;
+     for(slot = 0; slot < DOH_SLOT_COUNT; slot++) {
+       mid = doh->probe[slot].easy_mid;
+       if(mid < 0)
+         continue;
+-      doh->probe[slot].easy_mid = -1;
+       /* should have been called before data is removed from multi handle */
+       DEBUGASSERT(data->multi);
+       probe_data = data->multi ? Curl_multi_get_handle(data->multi, mid) :
+@@ -1418,12 +1419,17 @@ void Curl_doh_close(struct Curl_easy *data)
+       if(!probe_data) {
+         DEBUGF(infof(data, "Curl_doh_close: xfer for mid=%"
+                      FMT_OFF_T " not found!",
+-                     doh->probe[slot].easy_mid));
++                     mid));
++        /* invalidate slot to prevent reuse */
++        doh->probe[slot].easy_mid = -1;
+         continue;
+       }
+       /* data->multi might already be reset at this time */
+       curl_multi_remove_handle(data->multi, probe_data);
+       Curl_close(&probe_data);
++      /* invalidate slot and clear dangling pointer */
++      doh->probe[slot].easy_mid = -1;
++      probe_data = NULL;
+     }
+   }
+ }

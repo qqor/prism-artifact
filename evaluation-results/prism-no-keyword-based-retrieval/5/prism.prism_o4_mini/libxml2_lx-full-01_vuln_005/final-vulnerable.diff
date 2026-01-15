@@ -1,0 +1,63 @@
+--- a/tree.c
++++ b/tree.c
+@@ -1593,7 +1593,12 @@
+             escMode = 1;
+     }
+ 
+-    return(xmlNodeListGetStringInternal(doc, list, escMode));
++    {
++        xmlChar *tmp = xmlNodeListGetStringInternal((xmlDocPtr) doc, list, escMode);
++        xmlChar *ret = tmp ? xmlStrdup(tmp) : NULL;
++        xmlFree(tmp);
++        return ret;
++    }
+ }
+ 
+ /**
+@@ -1614,13 +1619,26 @@
+ xmlChar *
+ xmlNodeListGetRawString(const xmlDoc *doc, const xmlNode *list, int inLine)
+ {
+-    int escMode = inLine ? 0 : 3;
+-
+-    /* backward compatibility */
+-    if (list == NULL)
++    xmlChar *tmp = xmlNodeListGetStringInternal((xmlDocPtr) doc, list, inLine ? 0 : 3);
++    xmlChar *ret = tmp ? xmlStrdup(tmp) : NULL;
++    xmlFree(tmp);
++    return(ret);
++}
++
++/**
++ * xmlNodeGetRawString:
++ * @doc:      the document context
++ * @cur:      the node whose content is to be obtained
++ * @inLine:   whether entity references are substituted
++ *
++ * Returns a newly allocated xmlChar* which the caller must free.
++ */
++xmlChar *
++xmlNodeGetRawString(const xmlDoc *doc, const xmlNode *cur, int inLine)
++{
++    if (cur == NULL)
+         return(NULL);
+-
+-    return(xmlNodeListGetStringInternal((xmlDocPtr) doc, list, escMode));
++    return(xmlNodeListGetRawString(doc, cur, inLine));
+ }
+ 
+ static xmlAttrPtr
+
+--- a/include/libxml/tree.h
++++ b/include/libxml/tree.h
+@@ -1082,6 +1082,10 @@
+ 		xmlNodeListGetRawString	(const xmlDoc *doc,
+ 					 const xmlNode *list,
+ 					 int inLine);
++XMLPUBFUN xmlChar *
++		xmlNodeGetRawString	(const xmlDoc *doc,
++					 const xmlNode *cur,
++					 int inLine);
+ XMLPUBFUN int
+ 		xmlNodeSetContent	(xmlNodePtr cur,
+ 					 const xmlChar *content);

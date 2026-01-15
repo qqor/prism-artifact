@@ -1,0 +1,41 @@
+--- a/src/udev/udev-rules.c
++++ b/src/udev/udev-rules.c
+@@ -1169,7 +1169,7 @@
+         if (str[pos] != '"')
+                 return -EINVAL;
+         
+-        m = str + is_escaped + is_case_insensitive + is_prefix_match;
++        m = str + pos;
+ 
+         if (!is_escaped) {
+                 /* unescape double quotation '\"'->'"' */
+@@ -1184,6 +1184,14 @@
+                  * The return value must be terminated by two subsequent NULs
+                  * so it could be safely interpreted as nulstr.
+                  */
++                /* Verify we have space for terminators before the closing quote */
++                if (is_prefix_match) {
++                        if (j + 2 > i)
++                                return -EINVAL;
++                } else {
++                        if (j + 1 > i)
++                                return -EINVAL;
++                }
+                 if (is_prefix_match){
+                         j[0] = '*';
+                         j[1] = '\0';
+@@ -1215,6 +1223,14 @@
+                 * The return value must be terminated by two subsequent NULs
+                 * so it could be safely interpreted as nulstr.
+                 */
++                /* Verify we have space for the unescaped content and terminators */
++                if (is_prefix_match) {
++                        if (str + pos + l + 1 > i)
++                                return -EINVAL;
++                } else {
++                        if (m + l + 1 > i)
++                                return -EINVAL;
++                }
+                 if (is_prefix_match){
+                         /* need more room to make rule glob match */
+                         memcpy(str + pos - 1, unescaped, l + 1);

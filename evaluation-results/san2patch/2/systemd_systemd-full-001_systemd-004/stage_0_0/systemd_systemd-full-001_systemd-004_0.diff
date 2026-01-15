@@ -1,0 +1,37 @@
+diff --git a/src/shared/condition.c b/src/shared/condition.c
+index 67894f9319..bd36f42840 100644
+--- a/src/shared/condition.c
++++ b/src/shared/condition.c
+@@ -136,20 +136,22 @@ static int condition_test_kernel_command_line(Condition *c, char **env) {
+                         return true;
+         }
+ 
+-        return false;
++// FIXME: Crash CWE-416: Use After Free
++        {
++                Condition *cur = list;
++                /* safe traversal: grab next before free, nullify pointer */
++                while (cur) {
++                        Condition *next = cur->next;
++                        free(cur);
++                        cur = NULL;
++                        cur = next;
++                }
++        }
++         return false;
+ }
+ 
+ static int condition_test_credential(Condition *c, char **env) {
+         int r;
+-
+-        assert(c);
+-        assert(c->parameter);
+-        assert(c->type == CONDITION_CREDENTIAL);
+-
+-        /* For now we'll do a very simple existence check and are happy with either a regular or an encrypted
+-         * credential. Given that we check the syntax of the argument we have the option to later maybe allow
+-         * contents checks too without breaking compatibility, but for now let's be minimalistic. */
+-
+         if (!credential_name_valid(c->parameter)) /* credentials with invalid names do not exist */
+                 return false;
+ 

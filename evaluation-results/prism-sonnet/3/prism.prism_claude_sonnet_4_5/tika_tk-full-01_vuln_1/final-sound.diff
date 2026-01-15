@@ -1,0 +1,73 @@
+--- a/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-microsoft-module/src/main/java/org/apache/tika/parser/microsoft/rtf/RTFParser.java
++++ b/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-microsoft-module/src/main/java/org/apache/tika/parser/microsoft/rtf/RTFParser.java
+@@ -55,6 +55,8 @@
+     private int memoryLimitInKb = EMB_OBJ_MAX_BYTES / 1024;
+     @Field
+     private boolean ignoreListMarkup = false;
++    @Field
++    private boolean disableJavaObjectDeserialization = true;
+ 
+     public Set<MediaType> getSupportedTypes(ParseContext context) {
+         return SUPPORTED_TYPES;
+@@ -90,7 +92,8 @@
+     public void parseInline(InputStream is, ContentHandler handler, Metadata metadata, ParseContext context)
+             throws TikaException, IOException, SAXException {
+         RTFEmbObjHandler embObjHandler =
+-                new RTFEmbObjHandler(handler, metadata, context, getMemoryLimitInKb());
++                new RTFEmbObjHandler(handler, metadata, context, getMemoryLimitInKb(), 
++                        disableJavaObjectDeserialization);
+         final TextExtractor ert = new TextExtractor(handler, metadata, embObjHandler);
+         ert.setIgnoreListMarkup(ignoreListMarkup);
+         ert.extract(is);
+@@ -112,4 +115,13 @@
+         this.memoryLimitInKb = memoryLimitInKb;
+         USE_STATIC = false;
+     }
++
++    public boolean isJavaObjectDeserializationDisabled() {
++        return disableJavaObjectDeserialization;
++    }
++
++    @Field
++    public void setDisableJavaObjectDeserialization(boolean disable) {
++        this.disableJavaObjectDeserialization = disable;
++    }
+ }
+
+--- a/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-microsoft-module/src/main/java/org/apache/tika/parser/microsoft/rtf/RTFEmbObjHandler.java
++++ b/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-microsoft-module/src/main/java/org/apache/tika/parser/microsoft/rtf/RTFEmbObjHandler.java
+@@ -67,6 +67,7 @@
+     private final EmbeddedDocumentUtil embeddedDocumentUtil;
+     private final UnsynchronizedByteArrayOutputStream os;
+     private final int memoryLimitInKb;
++    private final boolean disableJavaObjectDeserialization;
+ 
+     private boolean isPictBitmap = false;
+     //high hex cached for writing hexpair chars (data)
+@@ -82,11 +83,12 @@
+     private EMB_STATE state = EMB_STATE.NADA;
+ 
+     protected RTFEmbObjHandler(ContentHandler handler, Metadata metadata, ParseContext context,
+-                               int memoryLimitInKb) {
++                               int memoryLimitInKb, boolean disableJavaObjectDeserialization) {
+         this.handler = handler;
+         this.embeddedDocumentUtil = new EmbeddedDocumentUtil(context);
+         os = UnsynchronizedByteArrayOutputStream.builder().get();
+         this.memoryLimitInKb = memoryLimitInKb;
++        this.disableJavaObjectDeserialization = disableJavaObjectDeserialization;
+     }
+ 
+     protected void startPict() {
+@@ -211,6 +213,12 @@
+             extractObj(bytes, handler, metadata);
+ 
+         } else if (state == EMB_STATE.JAVA_OBJDATA) {
++            if (disableJavaObjectDeserialization) {
++                throw new TikaException(
++                    "Java object deserialization from RTF files is disabled for security reasons. " +
++                    "To enable, set disableJavaObjectDeserialization=false in RTFParser configuration."
++                );
++            }
+             try {
+                 Object obj = new ObjectInputStream(
+                         UnsynchronizedByteArrayInputStream.builder().setByteArray(bytes)

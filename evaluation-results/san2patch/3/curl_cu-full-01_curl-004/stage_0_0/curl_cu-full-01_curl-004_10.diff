@@ -1,0 +1,99 @@
+diff --git a/lib/file.c b/lib/file.c
+index 7440b3c66..f8f82bb22 100644
+--- a/lib/file.c
++++ b/lib/file.c
+@@ -459,71 +459,21 @@ static CURLcode file_do(struct Curl_easy *data, bool *done)
+      !Curl_meets_timecondition(data, data->info.filetime))
+     return CURLE_OK;
+ 
+-  if(fstated) {
+-    time_t filetime;
+-    struct tm buffer;
+-    const struct tm *tm = &buffer;
+-    char header[80];
+-    int headerlen;
+-    static const char accept_ranges[]= { "Accept-ranges: bytes\r\n" };
+-    static const char no_body[]= { "File-body: suppressed.The body of "
+-      "this file has been supressed. If you would like to include "
+-      "the contents of this file use the -i option.\r\n" };
+-    static const char body_msg[]= { "File-body: included.\r\n"};
+-    if(expected_size >= 0) {
++  // FIXME: Crash CWE-787: Out-of-bounds Write
++     if(data->req.no_body) {
++      /* leave room for terminating NUL */
+       headerlen =
+-        msnprintf(header, sizeof(header), "Content-Length: %" FMT_OFF_T "\r\n",
+-                  expected_size);
+-      result = Curl_client_write(data, CLIENTWRITE_HEADER,
+-                                   header, headerlen);
+-      if(result)
+-        return result;
+-
+-      result = Curl_client_write(data, CLIENTWRITE_HEADER,
+-                                 accept_ranges, sizeof(accept_ranges) - 1);
+-      if(result != CURLE_OK)
+-        return result;
+-    }
+-
+-    filetime = (time_t)statbuf.st_mtime;
+-    result = Curl_gmtime(filetime, &buffer);
+-    if(result)
+-      return result;
+-
+-    if(data->req.no_body) {
+-      headerlen =
+-      msnprintf(header, sizeof(no_body), "%s (%ld bytes) \r\n",
++        msnprintf(header, sizeof(header) - 1, "%s (%ld bytes) \r\n",
+                   no_body, expected_size);
++      /* explicit null-terminate to prevent overflow */
++      header[sizeof(header) - 1] = '\0';
+       result = Curl_client_write(data, CLIENTWRITE_HEADER, header, headerlen);
+     }
+     else {
+       result = Curl_client_write(data, CLIENTWRITE_HEADER,
+                                  body_msg, sizeof(body_msg) - 1);
+     }
+-    if(result)
+-      return result;
+-    /* format: "Tue, 15 Nov 1994 12:45:26 GMT" */
+-    headerlen =
+-      msnprintf(header, sizeof(header),
+-                "Last-Modified: %s, %02d %s %4d %02d:%02d:%02d GMT\r\n",
+-                Curl_wkday[tm->tm_wday ? tm->tm_wday-1 : 6],
+-                tm->tm_mday,
+-                Curl_month[tm->tm_mon],
+-                tm->tm_year + 1900,
+-                tm->tm_hour,
+-                tm->tm_min,
+-                tm->tm_sec);
+-    result = Curl_client_write(data, CLIENTWRITE_HEADER, header, headerlen);
+-    if(!result)
+-      /* end of headers */
+-      result = Curl_client_write(data, CLIENTWRITE_HEADER, "\r\n", 2);
+-    if(result)
+-      return result;
+-    /* set the file size to make it available post transfer */
+-    Curl_pgrsSetDownloadSize(data, expected_size);
+-    if(data->req.no_body)
+-      return CURLE_OK;
+-  }
++/* Rationale: Reduced buffer size by one to reserve space for the '\0' and explicitly terminated the string to avoid a one-byte overflow. */
+ 
+   /* Check whether file range has been specified */
+   result = Curl_range(data);
+diff --git a/lib/mprintf.c b/lib/mprintf.c
+index 35e40e302..8bab439e8 100644
+--- a/lib/mprintf.c
++++ b/lib/mprintf.c
+@@ -1053,8 +1053,9 @@ number:
+ static int addbyter(unsigned char outc, void *f)
+ {
+   struct nsprintf *infop = f;
+-  if(infop->length < infop->max) {
+-    /* only do this if we have not reached max length yet */
++  /* Rationale: leave room for terminating NUL; only write up to max-1 bytes */
++  if(infop->length < infop->max - 1) {
++    /* only do this if we have not reached max length minus one yet */
+     *infop->buffer++ = (char)outc; /* store */
+     infop->length++; /* we are now one byte larger */
+     return 0;     /* fputc() returns like this on success */

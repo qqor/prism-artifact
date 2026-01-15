@@ -1,0 +1,61 @@
+diff --git a/src/json.c b/src/json.c
+index cf6bc57b..1dce299f 100644
+--- a/src/json.c
++++ b/src/json.c
+@@ -319,12 +319,20 @@ bool mg_json_unescape(struct mg_str s, char *to, size_t n) {
+ char *mg_json_get_str(struct mg_str json, const char *path) {
+   char *result = NULL;
+   int len = 0, off = mg_json_get(json, path, &len);
++// Restrict `len` and check boundaries before allocation
+   if (off >= 0 && len > 1 && json.buf[off] == '"') {
+-    if ((result = (char *) calloc(1, (size_t) len)) != NULL &&
+-        !mg_json_unescape(mg_str_n(json.buf + off + 1, (size_t) (len - 2)),
+-                          result, (size_t) len)) {
+-      free(result);
+-      result = NULL;
++    /* Make sure the quoted section lies within the buffer */
++    if (off + len <= (int) json.len) {
++      /* Limit the maximum allowed string length to avoid extremely large allocations */
++      const int MAX_JSON_STR = 65536;
++      if (len > MAX_JSON_STR) return NULL;
++      result = (char *) calloc(1, (size_t)len);
++      if (result != NULL && mg_json_unescape(
++            mg_str_n(json.buf + off + 1, (size_t)(len - 2)),
++            result, (size_t)len)) {
++        free(result);
++        result = NULL;
++      }
+     }
+   }
+   return result;
+@@ -345,15 +353,22 @@ char *mg_json_get_b64(struct mg_str json, const char *path, int *slen) {
+ char *mg_json_get_hex(struct mg_str json, const char *path, int *slen) {
+   char *result = NULL;
+   int len = 0, off = mg_json_get(json, path, &len);
+-  if (off >= 0 && json.buf[off] == '"' && len > 1 &&
+-      (result = (char *) calloc(1, (size_t) len / 2)) != NULL) {
+-    int i;
+-    for (i = 0; i < len - 2; i += 2) {
+-      mg_str_to_num(mg_str_n(json.buf + off + 1 + i, 2), 16, &result[i >> 1],
+-                    sizeof(uint8_t));
++  if (off >= 0 && json.buf[off] == '"' && len > 1) {
++    /* Rationale: derive maximum bytes and ensure loop never writes beyond allocated */
++    size_t max_bytes = (size_t)(len / 2);
++    result = (char *) calloc(1, max_bytes);
++    if (result != NULL) {
++      int i;
++      for (i = 0; i < len - 2; i += 2) {
++        size_t idx = (size_t)(i >> 1);
++        if (idx + 1 >= max_bytes) break;  /* prevent OOB */
++        mg_str_to_num(mg_str_n(json.buf + off + 1 + i, 2), 16,
++                      &result[idx], sizeof(uint8_t));
++      }
++      /* terminate at last valid slot */
++      if (max_bytes > 0) result[max_bytes - 1] = '\0';
++      if (slen != NULL && max_bytes > 0) *slen = (int)max_bytes - 1;
+     }
+-    result[len / 2 - 1] = '\0';
+-    if (slen != NULL) *slen = len / 2 - 1;
+   }
+   return result;
+ }

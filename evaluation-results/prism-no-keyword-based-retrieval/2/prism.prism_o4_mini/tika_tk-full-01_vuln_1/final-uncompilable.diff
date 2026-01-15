@@ -1,0 +1,42 @@
+--- a/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-microsoft-module/src/main/java/org/apache/tika/parser/microsoft/rtf/RTFEmbObjHandler.java
++++ b/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-microsoft-module/src/main/java/org/apache/tika/parser/microsoft/rtf/RTFEmbObjHandler.java
+@@ -18,7 +18,8 @@
+ 
+ import java.io.IOException;
+ import java.io.InputStream;
+-import java.io.ObjectInputStream;
++import java.io.InvalidClassException;
++import org.apache.tika.parser.microsoft.rtf.SafeRTFObjectInputStream;
+ import java.nio.charset.StandardCharsets;
+ import java.util.concurrent.atomic.AtomicInteger;
+ 
+@@ -211,16 +212,23 @@
+             extractObj(bytes, handler, metadata);
+ 
+         } else if (state == EMB_STATE.JAVA_OBJDATA) {
+-            try {
+-                Object obj = new ObjectInputStream(
+-                        UnsynchronizedByteArrayInputStream.builder().setByteArray(bytes)
+-                                .get()).readObject();
++            try (SafeRTFObjectInputStream ois =
++                    new SafeRTFObjectInputStream(
++                        UnsynchronizedByteArrayInputStream.builder()
++                            .setByteArray(bytes).get())) {
++                Object obj = ois.readObject();
+                 metadata.set(RTFMetadata.EMB_CLASS, obj.getClass().getName());
+-                metadata.set(TikaCoreProperties.CONTENT_TYPE_PARSER_OVERRIDE,
++                metadata.set(
++                        TikaCoreProperties.CONTENT_TYPE_PARSER_OVERRIDE,
+                         MediaType.text("plain").toString());
+                 extractObj(obj.toString().getBytes(StandardCharsets.UTF_8), handler, metadata);
++            } catch (InvalidClassException e) {
++                throw new TikaException(
++                        "Embedded Java object uses non-whitelisted class: " + e.getMessage(), e);
+             } catch (ClassNotFoundException e) {
+-                throw new TikaException("Not found", e);
++                throw new TikaException("Class not found in embedded Java object", e);
++            } catch (IOException e) {
++                throw new TikaException("I/O error during embedded-object deserialization", e);
+             }
+         } else if (state == EMB_STATE.NADA) {
+             //swallow...no start for pict or embed?!

@@ -1,0 +1,125 @@
+--- a/src/main/java/org/apache/commons/compress/archivers/examples/Expander.java
++++ b/src/main/java/org/apache/commons/compress/archivers/examples/Expander.java
+@@ -69,17 +69,24 @@
+             throws IOException {
+         final boolean nullTarget = targetDirectory == null;
+         final Path targetDirPath = nullTarget ? null : targetDirectory.normalize();
++        final Path safeBase = nullTarget ? null : targetDirectory.toAbsolutePath().normalize();
+         T nextEntry = supplier.get();
+         while (nextEntry != null) {
+-            final Path targetPath = nullTarget ? null : nextEntry.resolveIn(targetDirPath);
++            final Path targetPath;
++            if (nullTarget) {
++                targetPath = null;
++            } else {
++                targetPath = safeResolve(safeBase, nextEntry.getName());
++            }
+             if (nextEntry.isDirectory()) {
+-                if (!nullTarget && !Files.isDirectory(targetPath) && Files.createDirectories(targetPath) == null) {
+-                    throw new IOException("Failed to create directory " + targetPath);
++                if (!nullTarget && !Files.isDirectory(targetPath)) {
++                    if (Files.createDirectories(targetPath) == null) {
++                        throw new IOException("Failed to create directory " + targetPath);
++                    }
+                 }
+             } else {
+-                final Path parent = nullTarget ? null : targetPath.getParent();
+-                if (!nullTarget && !Files.isDirectory(parent) && Files.createDirectories(parent) == null) {
+-                    throw new IOException("Failed to create directory " + parent);
++                if (!nullTarget) {
++                    createParentDirectorySafe(safeBase, targetPath);
+                 }
+                 if (nullTarget) {
+                     writer.accept(nextEntry, NullOutputStream.INSTANCE);
+@@ -468,36 +475,31 @@
+      * @since 1.22
+      */
+     public void expand(final ZipFile archive, final Path targetDirectory) throws IOException {
+-        if (! Files.isDirectory(targetDirectory)) {
++        if (!Files.isDirectory(targetDirectory)) {
+             Files.createDirectories(targetDirectory);
+         }
++        final Path safeBase = targetDirectory.toAbsolutePath().normalize();
+         final Enumeration<ZipArchiveEntry> entries = archive.getEntries();
+         while (entries.hasMoreElements()) {
+             ZipArchiveEntry zae = entries.nextElement();
+             if (zae.isUnixSymlink()) {
+                 String targetName = IOUtils.toString(archive.getInputStream(zae),
+                         StandardCharsets.UTF_8);
+-                Path link = targetDirectory.resolve(zae.getName());
+-                Path target = targetDirectory.resolve(targetName);
+-                Path parent = createParentDirectory(targetDirectory, link);
+-
++                Path link = safeResolve(safeBase, zae.getName());
++                if (targetName.startsWith("/") || targetName.contains("..")) {
++                    throw new IOException(String.format("Invalid symlink target: '%s'", targetName));
++                }
++                Path parent = createParentDirectorySafe(safeBase, link);
+                 if (!Files.isSameFile(link.getParent(), parent)) {
+-                    link = parent.relativize(link.getFileName()).normalize();
++                    link = parent.resolve(link.getFileName()).normalize();
+                 }
+                 if (!Files.isRegularFile(link) && !Files.isSymbolicLink(link)) {
++                    Path target = safeBase.getFileSystem().getPath(targetName);
+                     Files.createSymbolicLink(link, target);
+                 }
+-            } else if (! zae.isDirectory()) {
+-                Path target = targetDirectory.resolve(zae.getName()).normalize();
+-                if (!target.startsWith(targetDirectory)) {
+-                    throw new IOException(String.format("Zip slip '%s' + '%s' -> '%s'",
+-                            targetDirectory, zae.getName(), target));
+-                }
+-                Path parent = createParentDirectory(targetDirectory, target);
+-                if (! target.getParent().toAbsolutePath().normalize().equals(
+-                        parent.toAbsolutePath().normalize())) {
+-                    target = parent.normalize().resolve(target.getFileName());
+-                }
++            } else if (!zae.isDirectory()) {
++                Path target = safeResolve(safeBase, zae.getName());
++                createParentDirectorySafe(safeBase, target);
+                 try (InputStream is = archive.getInputStream(zae)) {
+                     Files.copy(is, target);
+                 }
+@@ -505,22 +507,33 @@
+         }
+     }
+ 
+-    private static Path createParentDirectory(Path root, Path target) throws IOException {
+-        Path relative =
+-                root.relativize(target.getParent());
+-        Path current = root.toAbsolutePath();
+-
++    private static Path safeResolve(Path safeBase, String entryName) throws IOException {
++        Path resolved = safeBase.resolve(entryName).toAbsolutePath().normalize();
++        if (!resolved.startsWith(safeBase)) {
++            throw new IOException(String.format("File path traversal: '%s' -> '%s'",
++                                                entryName, resolved));
++        }
++        return resolved;
++    }
++
++    private static Path createParentDirectorySafe(Path safeBase, Path target) throws IOException {
++        Path relative = safeBase.relativize(target.getParent());
++        Path current = safeBase;
+         for (Path p : relative) {
+             current = current.resolve(p);
+             if (Files.isSymbolicLink(current)) {
+-                current = Files.readSymbolicLink(current);
+-            }
+-            if (! Files.isDirectory(current)) {
++                Path linkTarget = Files.readSymbolicLink(current);
++                current = current.getParent().resolve(linkTarget).toAbsolutePath().normalize();
++            }
++            if (!current.normalize().startsWith(safeBase)) {
++                throw new IOException(String.format("File path traversal: '%s' -> '%s'",
++                                                    safeBase, current));
++            }
++            if (!Files.isDirectory(current)) {
+                 Files.createDirectory(current);
+             }
+         }
+         return current;
+-
+     }
+ 
+ 

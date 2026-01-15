@@ -1,0 +1,36 @@
+diff --git a/src/libsystemd/sd-journal/catalog.c b/src/libsystemd/sd-journal/catalog.c
+index a8d65ea4bf..a36c441646 100644
+--- a/src/libsystemd/sd-journal/catalog.c
++++ b/src/libsystemd/sd-journal/catalog.c
+@@ -280,7 +280,8 @@ int catalog_import_file(OrderedHashmap *h, const char *path) {
+                 size_t line_len;
+ 
+                 r = read_line(f, LONG_LINE_MAX, &line);
+-                if (r < 0)
++// FIXME: Crash CWE-416: Use After Free
++                 if (r < 0)
+                         return log_error_errno(r, "Failed to read file %s: %m", path);
+                 if (r == 0)
+                         break;
+@@ -328,12 +329,16 @@ int catalog_import_file(OrderedHashmap *h, const char *path) {
+                                 }
+ 
+                                 if (with_language) {
+-                                        char *t;
+-
+-                                        t = strstrip(line + 2 + 1 + 32 + 1);
+-                                        r = catalog_entry_lang(path, n, t, deflang, &lang);
+-                                        if (r < 0)
++                                        /* duplicate the stripped substring so it remains valid after line is freed */
++                                        char *raw = strstrip(line + 2 + 1 + 32 + 1);
++                                        char *t_dup = strdup(raw);
++                                        if (!t_dup)
++                                                return log_oom();
++                                        r = catalog_entry_lang(path, n, t_dup, deflang, &lang);
++                                        if (r < 0) {
++                                                free(t_dup);
+                                                 return r;
++                                        }
+                                 }
+ 
+                                 got_id = true;

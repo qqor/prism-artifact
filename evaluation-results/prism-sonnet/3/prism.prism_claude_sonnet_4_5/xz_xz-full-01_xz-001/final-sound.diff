@@ -1,0 +1,65 @@
+--- a/src/liblzma/check/treeck.c
++++ b/src/liblzma/check/treeck.c
+@@ -62,8 +62,8 @@
+   return node;
+ }
+ 
+-// Walk the tree to calculate the e37vk checksum
+-static uint32_t compute_tree_checksum(TreeNode *node, unsigned int depth)
++// Walk the tree to calculate the e37vk checksum (traversal only, no freeing)
++static uint32_t compute_tree_checksum_internal(TreeNode *node, unsigned int depth)
+ {
+   // Skip if already hashed
+   if (!node || node->state == STATE_HASHED) {
+@@ -79,15 +79,48 @@
+     for (size_t i = 0; i < node->edge_count; ++i) {
+       TreeNode *child = node->edges[i];
+       if (child) {
+-        sum += compute_tree_checksum(child, depth + 1);
++        sum += compute_tree_checksum_internal(child, depth + 1);
+       }
+     }
+     node->state = STATE_HASHED;
+   }
+ 
+-  // Free the node and edges
+-  free(node->edges);
++  return sum;
++}
++
++// Free all nodes in the tree safely, handling cycles
++static void free_tree_nodes(TreeNode *node)
++{
++  // Skip if node is NULL or already freed
++  if (!node || node->state != STATE_HASHED) {
++    return;
++  }
++
++  // Mark as being freed to prevent cycles
++  node->state = STATE_CLEAR;
++
++  // Recursively free children
++  if (node->edges) {
++    for (size_t i = 0; i < node->edge_count; ++i) {
++      if (node->edges[i]) {
++        free_tree_nodes(node->edges[i]);
++      }
++    }
++    free(node->edges);
++  }
++
++  // Free the node itself
+   free(node);
++}
++
++// Walk the tree to calculate the e37vk checksum
++static uint32_t compute_tree_checksum(TreeNode *node, unsigned int depth)
++{
++  // Phase 1: Compute checksum without freeing
++  uint32_t sum = compute_tree_checksum_internal(node, depth);
++
++  // Phase 2: Free all allocated nodes safely
++  free_tree_nodes(node);
+ 
+   return sum;
+ }

@@ -1,0 +1,42 @@
+diff --git a/src/cmsps2.c b/src/cmsps2.c
+index cb2db85..1819f56 100644
+--- a/src/cmsps2.c
++++ b/src/cmsps2.c
+@@ -1593,11 +1593,35 @@ cmsUInt32Number CMSEXPORT cmsGetPostScriptCSA(cmsContext ContextID,
+ 
+     if (!mem) return 0;
+ 
+-    dwBytesUsed =  cmsGetPostScriptColorResource(ContextID, cmsPS_RESOURCE_CSA, hProfile, Intent, dwFlags, mem);
++    // First attempt: generate PostScript CSA from the given profile
++    dwBytesUsed = cmsGetPostScriptColorResource(ContextID,
++                                               cmsPS_RESOURCE_CSA,
++                                               hProfile,
++                                               Intent,
++                                               dwFlags,
++                                               mem);
++    // Fallback: if generation failed (dwBytesUsed == 0), substitute a safe NULL profile
++    if (dwBytesUsed == 0) {
++        cmsHPROFILE hIdentity = cmsCreateNULLProfile(ContextID);
++        if (hIdentity) {
++            dwBytesUsed = cmsGetPostScriptColorResource(ContextID,
++                                                       cmsPS_RESOURCE_CSA,
++                                                       hIdentity,
++                                                       Intent,
++                                                       dwFlags,
++                                                       mem);
++            cmsCloseProfile(ContextID, hIdentity);
++        }
++    }
+ 
+     // Get rid of memory stream
+     cmsCloseIOhandler(mem);
+ 
+     return dwBytesUsed;
+-
+ }
++
++/* Rationale:
++ * We detect an unsupported or malformed color resource generation (dwBytesUsed == 0)
++ * and substitute a safe "NULL profile" which is effectively an identity transform.
++ * This prevents a NULL-pointer dereference in downstream calls while preserving
++ * a usable identity CSA resource. */

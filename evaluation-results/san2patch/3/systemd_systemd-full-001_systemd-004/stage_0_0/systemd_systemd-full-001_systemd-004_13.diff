@@ -1,0 +1,41 @@
+diff --git a/src/shared/condition.c b/src/shared/condition.c
+index 67894f9319..080151928c 100644
+--- a/src/shared/condition.c
++++ b/src/shared/condition.c
+@@ -95,20 +95,28 @@ Condition* condition_free(Condition *c) {
+         free(c->parameter);
+         return mfree(c);
+ }
+-
++// FIXME: Crash CWE-416: Use After Free
++ 
+ Condition* condition_free_list_type(Condition *head, ConditionType type) {
+-        LIST_FOREACH(conditions, c, head)
+-                if (type < 0 || c->type == type) {
+-                        condition_free(c);
+-                }
+-
++        // recursive removal and freeing to avoid dangling next pointers
++        if (!head)
++                goto end;
++
++        Condition *next = condition_free_list_type(head->next, type);
++        if (type < 0 || head->type == type) {
++                head->next = NULL;
++                condition_free(head);
++                head = next;
++        } else {
++                head->next = next;
++        }
++end:
+         assert(type >= 0 || !head);
+         return head;
+ }
+ 
+ static int condition_test_kernel_command_line(Condition *c, char **env) {
+-        _cleanup_strv_free_ char **args = NULL;
+-        int r;
++        _cleanup_strv_free_ char **args = NULL;        int r;
+ 
+         assert(c);
+         assert(c->parameter);

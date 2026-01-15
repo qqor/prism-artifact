@@ -1,0 +1,59 @@
+--- a/poi/src/main/java/org/apache/poi/poifs/filesystem/FileMagic.java
++++ b/poi/src/main/java/org/apache/poi/poifs/filesystem/FileMagic.java
+@@ -219,11 +219,14 @@
+      * @return a mark enabled stream
+      */
+     public static InputStream prepareToCheckMagic(InputStream stream) {
+-        if (stream.markSupported()) {
++        // ensure the stream is buffered with sufficient mark/reset buffer for magic detection
++        if (stream instanceof BufferedInputStream) {
+             return stream;
+         }
+-        // we used to process the data via a PushbackInputStream, but user code could provide a too small one
+-        // so we use a BufferedInputStream instead now
+-        return new BufferedInputStream(stream);
++        return new BufferedInputStream(stream, getMinReadLimit());
++    }
++
++    public static int getMinReadLimit() {
++        return MAX_PATTERN_LENGTH;
+     }
+-}
+\ No newline at end of file
++}
+
+--- a/poi/src/main/java/org/apache/poi/ss/usermodel/WorkbookFactory.java
++++ b/poi/src/main/java/org/apache/poi/ss/usermodel/WorkbookFactory.java
+@@ -212,26 +212,21 @@
+      */
+     public static Workbook create(InputStream inp, String password) throws IOException, EncryptedDocumentException {
+         InputStream is = FileMagic.prepareToCheckMagic(inp);
+-        byte[] emptyFileCheck = new byte[1];
+-        is.mark(emptyFileCheck.length);
+-        if (is.read(emptyFileCheck) < emptyFileCheck.length) {
++        byte[] header = org.apache.poi.util.IOUtils.peekFirstNBytes(is, 1);
++        if (header.length < 1) {
+             throw new EmptyFileException();
+         }
+-        is.reset();
+-
+         final FileMagic fm = FileMagic.valueOf(is);
+         if (FileMagic.OOXML == fm) {
+             return wp(fm, w -> w.create(is));
+         }
+-
+         if (FileMagic.OLE2 != fm) {
+-            throw new IOException("Can't open workbook - unsupported file type: "+fm);
+-        }
+-
++            throw new IOException("Can't open workbook - unsupported file type: " + fm);
++        }
+         POIFSFileSystem poifs = new POIFSFileSystem(is);
+         DirectoryNode root = poifs.getRoot();
+-        boolean isOOXML = root.hasEntryCaseInsensitive(DEFAULT_POIFS_ENTRY) || root.hasEntryCaseInsensitive(OOXML_PACKAGE);
+-
++        boolean isOOXML = root.hasEntryCaseInsensitive(DEFAULT_POIFS_ENTRY)
++                || root.hasEntryCaseInsensitive(OOXML_PACKAGE);
+         return wp(isOOXML ? FileMagic.OOXML : fm, w -> w.create(root, password));
+     }
+ 

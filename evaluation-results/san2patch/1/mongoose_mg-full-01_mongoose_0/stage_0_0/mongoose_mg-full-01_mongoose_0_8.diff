@@ -1,0 +1,57 @@
+diff --git a/src/json.c b/src/json.c
+index cf6bc57b..a1de9c59 100644
+--- a/src/json.c
++++ b/src/json.c
+@@ -15,15 +15,25 @@ static char json_esc(int c, int esc) {
+ }
+ 
+ static int mg_pass_string(const char *s, int len) {
+-  int i;
+-  for (i = 0; i < len; i++) {
+-    if (s[i] == '\\' && i + 1 < len && json_esc(s[i + 1], 1)) {
+-      i++;
+-    } else if (s[i] == '\0') {
++  const char *p, *end;
++  /* Rationale: use pointer arithmetic to centralize bounds checks */
++  if (s == NULL || len < 0) {
++    return MG_JSON_INVALID;
++  }
++  p = s;
++  end = s + len;
++  while (p < end) {
++    if (*p == '\\') {
++      if (p + 1 < end && json_esc(*(p + 1), 1)) {
++        p += 2;
++        continue;
++      }
++    } else if (*p == '\0') {
+       return MG_JSON_INVALID;
+-    } else if (s[i] == '"') {
+-      return i;
++    } else if (*p == '"') {
++      return (int)(p - s);
+     }
++    p++;
+   }
+   return MG_JSON_INVALID;
+ }
+@@ -173,7 +183,8 @@ int mg_json_get(struct mg_str json, const char *path, int *toklen) {
+           expecting = S_KEY;
+           break;
+         } else if (c == '[') {
+-          if (depth > MG_JSON_MAX_NESTING) return MG_JSON_TOO_DEEP;
++          /* Pre-increment strategy with modified bound */
++          if (depth > MG_JSON_MAX_NESTING - 1) return MG_JSON_TOO_DEEP;
+           if (depth == ed && path[pos] == '[' && ei == ci) {
+             ed++, pos++, ci = 0;
+             for (ei = 0; path[pos] != ']' && path[pos] != '\0'; pos++) {
+@@ -182,7 +193,8 @@ int mg_json_get(struct mg_str json, const char *path, int *toklen) {
+             }
+             if (path[pos] != 0) pos++;
+           }
+-          nesting[depth++] = c;
++          depth++;
++          nesting[depth - 1] = c; /* safe: depth <= MG_JSON_MAX_NESTING */
+           break;
+         } else if (c == ']' && depth > 0) {  // Empty array
+           MG_EOO(']');

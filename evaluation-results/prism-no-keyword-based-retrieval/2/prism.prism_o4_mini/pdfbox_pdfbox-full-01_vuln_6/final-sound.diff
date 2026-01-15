@@ -1,0 +1,61 @@
+--- a/fontbox/src/main/java/org/apache/fontbox/pfb/PfbParser.java
++++ b/fontbox/src/main/java/org/apache/fontbox/pfb/PfbParser.java
+@@ -68,7 +68,12 @@
+     /**
+      * Heuristically chosen max length to buffer a Type1 font
+      */
+-    private static final long MAX_LENGTH = 100_000_000;
++    public static final long MAX_LENGTH = 100_000_000L;
++
++    /**
++     * Max size of a single PFB segment
++     */
++    private static final int MAX_SEGMENT_LENGTH = 20_000_000;
+ 
+     /**
+      * the parsed pfb-data.
+@@ -92,7 +97,7 @@
+      */
+     public PfbParser(final String filename) throws IOException 
+     {
+-        this(Files.readAllBytes(Paths.get(filename)));
++        this(Files.newInputStream(Paths.get(filename)));
+     }
+ 
+     /**
+@@ -102,7 +107,11 @@
+      */
+     public PfbParser(final InputStream in) throws IOException 
+     {
+-        byte[] pfb = in.readAllBytes();
++        int cap = (int) MAX_LENGTH + 1;
++        byte[] pfb = in.readNBytes(cap);
++        if (pfb.length > MAX_LENGTH) {
++            throw new IOException("PFB data exceeds maximum allowed size of " + MAX_LENGTH + " bytes");
++        }
+         parsePfb(pfb);
+     }
+ 
+@@ -157,6 +166,9 @@
+             size += in.read() << 8;
+             size += in.read() << 16;
+             size += in.read() << 24;
++            if (size < 0 || size > MAX_SEGMENT_LENGTH) {
++                throw new IOException("PFB segment size " + size + " exceeds per-segment limit of " + MAX_SEGMENT_LENGTH);
++            }
+             LOG.debug("record type: {}, segment size: {}", recordType, size);
+             long newTotal = total + size;
+             if (newTotal > MAX_LENGTH) {
+
+--- a/pdfbox/src/main/java/org/apache/pdfbox/pdmodel/font/PDType1Font.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/pdmodel/font/PDType1Font.java
+@@ -223,6 +223,9 @@
+ 
+                     if ((bytes[0] & 0xff) == PFB_START_MARKER)
+                     {
++                        if (bytes.length > org.apache.fontbox.pfb.PfbParser.MAX_LENGTH) {
++                            throw new IOException("Embedded Type1 font data (" + bytes.length + " bytes) exceeds maximum allowed size (" + org.apache.fontbox.pfb.PfbParser.MAX_LENGTH + " bytes)");
++                        }
+                         // some bad files embed the entire PFB, see PDFBOX-2607
+                         t1 = Type1Font.createWithPFB(bytes);
+                     }

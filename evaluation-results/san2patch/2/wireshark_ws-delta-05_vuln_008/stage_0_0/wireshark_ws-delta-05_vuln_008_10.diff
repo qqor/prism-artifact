@@ -1,0 +1,33 @@
+diff --git a/epan/dissectors/packet-netbios.c b/epan/dissectors/packet-netbios.c
+index 5ea85c7df4..b6d4cf4585 100644
+--- a/epan/dissectors/packet-netbios.c
++++ b/epan/dissectors/packet-netbios.c
+@@ -309,13 +309,25 @@ process_netbios_name(const unsigned char *name_ptr, char *name_ret, int name_ret
+ 	}
+ 	*name_ret = '\0';
+ 
+-	/* Remove trailing space characters from name. */
++	/* Clamp name_ret so it never points past the valid buffer end */
++	char *buf_end = name_ret_orig + name_ret_len - 1;
++	if (name_ret > buf_end)
++		name_ret = buf_end;
+ 
+-	name_ret--;
++	/* Remove trailing space characters from name. */
++	if (name_ret > name_ret_orig)
++		name_ret--;
++	else
++		name_ret = name_ret_orig;
+ 
+ 	while (name_ret >= name_ret_orig) {
+ 		if (*name_ret != ' ') {
+-			*(name_ret + 1) = 0;
++			*(name_ret + 1) = '\0';
++			break;
++		}
++		/* If at the start and still a space, zero it out */
++		if (name_ret == name_ret_orig) {
++			*name_ret = '\0';
+ 			break;
+ 		}
+ 		name_ret--;

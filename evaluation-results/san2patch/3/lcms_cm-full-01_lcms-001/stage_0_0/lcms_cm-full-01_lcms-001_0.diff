@@ -1,0 +1,40 @@
+diff --git a/src/cmsps2.c b/src/cmsps2.c
+index cb2db85..03056c2 100644
+--- a/src/cmsps2.c
++++ b/src/cmsps2.c
+@@ -1049,7 +1049,6 @@ cmsUInt32Number GenerateCSA(cmsContext ContextID,
+     }
+     else {
+ 
+-
+         // Any profile class are allowed (including devicelink), but
+         // output (PCS) colorspace must be XYZ or Lab
+         cmsColorSpaceSignature ColorSpace = cmsGetPCS(hProfile);
+@@ -1066,15 +1065,24 @@ cmsUInt32Number GenerateCSA(cmsContext ContextID,
+         lut = _cmsReadInputLUT(hProfile, Intent);
+         if (lut == NULL) goto Error;
+ 
++        // Try optimized path: retrieve curve and matrix stages
++        if (cmsPipelineCheckAndRetreiveStages(lut, 2,
++                                             cmsSigCurveSetElemType,
++                                             cmsSigMatrixElemType,
++                                             &Shaper, &Matrix)) {
+ 
+-        // Tone curves + matrix can be implemented without any LUT
+-        if (cmsPipelineCheckAndRetreiveStages(lut, 2, cmsSigCurveSetElemType, cmsSigMatrixElemType, &Shaper, &Matrix)) {
++            // Ensure the returned stage pointers are not NULL
++            if (Shaper == NULL || Matrix == NULL) {
++                cmsSignalError(ContextID, cmsERROR_RANGE,
++                               "cmsPipelineCheckAndRetreiveStages returned NULL stage");
++                goto Error;
++            }
+ 
+             if (!WriteInputMatrixShaper(mem, hProfile, Matrix, Shaper)) goto Error;
+ 
+         }
+         else {
+-           // We need a LUT for the rest
++           // Fallback: write full LUT for the rest
+            if (!WriteInputLUT(mem, hProfile, Intent, dwFlags)) goto Error;
+         }
+     }

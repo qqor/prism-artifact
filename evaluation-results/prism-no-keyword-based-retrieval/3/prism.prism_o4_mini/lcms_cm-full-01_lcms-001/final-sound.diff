@@ -1,0 +1,54 @@
+--- a/src/cmsps2.c
++++ b/src/cmsps2.c
+@@ -758,6 +758,10 @@
+     const char* PreMin, *PostMin;
+     cmsStage* mpe;
+         
++    // Guard against empty or uninitialized pipeline to avoid null-deref in cmsStageType
++    if (Pipeline == NULL || Pipeline->Elements == NULL) {
++        return FALSE;
++    }
+     mpe = Pipeline->Elements;
+ 
+     switch (cmsStageInputChannels(mpe)) {
+@@ -783,7 +787,7 @@
+ 
+     _cmsIOPrintf(m, "<<\n");
+ 
+-    if (cmsStageType(mpe) == cmsSigCurveSetElemType) {
++    if (mpe != NULL && cmsStageType(mpe) == cmsSigCurveSetElemType) {
+ 
+         _cmsIOPrintf(m, "/DecodeDEF [ ");
+         EmitNGamma(m, cmsStageOutputChannels(mpe), _cmsStageGetPtrToCurveSet(mpe));
+@@ -792,7 +796,7 @@
+         mpe = mpe ->Next;
+     }
+ 
+-    if (cmsStageType(mpe) == cmsSigCLutElemType) {
++    if (mpe != NULL && cmsStageType(mpe) == cmsSigCLutElemType) {
+ 
+             _cmsIOPrintf(m, "/Table ");
+             WriteCLUT(m, mpe, PreMaj, PostMaj, PreMin, PostMin, FALSE, (cmsColorSpaceSignature) 0);
+@@ -896,6 +900,12 @@
+ 
+             DeviceLink = cmsPipelineDup(v ->Lut);
+             if (DeviceLink == NULL) {
++                cmsDeleteTransform(xform);
++                return FALSE;
++            }
++            // Reject empty pipeline to avoid null-deref in EmitCIEBasedDEF
++            if (DeviceLink->Elements == NULL) {
++                cmsPipelineFree(DeviceLink);
+                 cmsDeleteTransform(xform);
+                 return FALSE;
+             }
+@@ -1065,7 +1075,8 @@
+         // Read the lut with all necessary conversion stages
+         lut = _cmsReadInputLUT(hProfile, Intent);
+         if (lut == NULL) goto Error;
+-
++        // Reject empty pipeline early
++        if (lut->Elements == NULL) goto Error;
+ 
+         // Tone curves + matrix can be implemented without any LUT
+         if (cmsPipelineCheckAndRetreiveStages(lut, 2, cmsSigCurveSetElemType, cmsSigMatrixElemType, &Shaper, &Matrix)) {

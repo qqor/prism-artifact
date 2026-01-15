@@ -1,0 +1,40 @@
+--- a/pdfbox/src/main/java/org/apache/pdfbox/filter/FlateFilterDecoderStream.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/filter/FlateFilterDecoderStream.java
+@@ -89,6 +89,14 @@
+                 Arrays.fill(decodedData, 0, bytesDecoded, (byte) 0);
+             }
+             bytesDecoded = inflater.inflate(decodedData);
++            // guard against zero-length inflate causing infinite loops
++            if (bytesDecoded == 0 && !inflater.finished() && !inflater.needsInput())
++            {
++                // No progress possible: abort to prevent infinite loop
++                isEOF = true;
++                bytesDecoded = 0;
++                return false;
++            }
+         }
+         catch (DataFormatException exception)
+         {
+@@ -112,7 +120,7 @@
+                     exception.getMessage());
+             return bytesDecoded > 0;
+         }
+-        return true;
++        return bytesDecoded > 0;
+     }
+ 
+     /**
+@@ -171,7 +179,13 @@
+                 break;
+             }
+         }
++        if (numberOfBytesRead == 0)
++        {
++            // no data read and EOF reached: signal EOF
++            return -1;
++        }
+         return numberOfBytesRead;
++    }
+     }
+ 
+     /**

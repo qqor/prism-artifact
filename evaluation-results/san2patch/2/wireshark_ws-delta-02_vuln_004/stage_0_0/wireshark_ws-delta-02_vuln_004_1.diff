@@ -1,0 +1,46 @@
+diff --git a/epan/dissectors/packet-icmp.c b/epan/dissectors/packet-icmp.c
+index 68d5fb0b9c..5e14c49e81 100644
+--- a/epan/dissectors/packet-icmp.c
++++ b/epan/dissectors/packet-icmp.c
+@@ -922,16 +922,24 @@ dissect_interface_identification_object(tvbuff_t * tvb, int offset,
+ 	offset += 4;
+ 
+ 	switch(c_type) {
+-		case ICMP_EXT_ECHO_IDENT_NAME:
+-			/* Identification Name must be printable*/
+-			tvb_memcpy(tvb, ident_name, offset, obj_length - 4);
+-
+-			for (unsigned i = 0; i < obj_length - 4; i++)
++	// FIXME: Crash CWE-787: Out-of-bounds Write
++		case ICMP_EXT_ECHO_IDENT_NAME: {
++			size_t copy_len = (obj_length > 4) ? obj_length - 4 : 0;
++			/* clamp to buffer size minus NUL */
++			copy_len = (copy_len < (sizeof(ident_name) - 1)) ? copy_len : (sizeof(ident_name) - 1);
++			/* safe copy and terminate */
++			tvb_memcpy(tvb, ident_name, offset, copy_len);
++			ident_name[copy_len] = '\0';
++
++			/* printable check only up to copy_len */
++			for (unsigned i = 0; i < copy_len; i++)
+ 				if (!g_ascii_isprint(ident_name[i]))
+ 					break;
+ 
+-			proto_tree_add_item(ext_object_tree, hf_icmp_int_ident_name_string, tvb, offset, obj_length - 4, ENC_ASCII);
++			/* add item with safe length */
++			proto_tree_add_item(ext_object_tree, hf_icmp_int_ident_name_string, tvb, offset, copy_len, ENC_ASCII);
+ 			break;
++		}
+ 		case ICMP_EXT_ECHO_IDENT_INDEX:
+ 			proto_tree_add_item(ext_object_tree, hf_icmp_int_ident_index, tvb, offset, 4, ENC_NA);
+ 			break;
+@@ -959,8 +967,8 @@ dissect_interface_identification_object(tvbuff_t * tvb, int offset,
+ 					break;
+ 				default: /* Unknown ?! */
+ 					proto_tree_add_item(ext_object_tree, hf_icmp_int_ident_address, tvb, offset, tvb_reported_length_remaining(tvb, offset), ENC_NA);
+-			}
+-	}
++		}
++}
+ 
+ 	return unknown_object;
+ 

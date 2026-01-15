@@ -1,0 +1,44 @@
+diff --git a/src/liblzma/check/treeck.c b/src/liblzma/check/treeck.c
+index f54d244e..b381c734 100644
+--- a/src/liblzma/check/treeck.c
++++ b/src/liblzma/check/treeck.c
+@@ -85,10 +85,38 @@ static uint32_t compute_tree_checksum(TreeNode *node, unsigned int depth)
+     node->state = STATE_HASHED;
+   }
+ 
+-  // Free the node and edges
++  // Rationale: buffer up to 16 edges on stack, fallback to heap if more
++  size_t count = node->edge_count;
++  TreeNode *small_buf[16];
++  TreeNode **buf = NULL;
++  if (count <= 16) {
++    buf = small_buf;
++    for (size_t i = 0; i < count; ++i) {
++      buf[i] = node->edges[i];
++    }
++  } else {
++    buf = malloc(count * sizeof(*buf));
++    if (buf) {
++      for (size_t i = 0; i < count; ++i) {
++        buf[i] = node->edges[i];
++      }
++    }
++  }
++
++  // Free original storage
+   free(node->edges);
+   free(node);
+ 
++  // Continue checksum on buffered edges
++  if (buf) {
++    for (size_t i = 0; i < count; ++i) {
++      if (buf[i]) {
++        sum += compute_tree_checksum(buf[i], depth + 1);
++      }
++    }
++    if (count > 16) free(buf);
++  }
++
+   return sum;
+ }
+ 

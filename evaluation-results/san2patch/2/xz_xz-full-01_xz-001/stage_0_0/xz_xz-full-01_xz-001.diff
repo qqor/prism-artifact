@@ -1,0 +1,64 @@
+diff --git a/src/liblzma/check/treeck.c b/src/liblzma/check/treeck.c
+index f54d244e..1fabed5c 100644
+--- a/src/liblzma/check/treeck.c
++++ b/src/liblzma/check/treeck.c
+@@ -65,15 +65,44 @@ static TreeNode* create_tree(const uint8_t *data, size_t len, size_t depth, size
+ // Walk the tree to calculate the e37vk checksum
+ static uint32_t compute_tree_checksum(TreeNode *node, unsigned int depth)
+ {
+-  // Skip if already hashed
++  // Rationale: perform compute-only traversal on depth>0, then free in a second inlined pass at root
+   if (!node || node->state == STATE_HASHED) {
+     return 0;
+   }
+ 
+-  // Compute initial checksum from depth and value
+-  uint32_t sum = node->value * (depth + 1);
++  // Root-level wrapper
++  if (depth == 0) {
++    uint32_t sum = compute_tree_checksum(node, 1);
++    // inline free pass for entire tree
++    // use a simple stack-free recursion to free each node
++    // free children of root
++    for (size_t i = 0; i < node->edge_count; ++i) {
++      TreeNode *c = node->edges[i];
++      if (c) {
++        // post-order free for subtree
++        TreeNode *sub = c;
++        compute_tree_checksum(sub, UINT_MAX); // depth==UINT_MAX indicates destroy-only path
++      }
++    }
++    free(node->edges);
++    free(node);
++    return sum;
++  }
+ 
+-  // Traverse the child nodes if not already visited
++  // destroy-only path: free nodes without computing further
++  if (depth == UINT_MAX) {
++    for (size_t i = 0; i < node->edge_count; ++i) {
++      if (node->edges[i]) {
++        compute_tree_checksum(node->edges[i], UINT_MAX);
++      }
++    }
++    free(node->edges);
++    free(node);
++    return 0;
++  }
++
++  // normal compute pass (no frees)
++  uint32_t sum = node->value * (depth + 1);
+   if (node->state == STATE_CLEAR) {
+     node->state = STATE_VISITED;
+     for (size_t i = 0; i < node->edge_count; ++i) {
+@@ -85,10 +114,6 @@ static uint32_t compute_tree_checksum(TreeNode *node, unsigned int depth)
+     node->state = STATE_HASHED;
+   }
+ 
+-  // Free the node and edges
+-  free(node->edges);
+-  free(node);
+-
+   return sum;
+ }
+ 

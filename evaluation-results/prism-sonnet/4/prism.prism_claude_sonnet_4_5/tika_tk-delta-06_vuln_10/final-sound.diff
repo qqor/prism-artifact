@@ -1,0 +1,149 @@
+--- a/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-pkg-module/src/main/java/org/apache/tika/parser/pkg/PackageParser.java
++++ b/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-pkg-module/src/main/java/org/apache/tika/parser/pkg/PackageParser.java
+@@ -109,6 +109,11 @@
+     private static final int MARK_LIMIT = 100 * 1024 * 1024; // 100M
+     // The number of bytes of entry name to detect charset properly
+     private static final int MIN_BYTES_FOR_DETECTING_CHARSET = 100;
++    /**
++     * Maximum number of archive entries to process to prevent denial-of-service
++     * attacks from archives with excessive entry counts.
++     */
++    private static final int MAX_ARCHIVE_ENTRIES = 100000;
+ 
+ 
+     static final Set<MediaType> loadPackageSpecializations() {
+@@ -393,6 +398,13 @@
+                     entryCnt.incrementAndGet();
+                 }
+ 
++                // Check for excessive entries to prevent DoS attacks
++                if (entryCnt.get() >= MAX_ARCHIVE_ENTRIES) {
++                    throw new TikaException("Archive exceeds maximum allowed entries (" + 
++                        MAX_ARCHIVE_ENTRIES + "). This may indicate a malformed or " +
++                        "malicious archive designed for denial-of-service.");
++                }
++
+                 entry = ais.getNextEntry();
+             }
+         } catch (UnsupportedZipFeatureException zfe) {
+
+--- a/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-zip-commons/src/main/java/org/apache/tika/detect/zip/DefaultZipContainerDetector.java
++++ b/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-zip-commons/src/main/java/org/apache/tika/detect/zip/DefaultZipContainerDetector.java
+@@ -61,6 +61,12 @@
+     private static final long serialVersionUID = 2891763938430295453L;
+ 
+     private static final Logger LOG = LoggerFactory.getLogger(DefaultZipContainerDetector.class);
++
++    /**
++     * Maximum number of entries to check during zip detection to prevent timeouts
++     * from archives with excessive entries.
++     */
++    private static final int MAX_ARCHIVE_ENTRY_DETECTION = 10000;
+ 
+     static {
+         TIFF_SIGNATURES[0] = new byte[]{'M', 'M', 0x00, 0x2a};
+@@ -283,10 +289,15 @@
+     MediaType detectStreaming(InputStream input, Metadata metadata, boolean allowStoredEntries)
+             throws IOException {
+         StreamingDetectContext detectContext = new StreamingDetectContext();
++        int entryCount = 0;
+         try (ZipArchiveInputStream zis = new ZipArchiveInputStream(
+                 CloseShieldInputStream.wrap(input), "UTF8", false, allowStoredEntries)) {
+             ZipArchiveEntry zae = zis.getNextEntry();
+             while (zae != null) {
++                entryCount++;
++                if (entryCount >= MAX_ARCHIVE_ENTRY_DETECTION) {
++                    break;
++                }
+                 MediaType mt = detect(zae, zis, detectContext);
+                 if (mt != null) {
+                     return mt;
+
+--- a/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-zip-commons/src/main/java/org/apache/tika/detect/zip/DeprecatedStreamingZipContainerDetector.java
++++ b/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-zip-commons/src/main/java/org/apache/tika/detect/zip/DeprecatedStreamingZipContainerDetector.java
+@@ -27,6 +27,10 @@
+ 
+     private static final int MAX_MIME_TYPE = 1024;
+     private static final int MAX_MANIFEST = 20 * 1024 * 1024;
++    /**
++     * Maximum number of entries to check during zip detection to prevent timeouts.
++     */
++    private static final int MAX_ARCHIVE_ENTRY_DETECTION = 10000;
+     /*
+      */
+ 
+@@ -43,10 +47,15 @@
+ /*
+         Set<String> fileNames = new HashSet<>();
+         Set<String> directoryNames = new HashSet<>();
++        int entryCount = 0;
+         try (ZipArchiveInputStream zipArchiveInputStream =
+                      new ZipArchiveInputStream(CloseShieldInputStream.wrap(is))) {
+             ZipArchiveEntry zae = zipArchiveInputStream.getNextZipEntry();
+             while (zae != null) {
++                entryCount++;
++                if (entryCount >= MAX_ARCHIVE_ENTRY_DETECTION) {
++                    break;
++                }
+                 String name = zae.getName();
+                 if (zae.isDirectory()) {
+                     directoryNames.add(name);
+
+--- a/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-apple-module/src/main/java/org/apache/tika/parser/iwork/IWorkPackageParser.java
++++ b/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-apple-module/src/main/java/org/apache/tika/parser/iwork/IWorkPackageParser.java
+@@ -72,6 +72,10 @@
+     private static final long serialVersionUID = -2160322853809682372L;
+     private static final int MARK_LIMIT = 1096;
+     /**
++     * Maximum number of entries to process in an iWork package to prevent DoS attacks.
++     */
++    private static final int MAX_ARCHIVE_ENTRIES = 10000;
++    /**
+      * This parser handles all iWorks formats.
+      */
+     private final static Set<MediaType> supportedTypes = Collections.unmodifiableSet(
+@@ -87,8 +91,15 @@
+                       ParseContext context) throws IOException, SAXException, TikaException {
+         ZipArchiveInputStream zip = new ZipArchiveInputStream(stream);
+         ZipArchiveEntry entry = zip.getNextEntry();
++        int entryCount = 0;
+ 
+         while (entry != null) {
++            entryCount++;
++            if (entryCount >= MAX_ARCHIVE_ENTRIES) {
++                throw new TikaException("Archive exceeds maximum allowed entries (" + 
++                    MAX_ARCHIVE_ENTRIES + "). This may indicate a malformed or " +
++                    "malicious archive.");
++            }
+             if (!IWORK_CONTENT_ENTRIES.contains(entry.getName())) {
+                 entry = zip.getNextEntry();
+                 continue;
+
+--- a/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-text-module/src/main/java/org/apache/tika/parser/csv/CellFormatter.java
++++ b/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-text-module/src/main/java/org/apache/tika/parser/csv/CellFormatter.java
+@@ -36,6 +36,13 @@
+             Pattern.compile("([+-])?(\\d{0,20}(?:\\.\\d{0,20})?) " +
+             "&fraction_format=\"(?:(#{1,20}) )?(#{1,20})/(#{1,20})\"");
+ 
++    /**
++     * Maximum denominator format length to prevent excessive computation.
++     * With MAX_DENOM_LENGTH=3, the nested loops will have at most ~1,000,000 iterations,
++     * which completes in milliseconds. Larger values cause timeouts during fuzzing.
++     */
++    private static final int MAX_DENOM_LENGTH = 3;
++
+     private final Matcher fractionFormatMatcher = FRACTION_FORMAT.matcher("");
+     String format(String cell) {
+         if (cell == null) {
+@@ -60,6 +67,11 @@
+         double wholePart = Math.floor(Math.abs(val));
+         double decPart = Math.abs(val) - wholePart;
+         int denomLength = denomFormat.length();
++
++        // Cap denomLength to prevent exponential computation in nested loops
++        if (denomLength > MAX_DENOM_LENGTH) {
++            return cell;
++        }
+ 
+         double minVal = 1.0;
+         double currDenom = Math.pow(10, denomLength) - 1d;

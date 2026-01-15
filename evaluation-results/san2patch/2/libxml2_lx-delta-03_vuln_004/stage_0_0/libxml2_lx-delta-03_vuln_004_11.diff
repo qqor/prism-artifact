@@ -1,0 +1,130 @@
+diff --git a/encoding.c b/encoding.c
+index adecdcc6..de86dc54 100644
+--- a/encoding.c
++++ b/encoding.c
+@@ -2823,6 +2823,9 @@ UTF8ToUTF32(unsigned char *out, int *outlen,
+                 out[0] = c & 0xFF;
+                 out[1] = c >> 8;
+                 out[2] = d & 0xFF;
++                /* Calculate end pointer and check buffer space */
++                unsigned char *end = outstart + *outlen;
++                if (out + 4 > end) return(XML_ENC_ERR_INTERNAL);
+                 out[3] = d >> 8;
+                 out += 4;
+             }
+@@ -2831,20 +2834,14 @@ UTF8ToUTF32(unsigned char *out, int *outlen,
+         }
+     }
+ 
+-    if (in-instart > 0)
++// FIXME: Crash CWE-787: Out-of-bounds Write
++     if (in-instart > 0)
+         ret = out - outstart;
+ 
+     *outlen = out - outstart;
+     *inlen = in - instart;
+     return(ret);
+-}
+-
+-int
+-UTF32ToUTF8(unsigned char *out, int *outlen,
+-              const unsigned char *in, int *inlen,
+-              void *vctxt ATTRIBUTE_UNUSED) {
+-    const unsigned char *instart = in;
+-    const unsigned char *inend = in + (*inlen & ~1);
++}    const unsigned char *inend = in + (*inlen & ~1);
+     unsigned char *outstart = out;
+     unsigned long int b0, b1, b2, b3, c, d;
+     int ret = XML_ENC_ERR_SPACE;
+@@ -2865,49 +2862,48 @@ UTF32ToUTF8(unsigned char *out, int *outlen,
+         c = b0 | b1 | b2 | b3;
+ 
+         if (c < 0x80) {
+-            out[0] = c;
+-            in += 4;
+-            out += 1;
+-        } else if (c < 0x800) {
+-            out[0] = (c >> 6)   | 0xC0;
+-            out[1] = (c & 0x3F) | 0x80;
+-            in += 4;
+-            out += 2;
+-        } else if ((c & 0xF800) != 0xD800) {
+-            out[0] =  (c >> 12)         | 0xE0;
+-            out[1] = ((c >>  6) & 0x3F) | 0x80;
+-            out[2] =  (c        & 0x3F) | 0x80;
+-            in += 4;
+-            out += 3;
+-        } else {
+-            /* Surrogate pair */
+-            if ((c & 0xFC00) != 0xD800) {
+-                ret = XML_ERR_INTERNAL_ERROR;
+-                break;
+-            }
+-	        if (inend - in < 4)
+-		        break;
+-            d = in[2] | (in[3] << 8);
+-            if ((d & 0xFC00) != 0xDC00) {
+-                ret = XML_ERR_INTERNAL_ERROR;
+-                break;
+-            }
+-            /*
+-                simplified due to encoding errors encountered with:
+-
+-                c = (c << 10) + d - ((0xD800 << 10) + 0xDC00 - 0x10000);
+-                out[0] =  (c >> 18)         | 0xF0;
+-                out[1] = ((c >> 12) & 0x3F) | 0x80;
+-                out[2] = ((c >>  6) & 0x3F) | 0x80;
+-                out[3] =  (c        & 0x3F) | 0x80;
+-            */
+-            out[0] = c & 0xff;
+-            out[1] = (c >> 8) & 0xff;
+-            out[2] = (c >> 0x10) & 0xff;
+-            out[3] = (c >> 0x18) & 0xff;
+-            in += 4;
+-            out += 4;
+-        }
++    /* Protect against one-byte overflow */
++    if ((out - outstart) + 1 > alloc_len) { ret = XML_ERR_INTERNAL_ERROR; break; }
++    out[0] = c;
++    in += 4;
++    out += 1;
++} else if (c < 0x800) {
++    /* Protect against two-byte overflow */
++    if ((out - outstart) + 2 > alloc_len) { ret = XML_ERR_INTERNAL_ERROR; break; }
++    out[0] = (c >> 6)   | 0xC0;
++    out[1] = (c & 0x3F) | 0x80;
++    in += 4;
++    out += 2;
++} else if ((c & 0xF800) != 0xD800) {
++    /* Protect against three-byte overflow */
++    if ((out - outstart) + 3 > alloc_len) { ret = XML_ERR_INTERNAL_ERROR; break; }
++    out[0] =  (c >> 12)         | 0xE0;
++    out[1] = ((c >>  6) & 0x3F) | 0x80;
++    out[2] =  (c        & 0x3F) | 0x80;
++    in += 4;
++    out += 3;
++} else {
++    /* Surrogate pair */
++    if ((c & 0xFC00) != 0xD800) {
++        ret = XML_ERR_INTERNAL_ERROR;
++        break;
++    }
++    if (inend - in < 4)
++        break;
++    d = in[2] | (in[3] << 8);
++    if ((d & 0xFC00) != 0xDC00) {
++        ret = XML_ERR_INTERNAL_ERROR;
++        break;
++    }
++    /* Protect against four-byte overflow */
++    if ((out - outstart) + 4 > alloc_len) { ret = XML_ERR_INTERNAL_ERROR; break; }
++    out[0] =  c        & 0xff;
++    out[1] = (c >>  8) & 0xff;
++    out[2] = (c >> 0x10) & 0xff;
++    out[3] = (c >> 0x18) & 0xff;
++    in += 4;
++    out += 4;
++}
+     }
+ 
+     if (in-instart > 0)

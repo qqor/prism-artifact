@@ -1,0 +1,44 @@
+--- a/fontbox/src/main/java/org/apache/fontbox/type1/Type1Parser.java
++++ b/fontbox/src/main/java/org/apache/fontbox/type1/Type1Parser.java
+@@ -214,12 +214,18 @@
+             // 0 1 255 {1 index exch /.notdef put } for
+             // we have to check "readonly" and "def" too
+             // as some fonts don't provide any dup-values, see PDFBOX-2134
+-            while (!(lexer.peekKind(Token.NAME)
+-                    && (lexer.peekToken().getText().equals("dup")
+-                            || lexer.peekToken().getText().equals("readonly")
+-                            || lexer.peekToken().getText().equals("def"))))
++            Token token = lexer.peekToken();
++            while (token != null && !(lexer.peekKind(Token.NAME)
++                    && (token.getText().equals("dup")
++                            || token.getText().equals("readonly")
++                            || token.getText().equals("def"))))
+             {
+                 lexer.nextToken();
++                token = lexer.peekToken();
++            }
++            if (token == null)
++            {
++                throw new IOException("Premature end of file while reading encoding");
+             }
+             
+             Map<Integer, String> codeToName = new HashMap<>();
+@@ -637,10 +643,16 @@
+         // some fonts have "2 index" here, others have "end noaccess put"
+         // sometimes followed by "put". Either way, we just skip until
+         // the /CharStrings dict is found
+-        while (!(lexer.peekKind(Token.LITERAL)
+-                && lexer.peekToken().getText().equals("CharStrings")))
++        Token token = lexer.peekToken();
++        while (token != null && !(lexer.peekKind(Token.LITERAL)
++                && token.getText().equals("CharStrings")))
+         {
+             lexer.nextToken();
++            token = lexer.peekToken();
++        }
++        if (token == null)
++        {
++            throw new IOException("Premature end of file while searching for CharStrings");
+         }
+ 
+         // CharStrings dict

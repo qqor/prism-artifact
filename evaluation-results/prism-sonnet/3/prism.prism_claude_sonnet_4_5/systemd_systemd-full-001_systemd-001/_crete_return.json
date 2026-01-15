@@ -1,0 +1,14 @@
+{
+  "project_name": "systemd",
+  "vulnerability_identifier": "systemd_systemd-full-001_systemd-001",
+  "source_directory": "/home/qqor/crete/.cache/official-afc-systemd",
+  "llm_usage": {
+    "total_cost": 1.7560710000000002,
+    "prompt_tokens": 461737,
+    "completion_tokens": 24724
+  },
+  "variant": "sound",
+  "diff": "--- a/src/udev/udev-rules.c\n+++ b/src/udev/udev-rules.c\n@@ -1141,11 +1141,14 @@\n         char *i, *j, *m;\n         bool is_escaped = false, is_case_insensitive = false, is_prefix_match = false;\n         int pos = 0;\n+        size_t original_len;\n \n         assert(str);\n         assert(ret_value);\n         assert(ret_endpos);\n         assert(ret_is_case_insensitive);\n+\n+        original_len = strlen(str);\n \n         /* check if string is prefixed with:\n          * - \"e\" for escaped\n@@ -1216,6 +1219,12 @@\n                 * so it could be safely interpreted as nulstr.\n                 */\n                 if (is_prefix_match){\n+                        /* Validate buffer space before writing to prevent heap-buffer-overflow.\n+                         * We write to positions: pos-1 (memcpy start), up to pos+l+1 (second null).\n+                         * The buffer has original_len+1 bytes (indices 0 to original_len). */\n+                        if (pos + l + 1 > original_len)\n+                                return -EINVAL;\n+\n                         /* need more room to make rule glob match */\n                         memcpy(str + pos - 1, unescaped, l + 1);\n                         str[pos + l - 1] = '*';\n@@ -1224,6 +1233,11 @@\n                         m = str + pos - 1;\n \n                 } else {\n+                        /* Validate buffer space before writing to prevent heap-buffer-overflow.\n+                         * We write to positions: m (memcpy start), up to m+l+1 (second null). */\n+                        if ((size_t)(m - str) + l + 1 > original_len)\n+                                return -EINVAL;\n+\n                         memcpy(m, unescaped, l + 1);\n                         m[l] = '\\0';\n                         m[l + 1] = '\\0';\n",
+  "stdout": "",
+  "stderr": ""
+}

@@ -1,0 +1,25 @@
+diff --git a/epan/dissectors/packet-openvpn.c b/epan/dissectors/packet-openvpn.c
+index b5486db018..1011ffe740 100644
+--- a/epan/dissectors/packet-openvpn.c
++++ b/epan/dissectors/packet-openvpn.c
+@@ -242,8 +242,18 @@ dissect_openvpn_msg_common(tvbuff_t *tvb, packet_info *pinfo, proto_tree *openvp
+     }
+ 
+     if (tls_auth == true) {
+-      proto_tree_add_item(openvpn_tree, hf_openvpn_hmac, tvb, offset, tls_auth_hmac_size, ENC_NA);
+-      offset += tls_auth_hmac_size;
++        /* FIX: Pre-allocate fixed-size buf and use length check */
++        if (tls_auth_hmac_size <= 32) {
++            unsigned char buf[32];
++            tvb_memcpy(buf, tvb, offset, tls_auth_hmac_size);
++            proto_tree_add_binary(openvpn_tree, hf_openvpn_hmac, buf, tls_auth_hmac_size);
++            offset += tls_auth_hmac_size;
++        } else {
++            /* drop oversized HMAC */
++            expert_add_info_format(pinfo, openvpn_tree, PI_UNDECODED, PI_WARN,
++                                   "Oversized HMAC (%d bytes) dropped", tls_auth_hmac_size);
++            return 0;
++        }
+     }
+ 
+     if (tls_auth == true || tls_crypt == true) {

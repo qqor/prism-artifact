@@ -1,0 +1,58 @@
+--- a/fontbox/src/main/java/org/apache/fontbox/type1/Type1Parser.java
++++ b/fontbox/src/main/java/org/apache/fontbox/type1/Type1Parser.java
+@@ -540,6 +540,10 @@
+      */
+     private void parseBinary(byte[] bytes) throws IOException
+     {
++        final int MAX_EEXEC_SEGMENT_SIZE = 50 * 1024 * 1024;
++        if (bytes.length > MAX_EEXEC_SEGMENT_SIZE) {
++            throw new IOException("Binary segment too large: " + bytes.length);
++        }
+         byte[] decrypted;
+         // Sometimes, fonts use the hex format, so this needs to be converted before decryption
+         if (isBinary(bytes))
+@@ -634,15 +638,17 @@
+             }
+         }
+ 
+-        // some fonts have "2 index" here, others have "end noaccess put"
+-        // sometimes followed by "put". Either way, we just skip until
+-        // the /CharStrings dict is found
+-        while (!(lexer.peekKind(Token.LITERAL)
+-                && lexer.peekToken().getText().equals("CharStrings")))
+-        {
++        Token peek;
++        while ((peek = lexer.peekToken()) != null) {
++            if (peek.getKind() == Token.LITERAL
++                && "CharStrings".equals(peek.getText())) {
++                break;
++            }
+             lexer.nextToken();
+         }
+-
++        if (peek == null) {
++            throw new IOException("/CharStrings token not found");
++        }
+         // CharStrings dict
+         read(Token.LITERAL, "CharStrings");
+         readCharStrings(lenIV);
+@@ -707,6 +713,9 @@
+     {
+         // allocate size (array indexes may not be in-order)
+         int length = read(Token.INTEGER).intValue();
++        if (length < 0 || length > 10_000) {
++            throw new IOException("Invalid Subrs count: " + length);
++        }
+         for (int i = 0; i < length; i++)
+         {
+             font.subrs.add(null);
+@@ -777,6 +786,9 @@
+     private void readCharStrings(int lenIV) throws IOException
+     {
+         int length = read(Token.INTEGER).intValue();
++        if (length < 0 || length > 100_000) {
++            throw new IOException("Invalid CharStrings count: " + length);
++        }
+         read(Token.NAME, "dict");
+         // could actually be a sequence ending in "CharStrings begin", too
+         // instead of the "dup begin"

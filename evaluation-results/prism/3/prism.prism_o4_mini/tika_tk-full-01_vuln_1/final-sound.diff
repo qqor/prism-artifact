@@ -1,0 +1,43 @@
+--- a/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-microsoft-module/src/main/java/org/apache/tika/parser/microsoft/rtf/RTFEmbObjHandler.java
++++ b/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-microsoft-module/src/main/java/org/apache/tika/parser/microsoft/rtf/RTFEmbObjHandler.java
+@@ -19,6 +19,8 @@
+ import java.io.IOException;
+ import java.io.InputStream;
+ import java.io.ObjectInputStream;
++import java.io.ObjectStreamClass;
++import java.io.InvalidClassException;
+ import java.nio.charset.StandardCharsets;
+ import java.util.concurrent.atomic.AtomicInteger;
+ 
+@@ -211,16 +213,25 @@
+             extractObj(bytes, handler, metadata);
+ 
+         } else if (state == EMB_STATE.JAVA_OBJDATA) {
+-            try {
+-                Object obj = new ObjectInputStream(
+-                        UnsynchronizedByteArrayInputStream.builder().setByteArray(bytes)
+-                                .get()).readObject();
++            try (ObjectInputStream ois = new ObjectInputStream(
++                    UnsynchronizedByteArrayInputStream.builder().setByteArray(bytes).get()) {
++                @Override
++                protected Class<?> resolveClass(ObjectStreamClass desc) throws IOException, ClassNotFoundException {
++                    String name = desc.getName();
++                    if (!"java.lang.String".equals(name)) {
++                        throw new InvalidClassException("Unauthorized deserialization", name);
++                    }
++                    return super.resolveClass(desc);
++                }
++            }) {
++                Object obj = ois.readObject();
+                 metadata.set(RTFMetadata.EMB_CLASS, obj.getClass().getName());
+                 metadata.set(TikaCoreProperties.CONTENT_TYPE_PARSER_OVERRIDE,
+                         MediaType.text("plain").toString());
+                 extractObj(obj.toString().getBytes(StandardCharsets.UTF_8), handler, metadata);
+-            } catch (ClassNotFoundException e) {
+-                throw new TikaException("Not found", e);
++            } catch (ClassNotFoundException | InvalidClassException | SecurityException e) {
++                EmbeddedDocumentUtil.recordException(e, metadata);
++                return;
+             }
+         } else if (state == EMB_STATE.NADA) {
+             //swallow...no start for pict or embed?!

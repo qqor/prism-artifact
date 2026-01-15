@@ -1,0 +1,82 @@
+diff --git a/parser.c b/parser.c
+index 46ddc9ab..b9a574cf 100644
+--- a/parser.c
++++ b/parser.c
+@@ -9037,28 +9037,58 @@ mem_error:
+ error:
+     if ((val != NULL) && (*alloc != 0))
+         xmlFree(val);
+-    return(hname);
+-}
+-
+-/**
+- * xmlAttrHashInsert:
+- * @ctxt: parser context
+- * @size: size of the hash table
+- * @name: attribute name
+- * @uri: namespace uri
+- * @hashValue: combined hash value of name and uri
+- * @aindex: attribute index (this is a multiple of 5)
+- *
+- * Inserts a new attribute into the hash table.
+- *
+- * Returns INT_MAX if no existing attribute was found, the attribute
+- * index if an attribute was found, -1 if a memory allocation failed.
+- */
++/* Rationale: Use a single cleanup label to centralize freeing logic, ensuring 'name' is freed exactly once. */
+ static int
+ xmlAttrHashInsert(xmlParserCtxtPtr ctxt, unsigned size, const xmlChar *name,
+                   const xmlChar *uri, unsigned hashValue, int aindex) {
+-    xmlAttrHashBucket *table = ctxt->attrHash;
+-    xmlAttrHashBucket *bucket;
++	unsigned int bucketIndex;
++	xmlAttrHashBucket *table = ctxt->attrHash;
++	xmlAttrHashBucket *bucket;
++	xmlAttrHashBucket *prev;
++	xmlChar *tmp = (xmlChar *) name;
++	int ret;
++
++	if ((table == NULL) || (size == 0))
++		return(-1);
++	bucketIndex = hashValue % size;
++	bucket = table[bucketIndex];
++	prev = NULL;
++	while (bucket != NULL) {
++		if ((bucket->hash == hashValue) &&
++		    xmlStrEqual(bucket->name, name) &&
++		    ((bucket->uri == NULL) == (uri == NULL)) &&
++		    ((uri == NULL) || (xmlStrEqual(bucket->uri, uri)))) {
++		    /* Already existing: reuse cleanup path */
++		    ret = bucket->aindex;
++		    goto cleanup;
++		}
++		prev = bucket;
++		bucket = bucket->next;
++	}
++	/* no existing entry: allocate and insert */
++	{
++		xmlAttrHashBucket *newBucket = (xmlAttrHashBucket *) xmlMalloc(sizeof(xmlAttrHashBucket));
++		if (newBucket == NULL) {
++			ret = -1;
++			goto cleanup;
++		}
++		newBucket->name = tmp;
++		newBucket->uri = (xmlChar *)uri;
++		newBucket->hash = hashValue;
++		newBucket->aindex = aindex;
++		newBucket->next = NULL;
++		if (prev)
++			prev->next = newBucket;
++		else
++			table[bucketIndex] = newBucket;
++		ret = INT_MAX;
++	}
++cleanup:
++	/* free exactly once */
++	if (ret != INT_MAX && tmp != NULL)
++		xmlFree(tmp);
++	return ret;
++}    xmlAttrHashBucket *bucket;
+     unsigned hindex;
+ 
+     hindex = hashValue & (size - 1);

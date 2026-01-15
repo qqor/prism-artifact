@@ -1,0 +1,35 @@
+--- a/pdfbox/src/main/java/org/apache/pdfbox/pdmodel/font/PDType1Font.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/pdmodel/font/PDType1Font.java
+@@ -218,6 +218,11 @@
+                     {
+                         throw new IOException("Font data unavailable");
+                     }
++                    // guard against overly large embedded font data
++                    if (bytes.length > Type1Font.MAX_BINARY_SEGMENT_SIZE)
++                    {
++                        throw new IOException("Embedded Type1 font too large: " + bytes.length);
++                    }
+                     length1 = repairLength1(bytes, length1);
+                     length2 = repairLength2(bytes, length1, length2);
+ 
+@@ -236,12 +241,19 @@
+                         }
+                         byte[] segment1 = Arrays.copyOfRange(bytes, 0, length1);
+                         byte[] segment2 = Arrays.copyOfRange(bytes, length1, length1 + length2);
+-
++                        // guard against overly large embedded segments
++                        if (segment1.length > Type1Font.MAX_BINARY_SEGMENT_SIZE
++                            || segment2.length > Type1Font.MAX_BINARY_SEGMENT_SIZE)
++                        {
++                            throw new IOException("Embedded Type1 segments too large: "
++                                + segment1.length + ", " + segment2.length);
++                        }
+                         // empty streams are simply ignored
+                         if (length1 > 0 && length2 > 0)
+                         {
+                             t1 = Type1Font.createWithSegments(segment1, segment2);
+                         }
++                    }
+                     }
+                 }
+                 catch (DamagedFontException e)

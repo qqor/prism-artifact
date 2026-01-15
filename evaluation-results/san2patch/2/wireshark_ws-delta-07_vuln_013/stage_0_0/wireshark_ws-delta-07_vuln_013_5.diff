@@ -1,0 +1,50 @@
+diff --git a/epan/dissectors/packet-gvcp.c b/epan/dissectors/packet-gvcp.c
+index d49324a429..6819740a7e 100644
+--- a/epan/dissectors/packet-gvcp.c
++++ b/epan/dissectors/packet-gvcp.c
+@@ -971,27 +971,32 @@ void process_register_writes(proto_tree *tree, tvbuff_t *tvb, int offset)
+ 
+ 	return;
+ }
+-
+ /*
+ Attempts to dissect a bootstrap register
+ */
+ 
+ static int dissect_register(uint32_t addr, proto_tree *branch, tvbuff_t *tvb, int offset, int length)
+ {
+-	uint32_t value = 0;
+-	
+-	value = tvb_get_letohl(tvb, offset);
+-	gvcp_register_number[gvcp_register_count] = addr;
+-	gvcp_register_value[gvcp_register_count++] = value;
++    uint32_t value = 0;
++    // FIXME: Crash CWE-787: Out-of-bounds Write
++    
++    value = tvb_get_letohl(tvb, offset);
++    /* Rationale: check gvcp_register_count to prevent OOB write */
++    if (gvcp_register_count < MAX_GVCP_REGISTERS) {
++        gvcp_register_number[gvcp_register_count] = addr;
++        gvcp_register_value[gvcp_register_count++] = value;
++    } else {
++        /* index out of bounds: drop write */
++    }
+ 
+-	switch (addr)
+-	{
+-	case GVCP_VERSION:
+-		proto_tree_add_item(branch, hf_gvcp_spec_version_major, tvb, offset, 4, ENC_BIG_ENDIAN);
+-		proto_tree_add_item(branch, hf_gvcp_spec_version_minor, tvb, offset, 4, ENC_BIG_ENDIAN);
+-		break;
++    switch (addr)
++    {
++    case GVCP_VERSION:
++        proto_tree_add_item(branch, hf_gvcp_spec_version_major, tvb, offset, 4, ENC_BIG_ENDIAN);
++        proto_tree_add_item(branch, hf_gvcp_spec_version_minor, tvb, offset, 4, ENC_BIG_ENDIAN);
++        break;
+ 
+-	case GVCP_DEVICE_MODE:
++    case GVCP_DEVICE_MODE:
+ 		proto_tree_add_item(branch, hf_gvcp_devicemode_endianness, tvb, offset, 4, ENC_BIG_ENDIAN);
+ 		proto_tree_add_item(branch, hf_gvcp_devicemode_deviceclass, tvb, offset, 4, ENC_BIG_ENDIAN);
+ 		proto_tree_add_item(branch, hf_gvcp_devicemode_current_link_configuration_v2_0, tvb, offset, 4, ENC_BIG_ENDIAN);

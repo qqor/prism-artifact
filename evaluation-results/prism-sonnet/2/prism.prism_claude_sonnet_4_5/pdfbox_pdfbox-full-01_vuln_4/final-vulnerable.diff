@@ -1,0 +1,213 @@
+--- a/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/COSParser.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/COSParser.java
+@@ -77,6 +77,8 @@
+     
+     private static final int STRMBUFLEN = 2048;
+     private final byte[] strmBuf = new byte[ STRMBUFLEN ];
++    
++    protected static final long MAX_STREAM_SIZE = 100L * 1024 * 1024;
+ 
+     private AccessPermission accessPermission;
+     private InputStream keyStoreInputStream = null;
+
+--- a/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/BaseParser.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/BaseParser.java
+@@ -166,6 +166,18 @@
+      * This is the document that will be parsed.
+      */
+     protected COSDocument document;
++    
++    protected int parsingDepth = 0;
++    protected long totalParsingOperations = 0;
++    
++    protected static final int MAX_PARSING_DEPTH = 25;
++    protected static final int MAX_COLLECTION_ELEMENTS = 10000;
++    protected static final int MAX_STRING_LENGTH = 10 * 1024 * 1024;
++    protected static final int MAX_NAME_LENGTH = 127;
++    protected static final int MAX_ERROR_RECOVERY_BYTES = 1024 * 1024;
++    protected static final int MAX_WHITESPACE_SEQUENCE = 10000;
++    protected static final long MAX_TOTAL_OPERATIONS = 1000000;
++    protected static final int MAX_NUMBER_LENGTH = 100;
+ 
+     /**
+      * Default constructor.
+@@ -269,6 +281,32 @@
+         }
+         return document.getObjectFromPool(key);
+     }
++    
++    protected void increaseParsingDepth() throws IOException
++    {
++        if (++parsingDepth > MAX_PARSING_DEPTH)
++        {
++            throw new IOException("Maximum parsing depth exceeded: " + MAX_PARSING_DEPTH + " at offset " + source.getPosition());
++        }
++    }
++    
++    protected void decreaseParsingDepth()
++    {
++        parsingDepth--;
++        if (parsingDepth < 0)
++        {
++            LOG.error("Parsing depth is negative: {}", parsingDepth);
++            parsingDepth = 0;
++        }
++    }
++    
++    protected void checkTotalOperations() throws IOException
++    {
++        if (++totalParsingOperations > MAX_TOTAL_OPERATIONS)
++        {
++            throw new IOException("Maximum total parsing operations exceeded: " + MAX_TOTAL_OPERATIONS);
++        }
++    }
+ 
+     /**
+      * This will parse a PDF dictionary.
+@@ -280,51 +318,61 @@
+      */
+     protected COSDictionary parseCOSDictionary(boolean isDirect) throws IOException
+     {
+-        readExpectedChar('<');
+-        readExpectedChar('<');
+-        skipSpaces();
+-        COSDictionary obj = new COSDictionary();
+-        obj.setDirect(isDirect);
+-        while (true)
+-        {
++        checkTotalOperations();
++        increaseParsingDepth();
++        try
++        {
++            readExpectedChar('<');
++            readExpectedChar('<');
+             skipSpaces();
+-            char c = (char) source.peek();
+-            if (c == '>')
+-            {
+-                break;
+-            }
+-            else if (c == '/')
+-            {
+-                // something went wrong, most likely the dictionary is corrupted
+-                // stop immediately and return everything read so far
+-                if (!parseCOSDictionaryNameValuePair(obj))
++            COSDictionary obj = new COSDictionary();
++            obj.setDirect(isDirect);
++            int elementCount = 0;
++            while (true)
++            {
++                skipSpaces();
++                char c = (char) source.peek();
++                if (c == '>')
+                 {
+-                    return obj;
++                    break;
+                 }
+-            }
+-            else
+-            {
+-                // invalid dictionary, we were expecting a /Name, read until the end or until we can recover
+-                LOG.warn("Invalid dictionary, found: '{}' but expected: '/' at offset {}", c,
++                else if (c == '/')
++                {
++                    if (++elementCount > MAX_COLLECTION_ELEMENTS)
++                    {
++                        throw new IOException("Maximum dictionary elements exceeded: " + MAX_COLLECTION_ELEMENTS + " at offset " + source.getPosition());
++                    }
++                    if (!parseCOSDictionaryNameValuePair(obj))
++                    {
++                        return obj;
++                    }
++                }
++                else
++                {
++                    LOG.warn("Invalid dictionary, found: '{}' but expected: '/' at offset {}", c,
++                            source.getPosition());
++                    if (readUntilEndOfCOSDictionary())
++                    {
++                        return obj;
++                    }
++                }
++            }
++            try
++            {
++                readExpectedChar('>');
++                readExpectedChar('>');
++            }
++            catch (IOException exception)
++            {
++                LOG.warn("Invalid dictionary, can't find end of dictionary at offset {}",
+                         source.getPosition());
+-                if (readUntilEndOfCOSDictionary())
+-                {
+-                    // we couldn't recover
+-                    return obj;
+-                }
+-            }
+-        }
+-        try
+-        {
+-            readExpectedChar('>');
+-            readExpectedChar('>');
+-        }
+-        catch (IOException exception)
+-        {
+-            LOG.warn("Invalid dictionary, can't find end of dictionary at offset {}",
+-                    source.getPosition());
+-        }
+-        return obj;
++            }
++            return obj;
++        }
++        finally
++        {
++            decreaseParsingDepth();
++        }
+     }
+ 
+     /**
+@@ -339,10 +387,13 @@
+     private boolean readUntilEndOfCOSDictionary() throws IOException
+     {
+         int c = source.read();
++        int bytesRead = 0;
+         while (c != -1 && c != '/' && c != '>')
+         {
+-            // in addition to stopping when we find / or >, we also want
+-            // to stop when we find endstream or endobj.
++            if (++bytesRead > MAX_ERROR_RECOVERY_BYTES)
++            {
++                throw new IOException("Maximum error recovery bytes exceeded while reading dictionary: " + MAX_ERROR_RECOVERY_BYTES);
++            }
+             if (c == E)
+             {
+                 c = source.read();
+@@ -358,7 +409,6 @@
+                                 && source.read() == J;
+                         if (isStream || isObj)
+                         {
+-                            // we're done reading this object!
+                             return true;
+                         }
+                     }
+@@ -408,14 +458,14 @@
+      */
+     protected void skipWhiteSpaces() throws IOException
+     {
+-        //PDF Ref 3.2.7 A stream must be followed by either
+-        //a CRLF or LF but nothing else.
+         int whitespace = source.read();
+-        //see brother_scan_cover.pdf, it adds whitespaces
+-        //after the stream but before the start of the
+-        //data, so just read those first
++        int count = 0;
+         while (isSpace(whitespace))
+         {
++            if (++count > MAX_WHITESPACE_SEQUENCE)
++            {
++                throw new IOException("Maximum whitespace sequence exceeded: " + MAX_WHITESPACE_SEQUENCE + " at offset " + source.getPosition());
++            }
+             whitespace = source.read();
+         }
+         if (!skipLinebreak(whitespace))

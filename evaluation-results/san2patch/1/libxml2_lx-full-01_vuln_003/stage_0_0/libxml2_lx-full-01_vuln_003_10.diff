@@ -1,0 +1,37 @@
+diff --git a/parser.c b/parser.c
+index 836b4a4f..c0487224 100644
+--- a/parser.c
++++ b/parser.c
+@@ -8414,22 +8414,26 @@ xmlParseInternalSubset(xmlParserCtxtPtr ctxt) {
+             /*
+              * Conditional sections are allowed from external entities included
+              * by PE References in the internal subset.
++             * Rationale: Ensure at least 3 bytes remain before calling NXT(2) to avoid OOB read
+              */
+             if ((PARSER_EXTERNAL(ctxt)) &&
+-                (RAW == '<') && (NXT(1) == '!') && (NXT(2) == '[')) {
++                (RAW == '<') &&
++                /* bound-check before peeking ahead */
++                (ctxt->input->cur + 2 < ctxt->input->end) &&
++                (NXT(1) == '!') && (NXT(2) == '[')) {
+                 xmlParseConditionalSections(ctxt);
+             } else if ((RAW == '<') && ((NXT(1) == '!') || (NXT(1) == '?'))) {
+-	        xmlParseMarkupDecl(ctxt);
++                xmlParseMarkupDecl(ctxt);
+             } else if (RAW == '%') {
+-	        xmlParsePEReference(ctxt);
++                xmlParsePEReference(ctxt);
+             } else {
+-		xmlFatalErr(ctxt, XML_ERR_INT_SUBSET_NOT_FINISHED, NULL);
++                xmlFatalErr(ctxt, XML_ERR_INT_SUBSET_NOT_FINISHED, NULL);
+                 break;
+             }
+-	    SKIP_BLANKS_PE;
++            SKIP_BLANKS_PE;
+             SHRINK;
+             GROW;
+-	}
++        }
+ 
+         while (ctxt->inputNr > oldInputNr)
+             xmlPopPE(ctxt);

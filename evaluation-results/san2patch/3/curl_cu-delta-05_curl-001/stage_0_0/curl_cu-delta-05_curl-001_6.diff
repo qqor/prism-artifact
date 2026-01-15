@@ -1,0 +1,39 @@
+diff --git a/lib/dict.c b/lib/dict.c
+index c940308b0..46033b5e1 100644
+--- a/lib/dict.c
++++ b/lib/dict.c
+@@ -129,6 +129,7 @@ static CURLcode sendf(struct Curl_easy *data,
+ 
+ static CURLcode sendf(struct Curl_easy *data, const char *fmt, ...)
+ {
++  #define MAX_DICT_ARG_LEN 1024
+   size_t bytes_written;
+   size_t write_len;
+   CURLcode result = CURLE_OK;
+@@ -141,8 +142,15 @@ static CURLcode sendf(struct Curl_easy *data, const char *fmt, ...)
+   if(!s)
+     return CURLE_OUT_OF_MEMORY; /* failure */
+ 
++  /* Safely determine length without overrun */
++  write_len = strnlen(s, MAX_DICT_ARG_LEN + 1);
++  if(write_len > MAX_DICT_ARG_LEN) {
++    failf(data, "DICT output too long (%zu > %d)", write_len, MAX_DICT_ARG_LEN);
++    free(s);
++    return CURLE_BAD_FUNCTION_ARGUMENT;
++  }
++
+   bytes_written = 0;
+-  write_len = strlen(s);
+   sptr = s;
+ 
+   for(;;) {
+@@ -155,8 +163,7 @@ static CURLcode sendf(struct Curl_easy *data, const char *fmt, ...)
+     Curl_debug(data, CURLINFO_DATA_OUT, sptr, (size_t)bytes_written);
+ 
+     if((size_t)bytes_written != write_len) {
+-      /* if not all was written at once, we must advance the pointer, decrease
+-         the size left and try again! */
++      /* if not all was written at once, advance pointer, decrease size and retry */
+       write_len -= bytes_written;
+       sptr += bytes_written;
+     }

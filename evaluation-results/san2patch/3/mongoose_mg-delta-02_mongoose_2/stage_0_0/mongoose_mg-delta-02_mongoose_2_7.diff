@@ -1,0 +1,31 @@
+diff --git a/src/net_builtin.c b/src/net_builtin.c
+index 793874f4..92d16592 100644
+--- a/src/net_builtin.c
++++ b/src/net_builtin.c
+@@ -380,8 +380,15 @@ static void rx_arp(struct mg_tcpip_if *ifp, struct pkt *pkt) {
+ }
+ 
+ static void rx_icmp(struct mg_tcpip_if *ifp, struct pkt *pkt) {
+-  // MG_DEBUG(("ICMP %d", (int) len));
+-  if (pkt->icmp->type == 8 && pkt->ip != NULL && pkt->ip->dst == ifp->ip) {
++   // Rationale: separate nested checks for clarity and safety
++   if (pkt->ip == NULL || pkt->ip->dst != ifp->ip) {
++       return;
++   }
++   // now packet is for us, ensure full ICMP header present
++   if (pkt->pay.len < sizeof(struct icmp)) {
++       return;
++   }
++   if (pkt->icmp->type == 8) {
+     size_t hlen = sizeof(struct eth) + sizeof(struct ip) + sizeof(struct icmp);
+     size_t space = ifp->tx.len - hlen, plen = pkt->pay.len;
+     if (plen > space) plen = space;
+@@ -392,7 +399,7 @@ static void rx_icmp(struct mg_tcpip_if *ifp, struct pkt *pkt) {
+     memcpy(icmp + 1, pkt->pay.buf, plen);  // Copy RX payload to TX
+     icmp->csum = ipcsum(icmp, sizeof(*icmp) + plen);
+     ether_output(ifp, hlen + plen);
+-  }
++   }
+ }
+ 
+ static void rx_dhcp_client(struct mg_tcpip_if *ifp, struct pkt *pkt) {

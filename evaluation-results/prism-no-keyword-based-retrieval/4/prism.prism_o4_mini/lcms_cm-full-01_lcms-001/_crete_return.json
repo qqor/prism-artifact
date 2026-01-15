@@ -1,0 +1,14 @@
+{
+  "project_name": "lcms",
+  "vulnerability_identifier": "lcms_cm-full-01_lcms-001",
+  "source_directory": "/home/qqor/crete/.cache/official-afc-little-cms",
+  "llm_usage": {
+    "total_cost": 0.9465005,
+    "prompt_tokens": 692003,
+    "completion_tokens": 42113
+  },
+  "variant": "sound",
+  "diff": "--- a/include/lcms2.h\n+++ b/include/lcms2.h\n@@ -553,8 +553,8 @@\n     cmsSigFloatPCS2Lab                  = 0x6C326420,  // 'l2d '\n     cmsSigXYZ2FloatPCS                  = 0x64327820,  // 'd2x '\n     cmsSigFloatPCS2XYZ                  = 0x78326420,  // 'x2d '  \n-    cmsSigClipNegativesElemType         = 0x636c7020   // 'clp '\n-\n+    cmsSigClipNegativesElemType         = 0x636c7020,  // 'clp '\n+    cmsSigUnknownStageElemType          = 0x00000000,  // unknown stage element type\n } cmsStageSignature;\n \n // Types of CurveElements\n\n--- a/src/cmslut.c\n+++ b/src/cmslut.c\n@@ -1227,6 +1227,9 @@\n \n cmsStageSignature CMSEXPORT cmsStageType(const cmsStage* mpe)\n {\n+    if (mpe == NULL) {\n+        return cmsSigUnknownStageElemType;\n+    }\n     return mpe -> Type;\n }\n \n\n--- a/src/cmsps2.c\n+++ b/src/cmsps2.c\n@@ -753,11 +753,15 @@\n static\n int EmitCIEBasedDEF(cmsIOHANDLER* m, cmsPipeline* Pipeline, cmsUInt32Number Intent, cmsCIEXYZ* BlackPoint)\n {\n+    // Guard against empty pipeline to prevent null dereference\n+    if (Pipeline->Elements == NULL) {\n+        return 0;\n+    }\n     const char* PreMaj;\n     const char* PostMaj;\n     const char* PreMin, *PostMin;\n     cmsStage* mpe;\n-        \n+    \n     mpe = Pipeline->Elements;\n \n     switch (cmsStageInputChannels(mpe)) {\n@@ -902,6 +906,15 @@\n \n             dwFlags |= cmsFLAGS_FORCE_CLUT;\n             _cmsOptimizePipeline(m->ContextID, &DeviceLink, Intent, &InputFormat, &OutFrm, &dwFlags);\n+\n+            // After optimization, ensure we have at least one stage\n+            if (DeviceLink->Elements == NULL) {\n+                cmsSignalError(m->ContextID, cmsERROR_COLORSPACE_CHECK,\n+                               \"Empty pipeline after optimization in WriteInputLUT\");\n+                cmsPipelineFree(DeviceLink);\n+                cmsDeleteTransform(xform);\n+                return FALSE;\n+            }\n \n             rc = EmitCIEBasedDEF(m, DeviceLink, Intent, &BlackPointAdaptedToD50);\n             cmsPipelineFree(DeviceLink);            \n",
+  "stdout": "",
+  "stderr": ""
+}

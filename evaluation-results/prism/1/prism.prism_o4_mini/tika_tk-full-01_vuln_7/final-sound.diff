@@ -1,0 +1,50 @@
+--- a/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-text-module/src/main/java/org/apache/tika/parser/csv/TextAndCSVConfig.java
++++ b/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-text-module/src/main/java/org/apache/tika/parser/csv/TextAndCSVConfig.java
+@@ -19,7 +19,7 @@
+ import java.io.Serializable;
+ import java.util.HashMap;
+ import java.util.Map;
+-
++import org.apache.tika.config.Field;
+ public class TextAndCSVConfig implements Serializable {
+ 
+     private static final Map<Character, String> DELIMITER_TO_NAME_MAP = new HashMap<>();
+@@ -40,6 +40,16 @@
+ 
+     private Map<String, Character> nameToDelimiterMap = NAME_TO_DELIMITER_MAP;
+     private Map<Character, String> delimiterToNameMap = DELIMITER_TO_NAME_MAP;
++    private boolean followHyperlinks = false;
++
++    public boolean isFollowHyperlinks() {
++        return followHyperlinks;
++    }
++
++    @Field
++    public void setFollowHyperlinks(boolean followHyperlinks) {
++        this.followHyperlinks = followHyperlinks;
++    }
+ 
+     public Map<String, Character> getNameToDelimiterMap() {
+         return nameToDelimiterMap;
+
+--- a/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-text-module/src/main/java/org/apache/tika/parser/csv/TextAndCSVParser.java
++++ b/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-text-module/src/main/java/org/apache/tika/parser/csv/TextAndCSVParser.java
+@@ -248,6 +248,7 @@
+                              Metadata metadata,
+                              ParseContext context) throws IOException, SAXException {
+         xhtml.startElement(TD);
++        TextAndCSVConfig config = context.get(TextAndCSVConfig.class, defaultTextAndCSVConfig);
+         Matcher m = HYPERLINK_PATTERN.matcher(cellContent);
+         if (m.find()) {
+             String url = m.group(1);
+@@ -258,7 +259,9 @@
+             xhtml.startElement("a", "href", url);
+             xhtml.characters(name);
+             xhtml.endElement("a");
+-            processURL(url, name, xhtml, metadata, context);
++            if (config.isFollowHyperlinks()) {
++                processURL(url, name, xhtml, metadata, context);
++            }
+         } else {
+             xhtml.characters(cellContent);
+         }

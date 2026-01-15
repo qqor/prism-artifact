@@ -1,0 +1,21 @@
+--- a/tika-core/src/main/java/org/apache/tika/detect/ShellCodeDetector.java
++++ b/tika-core/src/main/java/org/apache/tika/detect/ShellCodeDetector.java
+@@ -100,10 +100,15 @@
+         ProcessBuilder pb = new ProcessBuilder(fileName);
+         pb.directory(tmpDir.toFile());
+         try {
+-            FileProcessResult result = ProcessUtils.execute(pb, 20000, 100000, 100000);
+-            if (result.getExitValue() == 0) {
+-                metadata.set(SHELL_NO_ARGS, true);
++            try (java.io.InputStream is = Files.newInputStream(tmpFile)) {
++                int first = is.read();
++                int second = is.read();
++                if (first == '#' && second == '!') {
++                    metadata.set(SHELL_NO_ARGS, true);
++                }
+             }
++        } catch (IOException e) {
++            // ignore; assume not shell script
+         } finally {
+             FileUtils.deleteDirectory(tmpDir.toFile());
+         }

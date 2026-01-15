@@ -1,0 +1,28 @@
+diff --git a/src/json.c b/src/json.c
+index 2a91900..fc5d223 100644
+--- a/src/json.c
++++ b/src/json.c
+@@ -303,9 +303,11 @@ json_value * json_parse_ex (json_settings * settings,
+                   case 't':  string_add ('\t');  break;
+                   case 'u':
+ 
+-                    if (end - state.ptr < 4 || 
++                    /* Ensure at least 4 hex digits remain in the buffer plus one extra byte */
++                    if (end - state.ptr < 5 || 
+                         (uc_b1 = hex_value (*++ state.ptr)) == 0xFF ||
+-                        (uc_b2 = hex_value (*++ state.ptr)) == 0xFF ||
++// FIXME: Crash CWE-125: Out-of-bounds Read
++                         (uc_b2 = hex_value (*++ state.ptr)) == 0xFF ||
+                         (uc_b3 = hex_value (*++ state.ptr)) == 0xFF ||
+                         (uc_b4 = hex_value (*++ state.ptr)) == 0xFF)
+                     {
+@@ -320,7 +322,8 @@ json_value * json_parse_ex (json_settings * settings,
+                     if ((uchar & 0xF800) == 0xD800) {
+                         json_uchar uchar2;
+                         
+-                        if (end - state.ptr < 6 || (*++ state.ptr) != '\\' || (*++ state.ptr) != 'u' ||
++                        /* Ensure full surrogate pair: \\uXXXX\\uXXXX -> need at least 6 chars + 1 extra */
++                        if (end - state.ptr < 7 || (*++ state.ptr) != '\\' || (*++ state.ptr) != 'u' ||
+                             (uc_b1 = hex_value (*++ state.ptr)) == 0xFF ||
+                             (uc_b2 = hex_value (*++ state.ptr)) == 0xFF ||
+                             (uc_b3 = hex_value (*++ state.ptr)) == 0xFF ||

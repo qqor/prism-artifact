@@ -1,0 +1,14 @@
+{
+  "project_name": "tika",
+  "vulnerability_identifier": "tika_tk-full-01_vuln_1",
+  "source_directory": "/home/qqor/crete/.cache/official-afc-tika",
+  "llm_usage": {
+    "total_cost": 2.111154,
+    "prompt_tokens": 633398,
+    "completion_tokens": 14064
+  },
+  "variant": "sound",
+  "diff": "--- a/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-microsoft-module/src/main/java/org/apache/tika/parser/microsoft/rtf/RTFEmbObjHandler.java\n+++ b/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-microsoft-module/src/main/java/org/apache/tika/parser/microsoft/rtf/RTFEmbObjHandler.java\n@@ -211,17 +211,17 @@\n             extractObj(bytes, handler, metadata);\n \n         } else if (state == EMB_STATE.JAVA_OBJDATA) {\n-            try {\n-                Object obj = new ObjectInputStream(\n-                        UnsynchronizedByteArrayInputStream.builder().setByteArray(bytes)\n-                                .get()).readObject();\n-                metadata.set(RTFMetadata.EMB_CLASS, obj.getClass().getName());\n-                metadata.set(TikaCoreProperties.CONTENT_TYPE_PARSER_OVERRIDE,\n-                        MediaType.text(\"plain\").toString());\n-                extractObj(obj.toString().getBytes(StandardCharsets.UTF_8), handler, metadata);\n-            } catch (ClassNotFoundException e) {\n-                throw new TikaException(\"Not found\", e);\n-            }\n+            // Skip Java object deserialization for security reasons (RCE vulnerability)\n+            // Record that Java serialized object data was encountered but do not deserialize\n+            metadata.set(RTFMetadata.EMB_CLASS, \"application/x-java-serialized-object\");\n+            metadata.add(TikaCoreProperties.TIKA_META_EXCEPTION_WARNING,\n+                    \"Java object deserialization skipped for security reasons. \" +\n+                    \"Embedded Java serialized objects in RTF documents are not processed to prevent \" +\n+                    \"potential remote code execution vulnerabilities.\");\n+            metadata.set(TikaCoreProperties.CONTENT_TYPE_PARSER_OVERRIDE,\n+                    MediaType.text(\"plain\").toString());\n+            // Extract empty content instead of deserializing the object\n+            extractObj(new byte[0], handler, metadata);\n         } else if (state == EMB_STATE.NADA) {\n             //swallow...no start for pict or embed?!\n         }\n",
+  "stdout": "",
+  "stderr": ""
+}

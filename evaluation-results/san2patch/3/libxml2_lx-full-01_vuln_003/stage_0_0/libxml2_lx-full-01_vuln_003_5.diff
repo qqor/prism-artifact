@@ -1,0 +1,49 @@
+diff --git a/parser.c b/parser.c
+index 836b4a4f..cea727ce 100644
+--- a/parser.c
++++ b/parser.c
+@@ -4068,8 +4068,8 @@ xmlParseEntityValue(xmlParserCtxtPtr ctxt, xmlChar **orig) {
+ 
+     quote = CUR;
+     if ((quote != '"') && (quote != '\'')) {
+-	xmlFatalErr(ctxt, XML_ERR_ATTRIBUTE_NOT_STARTED, NULL);
+-	return(NULL);
++        xmlFatalErr(ctxt, XML_ERR_ATTRIBUTE_NOT_STARTED, NULL);
++        return(NULL);
+     }
+     CUR_PTR++;
+ 
+@@ -4116,6 +4116,13 @@ xmlParseEntityValue(xmlParserCtxtPtr ctxt, xmlChar **orig) {
+             xmlErrMemory(ctxt);
+     }
+ 
++    /* Ensure buffer can hold the entity content */
++    if (xmlSBufGrow(&buf, buf.size + length) < 0) {
++        xmlErrMemory(ctxt);
++        xmlSBufCleanup(&buf, ctxt, "entity length too long");
++        return(NULL);
++    }
++
+     xmlExpandPEsInEntityValue(ctxt, &buf, start, length, ctxt->inputNr);
+ 
+     NEXTL(1);
+@@ -4404,6 +4411,7 @@ xmlExpandEntityInAttValue(xmlParserCtxtPtr ctxt, xmlSBuf *buf,
+  *
+  * Returns the expanded attribtue value.
+  */
++/* Rationale: Enable internal bounds checking by setting the "check" flag to 1 to abort on overflow instead of copying past the buffer. */
+ xmlChar *
+ xmlExpandEntitiesInAttValue(xmlParserCtxtPtr ctxt, const xmlChar *str,
+                             int normalize) {
+@@ -4415,8 +4423,9 @@ xmlExpandEntitiesInAttValue(xmlParserCtxtPtr ctxt, const xmlChar *str,
+ 
+     xmlSBufInit(&buf, maxLength);
+ 
+-    xmlExpandEntityInAttValue(ctxt, &buf, str, NULL, normalize, &inSpace,
+-                              ctxt->inputNr, /* check */ 0);
++    /* enforce entity expansion length check */
++     xmlExpandEntityInAttValue(ctxt, &buf, str, NULL, normalize, &inSpace,
++                              ctxt->inputNr, /* check */ 1);
+ 
+     if ((normalize) && (inSpace) && (buf.size > 0))
+         buf.size--;

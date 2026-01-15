@@ -1,0 +1,41 @@
+--- a/src/cmslut.c
++++ b/src/cmslut.c
+@@ -1227,6 +1227,10 @@
+ 
+ cmsStageSignature CMSEXPORT cmsStageType(const cmsStage* mpe)
+ {
++    // Defensive null check: treat a NULL stage as identity (no-op)
++    if (mpe == NULL)
++        return cmsSigIdentityElemType;
++
+     return mpe -> Type;
+ }
+ 
+
+--- a/src/cmsps2.c
++++ b/src/cmsps2.c
+@@ -757,7 +757,11 @@
+     const char* PostMaj;
+     const char* PreMin, *PostMin;
+     cmsStage* mpe;
+-        
++
++    // Defensive guard: nothing to emit if pipeline or its first element is NULL
++    if (Pipeline == NULL || Pipeline->Elements == NULL)
++        return 0;
++
+     mpe = Pipeline->Elements;
+ 
+     switch (cmsStageInputChannels(mpe)) {
+@@ -904,6 +908,11 @@
+             _cmsOptimizePipeline(m->ContextID, &DeviceLink, Intent, &InputFormat, &OutFrm, &dwFlags);
+ 
+             rc = EmitCIEBasedDEF(m, DeviceLink, Intent, &BlackPointAdaptedToD50);
++            if (!rc) {
++                cmsPipelineFree(DeviceLink);
++                cmsDeleteTransform(xform);
++                return FALSE;
++            }
+             cmsPipelineFree(DeviceLink);            
+             if (!rc) {
+                 cmsDeleteTransform(xform);

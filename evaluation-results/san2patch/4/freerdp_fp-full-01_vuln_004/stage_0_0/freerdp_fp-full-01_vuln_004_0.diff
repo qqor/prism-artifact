@@ -1,0 +1,81 @@
+diff --git a/libfreerdp/core/gcc.c b/libfreerdp/core/gcc.c
+index d135d8353..325bd2244 100644
+--- a/libfreerdp/core/gcc.c
++++ b/libfreerdp/core/gcc.c
+@@ -599,70 +599,19 @@ BOOL gcc_read_client_data_blocks(wStream* s, rdpMcs* mcs, UINT16 length)
+ 
+ 		Stream_Seek(s, blockLength - 4);
+ 
+-		switch (type)
+-		{
+-			case CS_CORE:
+-				if (!gcc_read_client_core_data(sub, mcs))
+-					return FALSE;
+-
+-				break;
+-
+-			case CS_SECURITY:
+-				if (!gcc_read_client_security_data(sub, mcs))
+-					return FALSE;
+-
+-				break;
+-
++					// Ensure stream can accommodate 'length' bytes before reading
+ 			case CS_NET:
+-				if (!gcc_read_client_network_data(sub, mcs))
+-					return FALSE;
+-
+-				break;
+-
+-			case CS_CLUSTER:
+-				if (!gcc_read_client_cluster_data(sub, mcs))
+-					return FALSE;
+-
+-				break;
+-
+-			case CS_MONITOR:
+-				if (!gcc_read_client_monitor_data(sub, mcs))
+-					return FALSE;
+-
+-				break;
+-
+-			case CS_MCS_MSGCHANNEL:
+-				if (!gcc_read_client_message_channel_data(sub, mcs))
+-					return FALSE;
+-
+-				break;
+-
+-			case CS_MONITOR_EX:
+-				if (!gcc_read_client_monitor_extended_data(sub, mcs))
+-					return FALSE;
+-
+-				break;
+-
+-			case CS_UNUSED1:
+-				if (!gcc_read_client_unused1_data(sub))
++				if (!Stream_EnsureRemainingCapacity(sub, length))
++				{
++					WLog_ERR(TAG, "CS_NET: Insufficient data: need %u, available %u", length, Stream_GetRemainingCapacity(sub));
+ 					return FALSE;
++				}
+ 
+-				break;
+-
+-			case 0xC009:
+-			case CS_MULTITRANSPORT:
+-				gotMultitransport = TRUE;
+-				if (!gcc_read_client_multitransport_channel_data(sub, mcs))
++				if (!gcc_read_client_network_data(sub, mcs))
+ 					return FALSE;
+ 
+ 				break;
+ 
+-			default:
+-				WLog_ERR(TAG, "Unknown GCC client data block: 0x%04" PRIX16 "", type);
+-				winpr_HexDump(TAG, WLOG_TRACE, Stream_Pointer(sub), Stream_GetRemainingLength(sub));
+-				break;
+-		}
+-
+ 		const size_t rem = Stream_GetRemainingLength(sub);
+ 		if (rem > 0)
+ 		{

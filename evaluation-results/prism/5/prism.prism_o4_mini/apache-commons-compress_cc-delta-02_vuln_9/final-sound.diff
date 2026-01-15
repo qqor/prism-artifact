@@ -1,0 +1,38 @@
+--- a/src/main/java/org/apache/commons/compress/compressors/z/ZCompressorInputStream.java
++++ b/src/main/java/org/apache/commons/compress/compressors/z/ZCompressorInputStream.java
+@@ -36,12 +36,11 @@
+     private static final int MAGIC_2 = 0x9d;
+     private static final int BLOCK_MODE_MASK = 0x80;
+     private static final int MAX_CODE_SIZE_MASK = 0x1f;
++    private static final int MIN_CODE_SIZE = DEFAULT_CODE_SIZE;
++    private static final int MAX_ALLOWED_CODE_SIZE = 16;
+ 
+     /**
+      * Checks if the signature matches what is expected for a Unix compress file.
+-     *
+-     * @param signature the bytes to check
+-     * @param length    the number of bytes to check
+      * @return true, if this stream is a Unix compress compressed stream, false otherwise
+      * @since 1.9
+      */
+@@ -80,6 +79,9 @@
+         }
+         blockMode = (thirdByte & BLOCK_MODE_MASK) != 0;
+         maxCodeSize = thirdByte & MAX_CODE_SIZE_MASK;
++        if (maxCodeSize < MIN_CODE_SIZE || maxCodeSize > MAX_ALLOWED_CODE_SIZE) {
++            throw new IllegalArgumentException("maxCodeSize " + maxCodeSize + " is out of bounds.");
++        }
+         if (blockMode) {
+             setClearCode(DEFAULT_CODE_SIZE);
+         }
+
+--- a/src/test/java/org/apache/commons/compress/compressors/z/ZCompressorInputStreamTest.java
++++ b/src/test/java/org/apache/commons/compress/compressors/z/ZCompressorInputStreamTest.java
+@@ -60,6 +60,7 @@
+             IntStream.range(-65, -56),
+             IntStream.range(-33, -24),
+             IntStream.range(-1, 8),
++            IntStream.range(17, 32),
+             IntStream.range(31, 40),
+             IntStream.range(63, 72),
+             IntStream.range(95, 104),

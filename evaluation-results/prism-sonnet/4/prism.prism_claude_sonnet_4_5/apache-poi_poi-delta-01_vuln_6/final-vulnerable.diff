@@ -1,0 +1,162 @@
+--- a/poi/src/main/java/org/apache/poi/ss/formula/functions/Countif.java
++++ b/poi/src/main/java/org/apache/poi/ss/formula/functions/Countif.java
+@@ -368,6 +368,10 @@
+             if (_pattern != null) {
+                 return evaluate(_pattern.matcher(testedValue).matches());
+             }
++            // Check if the value contains wildcards and use custom matching
++            if (hasWildcards(_value)) {
++                return evaluate(wildcardMatch(_value, testedValue));
++            }
+             // String criteria in COUNTIF are case insensitive:
+             // for example, the string "apples" and the string "APPLES" will match the same cells.
+             return evaluate(testedValue.compareToIgnoreCase(_value));
+@@ -377,54 +381,86 @@
+          * @return {@code null} if the specified value contains no special wildcard characters.
+          */
+         public static Pattern getWildCardPattern(String value) {
+-            int len = value.length();
+-            StringBuilder sb = new StringBuilder(len);
+-            boolean hasWildCard = false;
+-            for(int i=0; i<len; i++) {
++            // Return null for any string - we'll use custom wildcard matching instead of regex
++            // to avoid stack overflow issues with pathological patterns
++            return null;
++        }
++        
++        public static boolean hasWildcards(String value) {
++            for (int i = 0; i < value.length(); i++) {
+                 char ch = value.charAt(i);
+-                switch(ch) {
+-                    case '?':  //Any single character
+-                        hasWildCard = true;
+-                        // match exactly one character
+-                        sb.append('.');
+-                        continue;
+-                    case '*': //Zero or more characters
+-                        hasWildCard = true;
+-                        // match one or more occurrences of any character
+-                        sb.append(".*");
+-                        continue;
+-                    case '~':
+-                        if (i+1<len) {
+-                            ch = value.charAt(i+1);
+-                            switch (ch) {
+-                                case '?':
+-                                case '*':
+-                                    hasWildCard = true;
+-                                    sb.append('[').append(ch).append(']');
+-                                    i++; // Note - incrementing loop variable here
+-                                    continue;
+-                            }
++                if (ch == '~' && i + 1 < value.length()) {
++                    i++; // Skip the escaped character
++                    continue;
++                }
++                if (ch == '*' || ch == '?') {
++                    return true;
++                }
++            }
++            return false;
++        }
++        
++        public static boolean wildcardMatch(String pattern, String text) {
++            int pLen = pattern.length();
++            int tLen = text.length();
++            
++            // Preprocess pattern to mark escaped positions
++            boolean[] isEscaped = new boolean[pLen];
++            for (int i = 0; i < pLen - 1; i++) {
++                if (pattern.charAt(i) == '~' && (pattern.charAt(i + 1) == '*' || pattern.charAt(i + 1) == '?')) {
++                    isEscaped[i + 1] = true;
++                }
++            }
++            
++            // Dynamic programming table for wildcard matching
++            boolean[][] dp = new boolean[pLen + 1][tLen + 1];
++            dp[0][0] = true; // Empty pattern matches empty text
++            
++            // Handle leading asterisks and escape characters in pattern
++            for (int i = 1; i <= pLen; i++) {
++                char ch = pattern.charAt(i - 1);
++                if (ch == '*' && !isEscaped[i - 1]) {
++                    dp[i][0] = dp[i - 1][0];
++                } else if (ch == '~' && i < pLen) {
++                    dp[i][0] = dp[i - 1][0];  // Skip escape char
++                } else {
++                    break;
++                }
++            }
++            
++            // Fill the DP table
++            for (int i = 1; i <= pLen; i++) {
++                for (int j = 1; j <= tLen; j++) {
++                    int pIdx = i - 1;
++                    int tIdx = j - 1;
++                    char pch = pattern.charAt(pIdx);
++                    char tch = text.charAt(tIdx);
++                    
++                    if (pch == '~' && pIdx + 1 < pLen) {
++                        // Escape character - propagate previous state
++                        dp[i][j] = dp[i - 1][j];
++                    } else if (pIdx > 0 && isEscaped[pIdx]) {
++                        // This character is escaped - match literally
++                        if (Character.toLowerCase(pch) == Character.toLowerCase(tch)) {
++                            // Go back 2 positions (past ~ and current char)
++                            dp[i][j] = dp[i - 2][j - 1];
+                         }
+-                        // else not '~?' or '~*'
+-                        sb.append('~'); // just plain '~'
+-                        continue;
+-                    case '.':
+-                    case '$':
+-                    case '^':
+-                    case '[':
+-                    case ']':
+-                    case '(':
+-                    case ')':
+-                        // escape literal characters that would have special meaning in regex
+-                        sb.append("\\").append(ch);
+-                        continue;
+-                }
+-                sb.append(ch);
+-            }
+-            if (hasWildCard) {
+-                return Pattern.compile(sb.toString(), Pattern.CASE_INSENSITIVE);
+-            }
+-            return null;
++                    } else if (pch == '*') {
++                        // '*' can match zero characters (dp[i-1][j]) or one or more characters (dp[i][j-1])
++                        dp[i][j] = dp[i - 1][j] || dp[i][j - 1];
++                    } else if (pch == '?') {
++                        // '?' matches exactly one character
++                        dp[i][j] = dp[i - 1][j - 1];
++                    } else {
++                        // Regular character - must match (case-insensitive)
++                        if (Character.toLowerCase(pch) == Character.toLowerCase(tch)) {
++                            dp[i][j] = dp[i - 1][j - 1];
++                        }
++                    }
++                }
++            }
++            
++            return dp[pLen][tLen];
+         }
+     }
+ 
+
+--- a/poi/src/main/java/org/apache/poi/ss/formula/functions/LookupUtils.java
++++ b/poi/src/main/java/org/apache/poi/ss/formula/functions/LookupUtils.java
+@@ -414,6 +414,12 @@
+                 Matcher matcher = _wildCardPattern.matcher(stringValue);
+                 boolean matches = matcher.matches();
+ 
++                return CompareResult.valueOf(matches);
++            }
++            
++            // Use custom wildcard matching if pattern is null but wildcards exist
++            if (Countif.StringMatcher.hasWildcards(_value) && (_isMatchFunction || !_matchExact)) {
++                boolean matches = Countif.StringMatcher.wildcardMatch(_value, stringValue);
+                 return CompareResult.valueOf(matches);
+             }
+ 

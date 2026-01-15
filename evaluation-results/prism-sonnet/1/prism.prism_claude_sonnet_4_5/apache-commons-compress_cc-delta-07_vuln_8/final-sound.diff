@@ -1,0 +1,68 @@
+--- a/src/main/java/org/apache/commons/compress/archivers/examples/Expander.java
++++ b/src/main/java/org/apache/commons/compress/archivers/examples/Expander.java
+@@ -471,6 +471,7 @@
+         if (! Files.isDirectory(targetDirectory)) {
+             Files.createDirectories(targetDirectory);
+         }
++        final Path normalizedTargetDirectory = targetDirectory.toAbsolutePath().normalize();
+         final Enumeration<ZipArchiveEntry> entries = archive.getEntries();
+         while (entries.hasMoreElements()) {
+             ZipArchiveEntry zae = entries.nextElement();
+@@ -478,8 +479,18 @@
+                 String targetName = IOUtils.toString(archive.getInputStream(zae),
+                         StandardCharsets.UTF_8);
+                 Path link = targetDirectory.resolve(zae.getName());
+-                Path target = targetDirectory.resolve(targetName);
++                Path target = targetDirectory.resolve(targetName).normalize();
++                // Validate symlink target is within bounds
++                final Path normalizedTarget = target.toAbsolutePath().normalize();
++                if (!normalizedTarget.startsWith(normalizedTargetDirectory)) {
++                    throw new IOException(String.format("Zip slip via symlink target: '%s' + '%s' -> '%s'", targetDirectory, targetName, target));
++                }
+                 Path parent = createParentDirectory(targetDirectory, link);
++                // Validate that createParentDirectory didn't escape via symlinks
++                final Path normalizedParent = parent.toAbsolutePath().normalize();
++                if (!normalizedParent.startsWith(normalizedTargetDirectory)) {
++                    throw new IOException(String.format("Zip slip via parent directory: '%s' -> '%s'", targetDirectory, parent));
++                }
+ 
+                 if (!Files.isSameFile(link.getParent(), parent)) {
+                     link = parent.relativize(link.getFileName()).normalize();
+@@ -494,9 +505,19 @@
+                             targetDirectory, zae.getName(), target));
+                 }
+                 Path parent = createParentDirectory(targetDirectory, target);
++                // Validate that createParentDirectory didn't escape via symlinks
++                final Path normalizedParent = parent.toAbsolutePath().normalize();
++                if (!normalizedParent.startsWith(normalizedTargetDirectory)) {
++                    throw new IOException(String.format("Zip slip via parent directory: '%s' -> '%s'", targetDirectory, parent));
++                }
+                 if (! target.getParent().toAbsolutePath().normalize().equals(
+                         parent.toAbsolutePath().normalize())) {
+                     target = parent.normalize().resolve(target.getFileName());
++                    // Re-validate the reconstructed target path
++                    final Path normalizedTarget = target.toAbsolutePath().normalize();
++                    if (!normalizedTarget.startsWith(normalizedTargetDirectory)) {
++                        throw new IOException(String.format("Zip slip via reconstructed path: '%s' -> '%s'", targetDirectory, target));
++                    }
+                 }
+                 try (InputStream is = archive.getInputStream(zae)) {
+                     Files.copy(is, target);
+@@ -509,11 +530,17 @@
+         Path relative =
+                 root.relativize(target.getParent());
+         Path current = root.toAbsolutePath();
++        final Path normalizedRoot = root.toAbsolutePath().normalize();
+ 
+         for (Path p : relative) {
+             current = current.resolve(p);
+             if (Files.isSymbolicLink(current)) {
+                 current = Files.readSymbolicLink(current);
++                // Validate that the symlink target is within root bounds
++                final Path normalizedCurrent = current.toAbsolutePath().normalize();
++                if (!normalizedCurrent.startsWith(normalizedRoot)) {
++                    throw new IOException(String.format("Symlink points outside target directory: '%s' -> '%s'", root, current));
++                }
+             }
+             if (! Files.isDirectory(current)) {
+                 Files.createDirectory(current);

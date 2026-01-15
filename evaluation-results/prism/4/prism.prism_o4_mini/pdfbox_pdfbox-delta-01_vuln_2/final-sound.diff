@@ -1,0 +1,48 @@
+--- a/pdfbox/src/main/java/org/apache/pdfbox/ocr/OCRStreamEngine.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/ocr/OCRStreamEngine.java
+@@ -55,8 +55,19 @@
+         this.timeoutMillisPerPage = millisPerPage;
+     }
+ 
+-    public void setTesseractPath(String tesseractPath) {
+-        this.tesseractPath = tesseractPath;
++    public void setTesseractPath(String tesseractPath) throws IOException {
++        String raw = tesseractPath;
++        if (raw == null || raw.isEmpty()) {
++            throw new IOException("Tesseract path must not be null or empty");
++        }
++        if (!raw.matches("^[\\w/\\\\.-]+$")) {
++            throw new IOException("Invalid characters in Tesseract path: " + raw);
++        }
++        Path exe = Paths.get(raw);
++        if (!java.nio.file.Files.exists(exe) || !java.nio.file.Files.isRegularFile(exe) || !java.nio.file.Files.isExecutable(exe)) {
++            throw new IOException("Tesseract executable not found or not executable: " + raw);
++        }
++        this.tesseractPath = exe.toAbsolutePath().toString();
+     }
+     /**
+      * This will return the text of a document. See writeText. <br>
+@@ -155,11 +166,19 @@
+     }
+ 
+     private String runTesseract(Path image) throws IOException {
+-        String actualTessPath = pdDocument.getDocumentInformation()
++        String raw = pdDocument.getDocumentInformation()
+                 .getCustomMetadataValue(TESSERACT_PATH_KEY);
+-        if (actualTessPath == null || actualTessPath.isEmpty()) {
+-            actualTessPath = tesseractPath;
+-        }
++        if (raw == null || raw.isEmpty()) {
++            raw = tesseractPath;
++        }
++        if (!raw.matches("^[\\w/\\\\.-]+$")) {
++            throw new IOException("Invalid characters in Tesseract path: " + raw);
++        }
++        Path exe = Paths.get(raw);
++        if (!java.nio.file.Files.exists(exe) || !java.nio.file.Files.isRegularFile(exe) || !java.nio.file.Files.isExecutable(exe)) {
++            throw new IOException("Tesseract executable not found or not executable: " + raw);
++        }
++        String actualTessPath = exe.toAbsolutePath().toString();
+ 
+         Path txt = Paths.get(image.toAbsolutePath().toString());
+         doOCR(actualTessPath, image, txt);

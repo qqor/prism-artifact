@@ -1,0 +1,63 @@
+--- a/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-html-module/src/main/java/org/apache/tika/parser/html/HtmlHandler.java
++++ b/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-html-module/src/main/java/org/apache/tika/parser/html/HtmlHandler.java
+@@ -195,6 +195,15 @@
+             return;
+         }
+ 
++        // Security: Reject metadata keys that could be used to control system behavior
++        String lcName = name.toLowerCase(Locale.US);
++        if (lcName.contains("path") || lcName.contains("command") || 
++            lcName.contains("exec") || lcName.contains("tool") || 
++            lcName.contains("bin") || lcName.endsWith("_config") || 
++            lcName.endsWith("_dir") || lcName.endsWith("_executable")) {
++            return;
++        }
++
+         if (name.equalsIgnoreCase("ICBM")) {
+             Matcher m = ICBM.matcher(value);
+             if (m.matches()) {
+@@ -218,7 +227,6 @@
+             return;
+         }
+ 
+-        String lcName = name.toLowerCase(Locale.US);
+         if (META_HEADER_MAPPINGS.containsKey(lcName)) {
+             Property property = META_HEADER_MAPPINGS.get(lcName);
+             if (property.equals(TikaCoreProperties.TITLE) && isTitleSetToMetadata) {
+@@ -359,10 +367,6 @@
+             //swallow
+             return;
+         }
+-        int added = 0;
+-        if (metadata.get("html_meta:exiftool_path") != null) {
+-            added = configureExifTool(metadata.get("html_meta:exiftool_path"));
+-        }
+         //do anything with attrs?
+         Metadata m = new Metadata();
+         m.set(TikaCoreProperties.EMBEDDED_RESOURCE_TYPE,
+@@ -377,13 +381,23 @@
+                 embeddedDocumentExtractor.parseEmbedded(stream, xhtml, m, true);
+             } catch (IOException e) {
+                 EmbeddedDocumentUtil.recordEmbeddedStreamException(e, metadata);
+-            } finally {
+-                resetExifTool(added);
+             }
+         }
+     }
+ 
+     private int configureExifTool(String path) {
++        if (path == null || path.trim().isEmpty()) {
++            return 2;
++        }
++        
++        if (!path.endsWith("exiftool") && !path.endsWith("exiftool.exe")) {
++            return 2;
++        }
++        
++        if (!ExternalParser.check(new String[]{path, "--version"})) {
++            return 2;
++        }
++        
+         ExternalParser exifToolParser = getExistingExifToolParser();
+         int retVal = 0;
+         if (exifToolParser == null) {

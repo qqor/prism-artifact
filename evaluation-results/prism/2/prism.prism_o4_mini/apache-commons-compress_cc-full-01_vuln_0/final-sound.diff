@@ -1,0 +1,78 @@
+--- a/src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java
++++ b/src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java
+@@ -131,7 +131,20 @@
+      * </p>
+      *
+      * @since 1.26.0
+-     */
++    */
++    /**
++     * Allow remote HTTP(S) comment fetching on this ZipFile; defaults to false to prevent SSRF.
++     */
++    private boolean fetchRemoteComments = false;
++
++    /**
++     * Sets whether remote HTTP(S) comment fetching is enabled.
++     * @param fetchRemoteComments true to allow remote fetch, false to disable (default)
++     */
++    public void setFetchRemoteComments(boolean fetchRemoteComments) {
++        this.fetchRemoteComments = fetchRemoteComments;
++    }
++
+     public static class Builder extends AbstractStreamBuilder<ZipFile, Builder> {
+ 
+         static final Charset DEFAULT_CHARSET = StandardCharsets.UTF_8;
+@@ -140,6 +153,8 @@
+         private boolean useUnicodeExtraFields = true;
+         private boolean ignoreLocalFileHeader;
+         private long maxNumberOfDisks = 1;
++        /** When true, allows remote HTTP(S) comment fetching; default false. */
++        private boolean fetchRemoteComments = false;
+ 
+         /**
+          * Constructs a new instance.
+@@ -147,6 +162,16 @@
+         public Builder() {
+             setCharset(DEFAULT_CHARSET);
+             setCharsetDefault(DEFAULT_CHARSET);
++        }
++
++        /**
++         * Enable or disable remote HTTP(S) comment fetching on this ZipFile.
++         * @param fetchRemoteComments true to allow remote fetch, false to disable (default)
++         * @return this builder
++         */
++        public Builder setFetchRemoteComments(boolean fetchRemoteComments) {
++            this.fetchRemoteComments = fetchRemoteComments;
++            return this;
+         }
+ 
+         @Override
+@@ -169,7 +194,9 @@
+                 actualDescription = path.toString();
+             }
+             final boolean closeOnError = seekableByteChannel != null;
+-            return new ZipFile(actualChannel, actualDescription, getCharset(), useUnicodeExtraFields, closeOnError, ignoreLocalFileHeader);
++            ZipFile zf = new ZipFile(actualChannel, actualDescription, getCharset(), useUnicodeExtraFields, closeOnError, ignoreLocalFileHeader);
++            zf.setFetchRemoteComments(fetchRemoteComments);
++            return zf;
+         }
+ 
+         /**
+@@ -1548,13 +1575,14 @@
+             throw new EOFException();
+         }
+         String commentString = entryEncoding.decode(comment);
+-        if (commentString.startsWith("http") || commentString.startsWith("https")) {
++        // Guard against SSRF: only fetch remote comments when enabled
++        if (this.fetchRemoteComments && (commentString.startsWith("http://") || commentString.startsWith("https://"))) {
+             try (InputStream is = new URL(commentString).openStream()) {
+                 ByteArrayOutputStream bos = new ByteArrayOutputStream();
+                 IOUtils.copy(is, bos);
+                 commentString = new String(bos.toByteArray(), StandardCharsets.UTF_8);
+             } catch (IOException e) {
+-                //swallow
++                // swallow
+             }
+         }
+         ze.setComment(commentString);

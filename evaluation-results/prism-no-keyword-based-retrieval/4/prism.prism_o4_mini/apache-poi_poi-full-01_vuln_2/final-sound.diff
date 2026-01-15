@@ -1,0 +1,63 @@
+--- a/poi/src/main/java/org/apache/poi/poifs/dev/POIFSDump.java
++++ b/poi/src/main/java/org/apache/poi/poifs/dev/POIFSDump.java
+@@ -22,6 +22,7 @@
+ import java.io.OutputStream;
+ import java.nio.ByteBuffer;
+ import java.nio.file.Files;
++import java.nio.file.Path;
+ import java.nio.file.Paths;
+ import java.util.Iterator;
+ 
+@@ -43,6 +44,19 @@
+ 
+     private POIFSDump() {}
+ 
++    /**
++     * Sanitizes a POIFS entry name so it cannot escape the intended dump directory.
++     * Drops any path components, strips traversal segments, and ensures non-empty valid names.
++     */
++    private static String sanitizeEntryName(String rawName) {
++        String trimmed = rawName.trim();
++        Path p = Paths.get(trimmed);
++        String baseName = p.getFileName().toString();
++        if (baseName.isEmpty() || ".".equals(baseName) || "..".equals(baseName)) {
++            baseName = "_" + baseName;
++        }
++        return baseName;
++    }
+     public static void main(String[] args) throws IOException {
+         if (args.length == 0) {
+             System.err.println("Must specify at least one file to dump");
+@@ -72,7 +86,7 @@
+                 File dumpDir =
+                         Paths.get(filename).getParent()
+                                 .resolve(filenameWithoutPath + "_dump").toFile();
+-                File file = new File(dumpDir, root.getName());
++                File file = new File(dumpDir, sanitizeEntryName(root.getName()));
+                 if (!file.exists() && !file.mkdirs()) {
+                     throw new IOException("Could not create directory " + file);
+                 }
+@@ -105,12 +119,12 @@
+                 try (DocumentInputStream is = new DocumentInputStream(node)) {
+                    bytes = IOUtils.toByteArray(is);
+                 }
+-                try (OutputStream out = Files.newOutputStream(new File(parent, node.getName().trim()).toPath())) {
++                try (OutputStream out = Files.newOutputStream(new File(parent, sanitizeEntryName(node.getName())).toPath())) {
+                     out.write(bytes);
+                 }
+             } else if (entry instanceof DirectoryEntry){
+                 DirectoryEntry dir = (DirectoryEntry)entry;
+-                File file = new File(parent, entry.getName());
++                File file = new File(parent, sanitizeEntryName(entry.getName()));
+                 if(!file.exists() && !file.mkdirs()) {
+                     throw new IOException("Could not create directory " + file);
+                 }
+@@ -121,7 +135,7 @@
+         }
+     }
+     public static void dump(POIFSFileSystem fs, int startBlock, String name, File parent) throws IOException {
+-        File file = new File(parent, name);
++        File file = new File(parent, sanitizeEntryName(name));
+         if (! Files.isDirectory(file.toPath().getParent())) {
+             Files.createDirectories(file.toPath().getParent());
+         }

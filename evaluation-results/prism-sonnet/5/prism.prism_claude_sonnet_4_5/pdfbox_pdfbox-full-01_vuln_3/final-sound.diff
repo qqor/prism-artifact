@@ -1,0 +1,179 @@
+--- a/fontbox/src/main/java/org/apache/fontbox/type1/Type1Parser.java
++++ b/fontbox/src/main/java/org/apache/fontbox/type1/Type1Parser.java
+@@ -44,6 +44,36 @@
+     private static final int EEXEC_KEY = 55665;
+     private static final int CHARSTRING_KEY = 4330;
+ 
++    /**
++     * Maximum dictionary size to prevent timeout.
++     */
++    private static final int MAX_DICT_SIZE = 10000;
++
++    /**
++     * Maximum array size to prevent timeout.
++     */
++    private static final int MAX_ARRAY_SIZE = 10000;
++
++    /**
++     * Maximum iterations when searching for tokens.
++     */
++    private static final int MAX_TOKEN_SEARCH_ITERATIONS = 100000;
++
++    /**
++     * Maximum nesting depth for procedures and arrays.
++     */
++    private static final int MAX_NESTING_DEPTH = 100;
++
++    /**
++     * Maximum number of subroutines.
++     */
++    private static final int MAX_SUBRS = 10000;
++
++    /**
++     * Maximum number of charstrings.
++     */
++    private static final int MAX_CHARSTRINGS = 10000;
++
+     // state
+     private Type1Lexer lexer;
+     private Type1Font font;
+@@ -107,6 +137,10 @@
+ 
+         // font dict
+         int length = read(Token.INTEGER).intValue();
++        if (length < 0 || length > MAX_DICT_SIZE)
++        {
++            throw new DamagedFontException("Invalid dictionary size: " + length);
++        }
+         read(Token.NAME, "dict");
+         // found in some TeX fonts
+         readMaybe(Token.NAME, "dup");
+@@ -214,18 +248,28 @@
+             // 0 1 255 {1 index exch /.notdef put } for
+             // we have to check "readonly" and "def" too
+             // as some fonts don't provide any dup-values, see PDFBOX-2134
++            int iterations = 0;
+             while (!(lexer.peekKind(Token.NAME)
+                     && (lexer.peekToken().getText().equals("dup")
+                             || lexer.peekToken().getText().equals("readonly")
+                             || lexer.peekToken().getText().equals("def"))))
+             {
++                if (++iterations > MAX_TOKEN_SEARCH_ITERATIONS)
++                {
++                    throw new DamagedFontException("Token search exceeded maximum iterations");
++                }
+                 lexer.nextToken();
+             }
+             
+             Map<Integer, String> codeToName = new HashMap<>();
++            int entryCount = 0;
+             while (lexer.peekKind(Token.NAME) &&
+                     lexer.peekToken().getText().equals("dup"))
+             {
++                if (++entryCount > MAX_DICT_SIZE)
++                {
++                    throw new DamagedFontException("Encoding entries exceed maximum: " + MAX_DICT_SIZE);
++                }
+                 read(Token.NAME, "dup");
+                 int code = read(Token.INTEGER).intValue();
+                 String name = read(Token.LITERAL).getText();
+@@ -318,6 +362,10 @@
+         Map<String, List<Token>> dict = new HashMap<>();
+ 
+         int length = read(Token.INTEGER).intValue();
++        if (length < 0 || length > MAX_DICT_SIZE)
++        {
++            throw new DamagedFontException("Invalid dictionary size: " + length);
++        }
+         read(Token.NAME, "dict");
+         readMaybe(Token.NAME, "dup");
+ 
+@@ -392,8 +440,13 @@
+         if (token.getKind() == Token.START_ARRAY)
+         {
+             int openArray = 1;
++            int iterations = 0;
+             while (true)
+             {
++                if (++iterations > MAX_TOKEN_SEARCH_ITERATIONS)
++                {
++                    throw new DamagedFontException("Array parsing exceeded maximum iterations");
++                }
+                 if (lexer.peekToken() == null)
+                 {
+                     return value;
+@@ -401,6 +454,10 @@
+                 if (lexer.peekKind(Token.START_ARRAY))
+                 {
+                     openArray++;
++                    if (openArray > MAX_NESTING_DEPTH)
++                    {
++                        throw new DamagedFontException("Array nesting exceeds maximum depth: " + MAX_NESTING_DEPTH);
++                    }
+                 }
+ 
+                 token = lexer.nextToken();
+@@ -471,8 +528,13 @@
+         List<Token> value = new ArrayList<>();
+ 
+         int openProc = 1;
++        int iterations = 0;
+         while (true)
+         {
++            if (++iterations > MAX_TOKEN_SEARCH_ITERATIONS)
++            {
++                throw new DamagedFontException("Procedure parsing exceeded maximum iterations");
++            }
+             if (lexer.peekToken() == null)
+             {
+                 throw new IOException("Malformed procedure: missing token");
+@@ -481,6 +543,10 @@
+             if (lexer.peekKind(Token.START_PROC))
+             {
+                 openProc++;
++                if (openProc > MAX_NESTING_DEPTH)
++                {
++                    throw new DamagedFontException("Procedure nesting exceeds maximum depth: " + MAX_NESTING_DEPTH);
++                }
+             }
+ 
+             Token token = lexer.nextToken();
+@@ -510,8 +576,13 @@
+     private void readProcVoid() throws IOException
+     {
+         int openProc = 1;
++        int iterations = 0;
+         while (true)
+         {
++            if (++iterations > MAX_TOKEN_SEARCH_ITERATIONS)
++            {
++                throw new DamagedFontException("Procedure parsing exceeded maximum iterations");
++            }
+             if (lexer.peekToken() == null)
+             {
+                 throw new IOException("Malformed procedure: missing token");
+@@ -519,6 +590,10 @@
+             if (lexer.peekKind(Token.START_PROC))
+             {
+                 openProc++;
++                if (openProc > MAX_NESTING_DEPTH)
++                {
++                    throw new DamagedFontException("Procedure nesting exceeds maximum depth: " + MAX_NESTING_DEPTH);
++                }
+             }
+ 
+             Token token = lexer.nextToken();
+@@ -554,8 +629,13 @@
+ 
+         // find /Private dict
+         Token peekToken = lexer.peekToken();
++        int iterations = 0;
+         while (peekToken != null && !"Private".equals(peekToken.getText()))
+         {
++            if (++iterations > MAX_TOKEN_SEARCH_ITERATIONS)
++            {
++                throw new DamagedFontException("Token search for /Private exceeded maximum iterations");
++            }
+             // for a more thorough validation, the presence of "begin" before Private
+             // determines how code before and following charstrings should look
+             // it is not currently checked anyway

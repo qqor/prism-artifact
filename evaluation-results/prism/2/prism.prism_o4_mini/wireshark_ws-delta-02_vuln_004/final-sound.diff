@@ -1,0 +1,65 @@
+--- a/epan/dissectors/packet-icmp.c
++++ b/epan/dissectors/packet-icmp.c
+@@ -892,7 +892,7 @@
+ 
+ /* Dissect Interface Identification Object RFC 8335*/
+ static bool
+-dissect_interface_identification_object(tvbuff_t * tvb, int offset,
++dissect_interface_identification_object(packet_info *pinfo, tvbuff_t * tvb, int offset,
+ 				     proto_tree * ext_object_tree,
+ 				     proto_item * tf_object)
+ {
+@@ -907,7 +907,7 @@
+ 	unknown_object = false;
+ 	/* Object length */
+ 	obj_length = tvb_get_ntohs(tvb, offset);
+-
++	guint name_len;
+ 	/* C-Type */
+ 	c_type = tvb_get_uint8(tvb, offset + 3);
+ 
+@@ -920,17 +920,29 @@
+ 	ti = proto_tree_add_uint(ext_object_tree, hf_icmp_ext_c_type, tvb, offset + 3, 1, c_type);
+ 	proto_item_append_text(ti, " (%s)", val_to_str(c_type, ext_echo_ident_str, "Unknown C-Type %u"));
+ 	offset += 4;
+-
+ 	switch(c_type) {
+ 		case ICMP_EXT_ECHO_IDENT_NAME:
+ 			/* Identification Name must be printable*/
+-			tvb_memcpy(tvb, ident_name, offset, obj_length - 4);
+-
+-			for (unsigned i = 0; i < obj_length - 4; i++)
++			if (obj_length < 4) {
++				/* Malformed extension: too small to contain header+name */
++				unknown_object = true;
++				break;
++			}
++			name_len = obj_length - 4;
++			if (name_len > ICMP_MAX_IDENT_NAME_LENGTH) {
++				expert_add_info_format(pinfo, tf_object,
++					PI_MALFORMED, PI_ERROR,
++					"ICMP Identification Name length %u exceeds max %u",
++					name_len, ICMP_MAX_IDENT_NAME_LENGTH);
++				unknown_object = true;
++				break;
++			}
++			tvb_memcpy(tvb, ident_name, offset, name_len);
++			for (unsigned i = 0; i < name_len; i++)
+ 				if (!g_ascii_isprint(ident_name[i]))
+ 					break;
+-
+-			proto_tree_add_item(ext_object_tree, hf_icmp_int_ident_name_string, tvb, offset, obj_length - 4, ENC_ASCII);
++			proto_tree_add_item(ext_object_tree, hf_icmp_int_ident_name_string,
++					    tvb, offset, name_len, ENC_ASCII);
+ 			break;
+ 		case ICMP_EXT_ECHO_IDENT_INDEX:
+ 			proto_tree_add_item(ext_object_tree, hf_icmp_int_ident_index, tvb, offset, 4, ENC_NA);
+@@ -1089,7 +1101,7 @@
+ 			break;
+ 		case INTERFACE_IDENTIFICATION_OBJECT_CLASS:
+ 			unknown_object =
+-			    dissect_interface_identification_object(tvb,
++			    dissect_interface_identification_object(pinfo, tvb,
+ 								 offset,
+ 								 ext_object_tree,
+ 								 tf_object);

@@ -1,0 +1,76 @@
+--- a/poi-scratchpad/src/main/java/org/apache/poi/hslf/dev/PPTXMLDump.java
++++ b/poi-scratchpad/src/main/java/org/apache/poi/hslf/dev/PPTXMLDump.java
+@@ -111,7 +111,11 @@
+      */
+     public void dump(byte[] data, int offset, int length, int padding) throws IOException {
+         int pos = offset;
+-        while (pos <= (offset + length - HEADER_SIZE)){
++        if (length < HEADER_SIZE) {
++            // not enough data for header, abort parsing
++            return;
++        }
++        while (pos <= (offset + length - HEADER_SIZE)) {
+             if (pos < 0) {
+                 break;
+             }
+@@ -124,11 +128,12 @@
+             int size = (int)LittleEndian.getUInt(data, pos);
+             pos += LittleEndianConsts.INT_SIZE;
+ 
+-            if (size < 0) {
+-                // stop processing of invalid header data
+-                continue;
+-            }
+-
++            // Sanity-check record size: avoid infinite loops on bad record sizes
++            int remaining = offset + length - pos;
++            if (size <= 0 || size > remaining) {
++                // invalid record: abort parsing to avoid hang
++                break;
++            }
+             //get name of the record by type
+             String recname = RecordTypes.forTypeID(type).name();
+             write(out, "<"+recname + " info=\""+info+"\" type=\""+type+"\" size=\""+size+"\" offset=\""+(pos-8)+"\"", padding);
+@@ -145,8 +150,10 @@
+                 //continue to dump child records
+                 dump(data, pos, size, padding);
+             } else {
+-                //dump first 100 bytes of the atom data
+-                dump(out, data, pos, Math.min(size, data.length-pos), padding, true);
++                // dump capped hex data of the atom, limit to 100 bytes
++                int avail = Math.min(size, data.length - pos);
++                int dumpLen = Math.min(avail, 100);
++                dump(out, data, pos, dumpLen, padding, true);
+             }
+             padding--;
+             write(out, "</"+recname + ">" + CR, padding);
+@@ -165,18 +172,24 @@
+     public void dumpPictures(byte[] data, int padding) throws IOException {
+         int pos = 0;
+         while (pos < data.length) {
+-            if(data.length - pos < PICT_HEADER_SIZE) {
++            if (data.length - pos < PICT_HEADER_SIZE) {
+                 // corrupt file, cannot read header
+                 return;
+             }
+             byte[] header = Arrays.copyOfRange(data, pos, pos + PICT_HEADER_SIZE);
+             int size = LittleEndian.getInt(header, 4) - 17;
+-            if(size < 0) {
+-                // corrupt file, negative image size
++            // Sanity-check picture size: avoid infinite loops or OOB
++            int remainingPic = data.length - pos - PICT_HEADER_SIZE;
++            if (size < 0 || size > remainingPic) {
++                // corrupt or adversarial image size
+                 return;
+             }
+-
+-            pos += PICT_HEADER_SIZE + size;
++            int nextPos = pos + PICT_HEADER_SIZE + size;
++            if (nextPos <= pos) {
++                // invalid progression, abort to avoid hang
++                break;
++            }
++            pos = nextPos;
+ 
+             padding++;
+             write(out, "<picture size=\""+size+"\" type=\""+getPictureType(header)+"\">" + CR, padding);

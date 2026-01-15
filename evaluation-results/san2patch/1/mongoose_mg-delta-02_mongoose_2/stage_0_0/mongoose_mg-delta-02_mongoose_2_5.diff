@@ -1,0 +1,58 @@
+diff --git a/src/net_builtin.c b/src/net_builtin.c
+index 793874f4..224b5762 100644
+--- a/src/net_builtin.c
++++ b/src/net_builtin.c
+@@ -851,13 +851,13 @@ static void rx_ip6(struct mg_tcpip_if *ifp, struct pkt *pkt) {
+   }
+ }
+ 
++/* Rationale: Compute remaining payload length after Ethernet and IP headers and pass it into mkpay to avoid reading past the buffer. */
+ void mg_tcpip_rx(struct mg_tcpip_if *ifp, void *buf, size_t len) {
+   struct pkt pkt;
+   memset(&pkt, 0, sizeof(pkt));
+   pkt.raw.buf = (char *) buf;
+   pkt.raw.len = len;
+   pkt.eth = (struct eth *) buf;
+-  // mg_hexdump(buf, len > 16 ? 16: len);
+   if (pkt.raw.len < sizeof(*pkt.eth)) return;  // Truncated - runt?
+   if (ifp->enable_mac_check &&
+       memcmp(pkt.eth->dst, ifp->mac, sizeof(pkt.eth->dst)) != 0 &&
+@@ -877,22 +877,31 @@ void mg_tcpip_rx(struct mg_tcpip_if *ifp, void *buf, size_t len) {
+     pkt.ip6 = (struct ip6 *) (pkt.eth + 1);
+     if (pkt.raw.len < sizeof(*pkt.eth) + sizeof(*pkt.ip6)) return;  // Truncated
+     if ((pkt.ip6->ver >> 4) != 0x6) return;                         // Not IP
+-    mkpay(&pkt, pkt.ip6 + 1);
++    {
++      size_t offset = sizeof(*pkt.eth) + sizeof(*pkt.ip6);
++      size_t avail = pkt.raw.len - offset;
++      mkpay(&pkt, (char *)(pkt.ip6 + 1), avail);
++    }
+     rx_ip6(ifp, &pkt);
+   } else if (pkt.eth->type == mg_htons(0x800)) {
+     pkt.ip = (struct ip *) (pkt.eth + 1);
+     if (pkt.raw.len < sizeof(*pkt.eth) + sizeof(*pkt.ip)) return;  // Truncated
+-    // Truncate frame to what IP header tells us
+     if ((size_t) mg_ntohs(pkt.ip->len) + sizeof(struct eth) < pkt.raw.len) {
+       pkt.raw.len = (size_t) mg_ntohs(pkt.ip->len) + sizeof(struct eth);
+     }
+     if (pkt.raw.len < sizeof(*pkt.eth) + sizeof(*pkt.ip)) return;  // Truncated
+     if ((pkt.ip->ver >> 4) != 4) return;                           // Not IP
+-    if ((pkt.ip->ver & 0xF) > 5)                                   // Handle IPv4 options
+-        mkpay(&pkt, (char *)(pkt.ip) + ((pkt.ip->ver & 0xF)*4));
+-    else
+-        mkpay(&pkt, pkt.ip + 1);
+-
++    if ((pkt.ip->ver & 0xF) > 5) {
++      size_t ihl_bytes = (pkt.ip->ver & 0xF) * 4;
++      size_t offset = sizeof(*pkt.eth) + ihl_bytes;
++      size_t avail = pkt.raw.len - offset;
++      mkpay(&pkt, (char *)pkt.ip + ihl_bytes, avail);
++    } else {
++      size_t ihl_bytes = sizeof(*pkt.ip);
++      size_t offset = sizeof(*pkt.eth) + ihl_bytes;
++      size_t avail = pkt.raw.len - offset;
++      mkpay(&pkt, (char *)pkt.ip + ihl_bytes, avail);
++    }
+     rx_ip(ifp, &pkt);
+   } else {
+     MG_DEBUG(("Unknown eth type %x", mg_htons(pkt.eth->type)));

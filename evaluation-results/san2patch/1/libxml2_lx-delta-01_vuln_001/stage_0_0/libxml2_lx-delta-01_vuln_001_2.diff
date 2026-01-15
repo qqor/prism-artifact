@@ -1,0 +1,66 @@
+diff --git a/HTMLparser.c b/HTMLparser.c
+index 9c34e9e8..84ea453e 100644
+--- a/HTMLparser.c
++++ b/HTMLparser.c
+@@ -2612,9 +2612,17 @@ htmlParseData(htmlParserCtxtPtr ctxt, htmlAsciiMask mask,
+     used = 0;
+     buffer_size = ctxt->spaceMax;
+     buffer = (xmlChar *) ctxt->spaceTab;
+-    if (buffer == NULL) {
+-        buffer_size = 500;
+-        buffer = xmlMalloc(buffer_size + 1);
++// Fixed CWE-787: use xmlMallocAtomic for small allocations
++     if (buffer == NULL) {
++        size_t len = xmlStrlen(value);
++        /* Check overflow: ensure (len + 1) * sizeof(xmlChar) fits */
++        if (len > (SIZE_MAX / sizeof(xmlChar) - 1)) {
++            htmlErrMemory(ctxt);
++            return(NULL);
++        }
++        size_t needed = (len + 1) * sizeof(xmlChar);
++        /* xmlMallocAtomic may be more efficient for temporary buffers */
++        buffer = (xmlChar *) xmlMallocAtomic(needed);
+         if (buffer == NULL) {
+             htmlErrMemory(ctxt);
+             return(NULL);
+@@ -2624,8 +2632,7 @@ htmlParseData(htmlParserCtxtPtr ctxt, htmlAsciiMask mask,
+     line = input->line;
+     col = input->col;
+ 
+-    while (!PARSER_STOPPED(ctxt)) {
+-        const xmlChar *chunk, *in, *repl;
++    while (!PARSER_STOPPED(ctxt)) {        const xmlChar *chunk, *in, *repl;
+         size_t avail, chunkSize, extraSize;
+         int replSize;
+         int skip = 0;
+@@ -3330,9 +3337,17 @@ htmlSecureComment(htmlParserCtxtPtr ctxt, htmlAsciiMask mask,
+     used = 0;
+     buffer_size = ctxt->spaceMax;
+     buffer = (xmlChar *) ctxt->spaceTab;
+-    if (buffer == NULL) {
+-        buffer_size = 500;
+-        buffer = xmlMalloc(buffer_size + 1);
++// Fixed CWE-787: use xmlMallocAtomic for small allocations
++     if (buffer == NULL) {
++        size_t len = xmlStrlen(value);
++        /* Check overflow: ensure (len + 1) * sizeof(xmlChar) fits */
++        if (len > (SIZE_MAX / sizeof(xmlChar) - 1)) {
++            htmlErrMemory(ctxt);
++            return(NULL);
++        }
++        size_t needed = (len + 1) * sizeof(xmlChar);
++        /* xmlMallocAtomic may be more efficient for temporary buffers */
++        buffer = (xmlChar *) xmlMallocAtomic(needed);
+         if (buffer == NULL) {
+             htmlErrMemory(ctxt);
+             return(NULL);
+@@ -3342,8 +3357,7 @@ htmlSecureComment(htmlParserCtxtPtr ctxt, htmlAsciiMask mask,
+     line = input->line;
+     col = input->col;
+ 
+-    while (!PARSER_STOPPED(ctxt)) {
+-        const xmlChar *chunk, *in, *repl;
++    while (!PARSER_STOPPED(ctxt)) {        const xmlChar *chunk, *in, *repl;
+         size_t avail, chunkSize, extraSize;
+         int replSize;
+         int skip = 0;

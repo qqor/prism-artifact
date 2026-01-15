@@ -1,0 +1,48 @@
+diff --git a/src/udev/udev-rules.c b/src/udev/udev-rules.c
+index 9f9a970a6c..2be420b85d 100644
+--- a/src/udev/udev-rules.c
++++ b/src/udev/udev-rules.c
+@@ -503,7 +503,8 @@ static int rule_line_add_token(UdevRuleLine *rule_line, UdevRuleTokenType type,
+         assert(type >= 0 && type < _TK_TYPE_MAX);
+         assert(op >= 0 && op < _OP_TYPE_MAX);
+ 
+-        if (type < _TK_M_MAX) {
++        /* Rationale: Allocate a new buffer with extra space (malloc+2) to safely perform two null-term writes and avoid overrun. */
++if (type < _TK_M_MAX) {
+                 assert(value);
+                 assert(IN_SET(op, OP_MATCH, OP_NOMATCH));
+ 
+@@ -514,7 +515,7 @@ static int rule_line_add_token(UdevRuleLine *rule_line, UdevRuleTokenType type,
+                 else if (streq(value, "?*")) {
+                         /* Convert KEY=="?*" -> KEY!="" */
+                         match_type = MATCH_TYPE_EMPTY;
+-                        op = op == OP_MATCH ? OP_NOMATCH : OP_MATCH;
++                         op = op == OP_MATCH ? OP_NOMATCH : OP_MATCH;
+                 } else if (string_is_glob(value))
+                         match_type = MATCH_TYPE_GLOB;
+                 else
+@@ -522,6 +523,15 @@ static int rule_line_add_token(UdevRuleLine *rule_line, UdevRuleTokenType type,
+ 
+                 if (type_has_nulstr_value(type)) {
+                         /* Convert value string to nulstr. */
++                        size_t orig_len = strlen(value);
++                        char *dup = malloc(orig_len + 2);
++                        if (!dup)
++                                return -ENOMEM;
++                        memcpy(dup, value, orig_len);
++                        dup[orig_len] = '\0';
++                        /* Leave dup[orig_len+1] reserved for potential second null */
++                        value = dup;
++
+                         bool bar = true, empty = false;
+                         char *a, *b;
+ 
+@@ -539,7 +549,7 @@ static int rule_line_add_token(UdevRuleLine *rule_line, UdevRuleTokenType type,
+                         }
+                         *b = '\0';
+ 
+-                        /* Make sure the value is end, so NULSTR_FOREACH can read correct match */
++                        /* Safe second null write within allocated bounds */
+                         if (b < a)
+                                 b[1] = '\0';
+ 

@@ -1,0 +1,26 @@
+diff --git a/src/shared/parse-argument.c b/src/shared/parse-argument.c
+index e6159c1482..f8c0027361 100644
+--- a/src/shared/parse-argument.c
++++ b/src/shared/parse-argument.c
+@@ -63,6 +63,7 @@ int parse_path_argument(const char *path, bool suppress_root, char **arg) {
+          * NOTE THAT THIS WILL FREE THE PREVIOUS ARGUMENT POINTER ON SUCCESS!
+          * Hence, do not pass in uninitialized pointers.
+          */
++// FIXME: Crash CWE-415: Double Free
+ 
+         if (isempty(path)) {
+                 *arg = mfree(*arg);
+@@ -74,8 +75,11 @@ int parse_path_argument(const char *path, bool suppress_root, char **arg) {
+                 return log_error_errno(r, "Failed to parse path \"%s\" and make it absolute: %m", path);
+ 
+         path_simplify(p);
+-        if (suppress_root && empty_or_root(p))
+-                p = mfree(p);
++        if (suppress_root && empty_or_root(p)) {
++                /* Rationale: free old *arg and keep *arg NULL, avoid p in free_and_replace */
++                *arg = mfree(*arg);
++                return 0;
++        }
+ 
+         return free_and_replace(*arg, p);
+ }

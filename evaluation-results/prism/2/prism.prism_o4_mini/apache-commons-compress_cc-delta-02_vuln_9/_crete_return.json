@@ -1,0 +1,14 @@
+{
+  "project_name": "apache-commons-compress",
+  "vulnerability_identifier": "apache-commons-compress_cc-delta-02_vuln_9",
+  "source_directory": "/home/qqor/crete/.cache/official-afc-commons-compress",
+  "llm_usage": {
+    "total_cost": 0.478093,
+    "prompt_tokens": 315626,
+    "completion_tokens": 29751
+  },
+  "variant": "sound",
+  "diff": "--- a/src/main/java/org/apache/commons/compress/compressors/CompressorStreamFactory.java\n+++ b/src/main/java/org/apache/commons/compress/compressors/CompressorStreamFactory.java\n@@ -195,6 +195,8 @@\n     private static final String YOU_NEED_ZSTD_JNI = youNeed(\"Zstd JNI\", \"https://github.com/luben/zstd-jni\");\n \n     private static final Set<String> ALL_NAMES = Sets.newHashSet(BZIP2, GZIP, PACK200, SNAPPY_FRAMED, Z, DEFLATE, XZ, LZMA, LZ4_FRAMED, ZSTANDARD);\n+    // kb\n+    private static final int DEFAULT_Z_MEMORY_LIMIT_IN_KB = 64 * 1024; // 64 MiB\n \n     private static Iterable<CompressorStreamProvider> archiveStreamProviderIterable() {\n         return ServiceLoader.load(CompressorStreamProvider.class, ClassLoader.getSystemClassLoader());\n@@ -428,7 +430,7 @@\n      */\n     private volatile boolean decompressConcatenated;\n \n-    private final int memoryLimitInKb;\n+    private int memoryLimitInKb;\n \n     /**\n      * Constructs an instance with the decompress Concatenated option set to false.\n@@ -438,6 +440,20 @@\n         this.memoryLimitInKb = -1;\n     }\n \n+    /**\n+     * Sets the soft memory limit (in KiB) for LZW (.Z) decompression.\n+     * Must be greater than zero. By default, a safe cap DEFAULT_Z_MEMORY_LIMIT_IN_KB is used.\n+     *\n+     * @param memoryLimitInKb memory cap in KiB\n+     * @return this factory for chaining\n+     */\n+    public CompressorStreamFactory setMemoryLimitInKb(int memoryLimitInKb) {\n+        if (memoryLimitInKb <= 0) {\n+            throw new IllegalArgumentException(\"memoryLimitInKb must be > 0\");\n+        }\n+        this.memoryLimitInKb = memoryLimitInKb;\n+        return this;\n+    }\n     /**\n      * Constructs an instance with the provided decompress Concatenated option.\n      *\n@@ -559,7 +575,11 @@\n                 return new FramedSnappyCompressorInputStream(in);\n             }\n             if (Z.equalsIgnoreCase(name)) {\n-                return new ZCompressorInputStream(in, memoryLimitInKb);\n+                // if user did not set a limit, fall back to a safe default\n+                int effectiveLimit = memoryLimitInKb > 0\n+                    ? memoryLimitInKb\n+                    : DEFAULT_Z_MEMORY_LIMIT_IN_KB;\n+                return new ZCompressorInputStream(in, effectiveLimit);\n             }\n             if (DEFLATE.equalsIgnoreCase(name)) {\n                 return new DeflateCompressorInputStream(in);\n",
+  "stdout": "",
+  "stderr": ""
+}

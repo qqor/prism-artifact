@@ -1,0 +1,41 @@
+diff --git a/lib/alliswellprotocoll.c b/lib/alliswellprotocoll.c
+index 5be67405e..7db5e944d 100644
+--- a/lib/alliswellprotocoll.c
++++ b/lib/alliswellprotocoll.c
+@@ -248,9 +248,10 @@ static CURLcode alliswellprotocoll_sm
+       if(result || !nread)
+         break;
+       if(memcmp(response, vnormal->state3, 128) == 0) {
++        /* assign result before state change and send */
++        result = CURLE_OK;
+         vnstate(data, ALLISWELLPROTOCOLL_STOP);
+         Curl_pp_sendf(data, &conn->proto.vnormal.pp, "%s", "OK\r\n");
+-        *(unsigned int *)result = CURLE_OK;
+       }
+       else if(strcasecmp("complete\r\n", response) == 0) {
+         Curl_pp_sendf(data, &conn->proto.vnormal.pp, "%s", "OK\r\n");
+@@ -272,15 +273,20 @@ static CURLcode alliswellprotocoll_sm
+   return result;
+ }
+ 
++// Rationale: Log missing protocol state and fail gracefully without dereference.
+ static CURLcode alliswellprotocoll_doing(struct Curl_easy *data, bool *done)
+ {
+   struct connectdata *conn = data->conn;
+-  struct alliswellprotocoll_conn *vnormal = &conn->proto.vnormal;
++  struct alliswellprotocoll_conn *vnormal = conn->proto.vnormal;
+ 
+-  CURLcode result = Curl_pp_statemach(data, &vnormal->pp, FALSE, FALSE);
++  if(!vnormal) {
++    infof(data, "Missing alliswellprotocol state, aborting mid-transfer\n");
++    *done = TRUE;
++    return CURLE_OK;
++  }
+ 
++  CURLcode result = Curl_pp_statemach(data, &vnormal->pp, FALSE, FALSE);
+   *done = (vnormal->state == ALLISWELLPROTOCOLL_STOP);
+ 
+   return result;
+-
+ }
+\ No newline at end of file

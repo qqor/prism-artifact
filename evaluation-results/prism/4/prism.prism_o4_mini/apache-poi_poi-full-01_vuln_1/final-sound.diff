@@ -1,0 +1,31 @@
+--- a/poi-scratchpad/src/main/java/org/apache/poi/hmef/attribute/MAPIAttribute.java
++++ b/poi-scratchpad/src/main/java/org/apache/poi/hmef/attribute/MAPIAttribute.java
+@@ -168,14 +168,13 @@
+                   if (mplen < 0) {
+                      throw new IOException("Did not expect negative value: " + mplen);
+                   }
+-                  byte[] mpdata = new byte[mplen];
++                  byte[] mpdata = IOUtils.safelyAllocate(mplen, MAX_RECORD_LENGTH);
+                   if (IOUtils.readFully(inp, mpdata) < 0) {
+                      throw new IOException("Not enough data to read " + mplen + " bytes for attribute name");
+                   }
+                   name = StringUtil.getFromUnicodeLE(mpdata, 0, (mplen/2)-1);
+                   skipToBoundary(mplen, inp);
+                }
+-
+                // Now create
+                prop = MAPIProperty.createCustom(id, type, name);
+             }
+
+--- a/poi-scratchpad/src/main/java/org/apache/poi/hmef/attribute/TNEFStringAttribute.java
++++ b/poi-scratchpad/src/main/java/org/apache/poi/hmef/attribute/TNEFStringAttribute.java
+@@ -44,6 +44,9 @@
+       String tmpData = null;
+       byte[] data = getData();
+       if(getType() == TNEFProperty.TYPE_TEXT) {
++         if (data.length > 1_048_576) {
++             throw new IllegalArgumentException("TNEF text attribute exceeds allowed size: " + data.length + " bytes");
++         }
+          tmpData = StringUtil.getFromUnicodeLE(data);
+       } else {
+          tmpData = StringUtil.getFromCompressedUnicode(

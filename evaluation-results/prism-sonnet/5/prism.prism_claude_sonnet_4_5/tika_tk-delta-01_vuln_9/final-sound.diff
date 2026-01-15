@@ -1,0 +1,106 @@
+--- a/tika-core/src/main/java/org/apache/tika/parser/external/ExternalParser.java
++++ b/tika-core/src/main/java/org/apache/tika/parser/external/ExternalParser.java
+@@ -158,7 +158,8 @@
+ 
+         Process process = null;
+         try {
+-            process = Runtime.getRuntime().exec(checkCmd);
++            ProcessBuilder pb = new ProcessBuilder(checkCmd);
++            process = pb.start();
+             Thread stdErrSuckerThread = ignoreStream(process.getErrorStream(), false);
+             Thread stdOutSuckerThread = ignoreStream(process.getInputStream(), false);
+             stdErrSuckerThread.join();
+@@ -285,14 +286,9 @@
+ 
+         File output = null;
+ 
+-        // Build our command
+-        String[] cmd;
+-        if (command.length == 1) {
+-            cmd = command[0].split(" ");
+-        } else {
+-            cmd = new String[command.length];
+-            System.arraycopy(command, 0, cmd, 0, command.length);
+-        }
++        // Build our command - use command array directly without string splitting
++        String[] cmd = new String[command.length];
++        System.arraycopy(command, 0, cmd, 0, command.length);
+         for (int i = 0; i < cmd.length; i++) {
+             if (cmd[i].contains(INPUT_FILE_TOKEN)) {
+                 cmd[i] = cmd[i].replace(INPUT_FILE_TOKEN, stream.getFile().getPath());
+@@ -305,14 +301,11 @@
+             }
+         }
+ 
+-        // Execute
++        // Execute using ProcessBuilder to avoid shell injection
+         Process process = null;
+         try {
+-            if (cmd.length == 1) {
+-                process = Runtime.getRuntime().exec(cmd[0]);
+-            } else {
+-                process = Runtime.getRuntime().exec(cmd);
+-            }
++            ProcessBuilder pb = new ProcessBuilder(cmd);
++            process = pb.start();
+         } catch (Exception e) {
+             LOG.warn("problem with process exec", e);
+         }
+
+--- a/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-html-module/src/main/java/org/apache/tika/parser/html/HtmlHandler.java
++++ b/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-html-module/src/main/java/org/apache/tika/parser/html/HtmlHandler.java
+@@ -35,6 +35,7 @@
+ import org.xml.sax.SAXException;
+ import org.xml.sax.helpers.AttributesImpl;
+ 
++import org.apache.tika.config.TikaConfig;
+ import org.apache.tika.extractor.EmbeddedDocumentExtractor;
+ import org.apache.tika.extractor.EmbeddedDocumentUtil;
+ import org.apache.tika.io.TikaInputStream;
+@@ -44,6 +45,8 @@
+ import org.apache.tika.metadata.Property;
+ import org.apache.tika.metadata.TikaCoreProperties;
+ import org.apache.tika.mime.MediaType;
++import org.apache.tika.mime.MediaTypeRegistry;
++import org.apache.tika.parser.CompositeParser;
+ import org.apache.tika.parser.ParseContext;
+ import org.apache.tika.parser.Parser;
+ import org.apache.tika.parser.external.CompositeExternalParser;
+@@ -370,8 +373,36 @@
+         if (dataURIScheme.getMediaType() != null) {
+             m.set(Metadata.CONTENT_TYPE, dataURIScheme.getMediaType().toString());
+         }
++        
++        // Create a restricted context that excludes external parsers for data URI security
++        ParseContext restrictedContext = new ParseContext();
++        
++        // Get the current parser and create a restricted version
++        Parser originalParser = context.get(Parser.class);
++        if (originalParser instanceof CompositeParser) {
++            CompositeParser cp = (CompositeParser) originalParser;
++            List<Parser> parsers = cp.getAllComponentParsers();
++            MediaTypeRegistry registry = cp.getMediaTypeRegistry();
++            
++            // Exclude external parsers to prevent command injection
++            Set<Class<? extends Parser>> excludeParsers = new HashSet<>();
++            excludeParsers.add(ExternalParser.class);
++            excludeParsers.add(CompositeExternalParser.class);
++            
++            Parser restrictedParser = new CompositeParser(registry, parsers, excludeParsers);
++            restrictedContext.set(Parser.class, restrictedParser);
++        } else if (originalParser != null) {
++            restrictedContext.set(Parser.class, originalParser);
++        }
++        
++        // Copy TikaConfig if present
++        TikaConfig tikaConfig = context.get(TikaConfig.class);
++        if (tikaConfig != null) {
++            restrictedContext.set(TikaConfig.class, tikaConfig);
++        }
++        
+         EmbeddedDocumentExtractor embeddedDocumentExtractor =
+-                EmbeddedDocumentUtil.getEmbeddedDocumentExtractor(context);
++                EmbeddedDocumentUtil.getEmbeddedDocumentExtractor(restrictedContext);
+         if (embeddedDocumentExtractor.shouldParseEmbedded(m)) {
+             try (TikaInputStream stream = TikaInputStream.get(dataURIScheme.getInputStream())) {
+                 embeddedDocumentExtractor.parseEmbedded(stream, xhtml, m, true);

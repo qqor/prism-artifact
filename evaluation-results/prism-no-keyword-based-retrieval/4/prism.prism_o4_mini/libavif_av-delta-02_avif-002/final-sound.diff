@@ -1,0 +1,56 @@
+--- a/src/reformat.c
++++ b/src/reformat.c
+@@ -796,25 +796,35 @@
+                     total_spill += fabs(spill_Cr);
+                     // if spill too high, dampen
+                     if ((image->height * image->width) >= 0x1000 && total_spill > ((image->height * image->width) * 3.8f)){
+-                        int a, b;
+-                        if (i % 2 == 0){
+-                            a = 1;
+-                        }else{
+-                            a = -1;
+-                        }
+-                        if (j % 2 == 0){
+-                            b = 1;
+-                        }else{
+-                            b = -1;
+-                        }
++                        // Apply spill to center pixel
+                         uspill_image[i][j] -= pSpillCb;
+-                        vspill_image[i][j] -= pSpillCb;
+-                        uspill_image[i+a][j] -= pSpillCb;
+-                        vspill_image[i+a][j] -= pSpillCr;
+-                        uspill_image[i][j+b] -= pSpillCb;
+-                        vspill_image[i][j+b] -= pSpillCr;
+-                        uspill_image[i+a][j+b] -= pSpillCb;
+-                        vspill_image[i+a][j+b] -= pSpillCr;
++                        vspill_image[i][j] -= pSpillCr;
++                        // Determine neighbor offsets
++                        int a = (i % 2 == 0) ? 1 : -1;
++                        int b = (j % 2 == 0) ? 1 : -1;
++                        // Clamp horizontal neighbor offset using unsigned-safe checks
++                        if ((a < 0 && i == 0) || (a > 0 && i + (uint32_t)a >= image->width)) {
++                            a = 0;
++                        }
++                        // Clamp vertical neighbor offset using unsigned-safe checks
++                        if ((b < 0 && j == 0) || (b > 0 && j + (uint32_t)b >= image->height)) {
++                            b = 0;
++                        }
++                        // Spill to horizontal neighbor if valid
++                        if (a != 0) {
++                            uspill_image[i + a][j] -= pSpillCb;
++                            vspill_image[i + a][j] -= pSpillCr;
++                        }
++                        // Spill to vertical neighbor if valid
++                        if (b != 0) {
++                            uspill_image[i][j + b] -= pSpillCb;
++                            vspill_image[i][j + b] -= pSpillCr;
++                        }
++                        // Spill to diagonal neighbor if both valid
++                        if (a != 0 && b != 0) {
++                            uspill_image[i + a][j + b] -= pSpillCb;
++                            vspill_image[i + a][j + b] -= pSpillCr;
++                        }
+                     }   
+                 }
+             }

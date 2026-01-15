@@ -1,0 +1,74 @@
+diff --git a/epan/dissectors/packet-netbios.c b/epan/dissectors/packet-netbios.c
+index 5ea85c7df4..1de9944ef1 100644
+--- a/epan/dissectors/packet-netbios.c
++++ b/epan/dissectors/packet-netbios.c
+@@ -260,36 +260,47 @@ static const value_string status_vals[] = {
+ };
+ 
+ static const value_string max_frame_size_vals[] = {
+-	{ 0,	"516" },
+-	{ 1,	"1500" },
+-	{ 2,	"2052" },
+-	{ 3,	"4472" },
+-	{ 4,	"8144" },
+-	{ 5,	"11407" },
+-	{ 6,	"17800" },	/* 17800 in TR spec, 17749 in NBF spec */
+-	{ 7,	"65535" },
+-	{ 0,	NULL }
++	{ 0,   "516" },
++	{ 1,   "1500" },
++	{ 2,   "2052" },
++	{ 3,   "4472" },
++	{ 4,   "8144" },
++	{ 5,   "11407" },
++	{ 6,   "17800" },   /* 17800 in TR spec, 17749 in NBF spec */
++	{ 7,   "65535" },
++	{ 0,   NULL }
+ };
+ 
+ 
+ static bool
+ capture_netbios(const unsigned char *pd _U_, int offset _U_, int len _U_, capture_packet_info_t *cpinfo, const union wtap_pseudo_header *pseudo_header _U_)
+ {
++	/* Prevent table-index-out-of-range: clamp offset if used as index */
++	if (offset < 0 || offset >= (int)(sizeof(max_frame_size_vals)/sizeof(max_frame_size_vals[0]))) {
++		/* Invalid offset for max_frame_size_vals, skip */
++		return false;
++	}
+ 	capture_dissector_increment_count(cpinfo, proto_netbios);
+ 	return true;
+ }
+ 
+-
+-int
++// FIXME: Crash CWE-125: Out-of-bounds Read
++ int
+ process_netbios_name(const unsigned char *name_ptr, char *name_ret, int name_ret_len)
+ {
++	/* Rationale: save original pointer and defer type extraction until after loop */
++	const unsigned char *orig_ptr = name_ptr;
+ 	int    i;
+-	int    name_type = *(name_ptr + NETBIOS_NAME_LEN - 1);
+ 	unsigned char name_char;
+ 	char  *name_ret_orig = name_ret;
+ 	static const char hex_digits[16] = {'0','1','2','3','4','5','6','7','8','9','a','b','c','d','e','f'};
+ 
+ 	for (i = 0; i < NETBIOS_NAME_LEN - 1; i++) {
++		if (!orig_ptr || orig_ptr + i >= orig_ptr + NETBIOS_NAME_LEN) {
++			/* out-of-range: abort */
++			*name_ret = '\0';
++			return 0;
++		}
+ 		name_char = *name_ptr++;
+ 		if (name_char >= ' ' && name_char <= '~') {
+ 			if (--name_ret_len > 0)
+@@ -309,6 +320,9 @@ process_netbios_name(const unsigned char *name_ptr, char *name_ret, int name_ret
+ 	}
+ 	*name_ret = '\0';
+ 
++	/* now safe to extract type */
++	int name_type = *(orig_ptr + NETBIOS_NAME_LEN - 1);
++
+ 	/* Remove trailing space characters from name. */
+ 
+ 	name_ret--;

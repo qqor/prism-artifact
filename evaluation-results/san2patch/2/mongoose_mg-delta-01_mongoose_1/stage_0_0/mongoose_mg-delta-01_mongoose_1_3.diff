@@ -1,0 +1,37 @@
+diff --git a/src/printf.c b/src/printf.c
+index d9998ccf..daaf9196 100644
+--- a/src/printf.c
++++ b/src/printf.c
+@@ -3,15 +3,23 @@
+ #include "util.h"
+ 
+ size_t mg_queue_vprintf(struct mg_queue *q, const char *fmt, va_list *ap) {
+-  size_t len = mg_snprintf(NULL, 0, fmt, ap);
+-  char *buf;
+-  if (len == 0 || mg_queue_book(q, &buf, len + 1) < len + 1) {
+-    len = 0;  // Nah. Not enough space
+-  } else {
+-    len = mg_vsnprintf((char *) buf, len + 1, fmt, ap);
+-    mg_queue_add(q, len);
+-  }
+-  return len;
++	/* Compute required length and fail early on absurdly large requests */
++	size_t len = mg_snprintf(NULL, 0, fmt, ap);
++	if (len > 1024 * 1024) {
++		/* Reject formats that would overflow internal tmp buffer in mg_vxprintf */
++		return 0;
++	}
++	char *buf;
++	if (len == 0 || mg_queue_book(q, &buf, len + 1) < len + 1) {
++		len = 0;
++	} else {
++		/* Write into buffer with the requested size */
++		len = mg_vsnprintf(buf, len + 1, fmt, ap);
++		/* Ensure we never report more than we reserved */
++		if (len < 0 || (size_t)len > len) len = 0;
++		mg_queue_add(q, len);
++	}
++	return len;
+ }
+ 
+ size_t mg_queue_printf(struct mg_queue *q, const char *fmt, ...) {

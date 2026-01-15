@@ -1,0 +1,37 @@
+--- a/core/src/main/java/org/apache/logging/log4j/core/lookup/JndiLookup.java
++++ b/core/src/main/java/org/apache/logging/log4j/core/lookup/JndiLookup.java
+@@ -28,7 +28,13 @@
+ @Plugin(name = "jndi", category = "Lookup")
+ public class JndiLookup implements StrLookup {
+ 
+-    private static boolean ENABLE_JNDI = true;
++    private static boolean ENABLE_JNDI = initEnableJndi();
++
++    private static boolean initEnableJndi() {
++        String prop = org.apache.logging.log4j.util.PropertiesUtil.getProperties()
++                         .getStringProperty("log4j2.enableJndiLookup");
++        return Boolean.parseBoolean(prop);
++    }
+ 
+     /** JNDI resourcce path prefix used in a J2EE container */
+     static final String CONTAINER_JNDI_RESOURCE_PATH_PREFIX = "java:comp/env/";
+@@ -55,9 +61,18 @@
+             return null;
+         }
+ 
++        String name = convertJndiName(key);
++        // Block remote JNDI lookups
++        if (name.contains("://")) {
++            return null;
++        }
++        // Only allow local JNDI resource lookups
++        if (!name.startsWith(CONTAINER_JNDI_RESOURCE_PATH_PREFIX)) {
++            return null;
++        }
+         try {
+             InitialContext ctx = new InitialContext();
+-            return (String) ctx.lookup(convertJndiName(key));
++            return (String) ctx.lookup(name);
+         } catch (NamingException e) {
+             return null;
+         }

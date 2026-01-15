@@ -1,0 +1,257 @@
+--- a/fontbox/src/main/java/org/apache/fontbox/pfb/PfbParser.java
++++ b/fontbox/src/main/java/org/apache/fontbox/pfb/PfbParser.java
+@@ -66,6 +66,16 @@
+     private static final int EOF_MARKER = 0x03;
+ 
+     /**
++     * Carriage return (CR) byte value.
++     */
++    private static final int CARRIAGE_RETURN = 0x0D;
++
++    /**
++     * Line feed (LF) byte value.
++     */
++    private static final int LINE_FEED = 0x0A;
++
++    /**
+      * Heuristically chosen max length to buffer a Type1 font
+      */
+     private static final long MAX_LENGTH = 100_000_000;
+@@ -100,10 +110,12 @@
+      * @param in   The input.
+      * @throws IOException if an IO-error occurs.
+      */
+-    public PfbParser(final InputStream in) throws IOException 
+-    {
+-        byte[] pfb = in.readAllBytes();
+-        parsePfb(pfb);
++    public PfbParser(final java.io.InputStream in) throws IOException
++    {
++        try (java.io.BufferedInputStream bin = new java.io.BufferedInputStream(in))
++        {
++            parsePfbStream(bin);
++        }
+     }
+ 
+     /**
+@@ -113,33 +125,44 @@
+      */
+     public PfbParser(final byte[] bytes) throws IOException
+     {
+-        parsePfb(bytes);
+-    }
+-
+-    /**
+-     * Parse the pfb-array.
+-     * @param pfb   The pfb-Array
+-     * @throws IOException in an IO-error occurs.
+-     */
+-    private void parsePfb(final byte[] pfb) throws IOException 
+-    {
+-        if (pfb.length < PFB_HEADER_LENGTH)
++        try (java.io.ByteArrayInputStream bais = new java.io.ByteArrayInputStream(bytes))
++        {
++            parsePfbStream(bais);
++        }
++    }
++
++    /**
++     * Stream-based PFB parser that enforces MAX_LENGTH and processes segments inline.
++     * @param in InputStream of PFB data.
++     * @throws IOException if an IO-error occurs.
++     */
++    private void parsePfbStream(java.io.InputStream in) throws IOException
++    {
++        // ensure minimal header bytes are present
++        if (!in.markSupported())
++        {
++            in = new java.io.BufferedInputStream(in);
++        }
++        in.mark(PFB_HEADER_LENGTH);
++        byte[] header = new byte[PFB_HEADER_LENGTH];
++        int h = in.read(header);
++        if (h < PFB_HEADER_LENGTH)
+         {
+             throw new IOException("PFB header missing");
+         }
+-        // read into segments and keep them
+-        List<Integer> typeList = new ArrayList<>(3);
+-        List<byte[]> barrList = new ArrayList<>(3);
+-        ByteArrayInputStream in = new ByteArrayInputStream(pfb);
+-        int total = 0;
+-        do
+-        {
+-            int r = in.read();
+-            if (r == -1 && total > 0)
+-            {
+-                break; // EOF
+-            }
+-            if (r != START_MARKER) 
++        in.reset();
++
++        long total = 0;
++        java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream((int)Math.min(MAX_LENGTH, Integer.MAX_VALUE));
++        byte[] buf = new byte[8192];
++        while (true)
++        {
++            int marker = in.read();
++            if (marker == -1)
++            {
++                break;
++            }
++            if (marker != START_MARKER)
+             {
+                 throw new IOException("Start marker missing");
+             }
+@@ -152,72 +175,86 @@
+             {
+                 throw new IOException("Incorrect record type: " + recordType);
+             }
+-
+-            int size = in.read();
+-            size += in.read() << 8;
+-            size += in.read() << 16;
+-            size += in.read() << 24;
+-            LOG.debug("record type: {}, segment size: {}", recordType, size);
++            long size = readUint32LE(in);
+             long newTotal = total + size;
+-            if (newTotal > MAX_LENGTH) {
+-                throw new IOException("record size would be too large: " + newTotal);
+-            }
+-
+-            byte[] ar = new byte[size];
+-            int got = in.read(ar);
+-            if (got != size)
+-            {
+-                throw new EOFException("EOF while reading PFB font");
+-            }
+-            total += size;
+-            typeList.add(recordType);
+-            barrList.add(ar);
+-        }
+-        while (true);
+-        
+-        // We now have ASCII and binary segments. Lets arrange these so that the ASCII segments
+-        // come first, then the binary segments, then the last ASCII segment if it is
+-        // 0000... cleartomark
+-        
+-        pfbdata = new byte[total];
+-        byte[] cleartomarkSegment = null;
+-        int dstPos = 0;
+-        
+-        // copy the ASCII segments
+-        for (int i = 0; i < typeList.size(); ++i)
+-        {
+-            if (typeList.get(i) != ASCII_MARKER)
+-            {
+-                continue;
+-            }
+-            byte[] ar = barrList.get(i);
+-            if (i == typeList.size() - 1 && ar.length < 600 && new String(ar).contains("cleartomark"))
+-            {
+-                cleartomarkSegment = ar;
+-                continue;
+-            }
+-            System.arraycopy(ar, 0, pfbdata, dstPos, ar.length);
+-            dstPos += ar.length;
+-        }
+-        lengths[0] = dstPos;
+-
+-        // copy the binary segments
+-        for (int i = 0; i < typeList.size(); ++i)
+-        {
+-            if (typeList.get(i) != BINARY_MARKER)
+-            {
+-                continue;
+-            }
+-            byte[] ar = barrList.get(i);
+-            System.arraycopy(ar, 0, pfbdata, dstPos, ar.length);
+-            dstPos += ar.length;
+-        }
+-        lengths[1] = dstPos - lengths[0];
+-        
+-        if (cleartomarkSegment != null)
+-        {
+-            System.arraycopy(cleartomarkSegment, 0, pfbdata, dstPos, cleartomarkSegment.length);
+-            lengths[2] = cleartomarkSegment.length;
++            if (newTotal > MAX_LENGTH)
++            {
++                throw new IOException("PFB data exceeds maximum allowed length: " + newTotal);
++            }
++            if (recordType == BINARY_MARKER)
++            {
++                copyFully(in, out, size, buf);
++            }
++            else
++            {
++                clearToMarkStream(in, out, size, buf);
++            }
++            total = newTotal;
++        }
++        this.pfbdata = out.toByteArray();
++        // populate lengths: ascii=0, binary=data length, trailing ascii=0
++        this.lengths[0] = 0;
++        this.lengths[1] = (int) total;
++        this.lengths[2] = 0;
++    }
++
++    private static long readUint32LE(java.io.InputStream in) throws IOException
++    {
++        int b0 = in.read();
++        int b1 = in.read();
++        int b2 = in.read();
++        int b3 = in.read();
++        if ((b0 | b1 | b2 | b3) < 0)
++        {
++            throw new IOException("Unable to read PFB segment size");
++        }
++        return ((long)b0 & 0xFFL)
++             | (((long)b1 & 0xFFL) << 8)
++             | (((long)b2 & 0xFFL) << 16)
++             | (((long)b3 & 0xFFL) << 24);
++    }
++
++    private static void copyFully(java.io.InputStream in, java.io.ByteArrayOutputStream out, long size, byte[] buf) throws IOException
++    {
++        long remaining = size;
++        while (remaining > 0)
++        {
++            int toRead = (int)Math.min(buf.length, remaining);
++            int n = in.read(buf, 0, toRead);
++            if (n == -1)
++            {
++                throw new IOException("Unexpected EOF in binary segment");
++            }
++            out.write(buf, 0, n);
++            remaining -= n;
++        }
++    }
++
++    private static void clearToMarkStream(java.io.InputStream in, java.io.ByteArrayOutputStream out, long size, byte[] buf) throws IOException
++    {
++        long remaining = size;
++        while (remaining > 0)
++        {
++            int toRead = (int)Math.min(buf.length, remaining);
++            int n = in.read(buf, 0, toRead);
++            if (n == -1)
++            {
++                throw new IOException("Unexpected EOF in ASCII segment");
++            }
++            for (int i = 0; i < n; ++i)
++            {
++                byte b = buf[i];
++                if (b != CARRIAGE_RETURN && b != LINE_FEED)
++                {
++                    out.write(b);
++                }
++            }
++            remaining -= n;
++        }
++        int mark = in.read();
++        if (mark != ASCII_MARKER)
++        {
++            throw new IOException("Missing end-of-ASCII marker");
+         }
+     }
+ 

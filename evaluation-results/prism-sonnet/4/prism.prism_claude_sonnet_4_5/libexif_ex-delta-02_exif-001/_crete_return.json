@@ -1,0 +1,14 @@
+{
+  "project_name": "libexif",
+  "vulnerability_identifier": "libexif_ex-delta-02_exif-001",
+  "source_directory": "/home/qqor/crete/.cache/official-afc-libexif",
+  "llm_usage": {
+    "total_cost": 3.2474760000000003,
+    "prompt_tokens": 949937,
+    "completion_tokens": 26511
+  },
+  "variant": "sound",
+  "diff": "--- a/libexif/fuji/exif-mnote-data-fuji.c\n+++ b/libexif/fuji/exif-mnote-data-fuji.c\n@@ -172,7 +172,30 @@\n \n \tn->order = EXIF_BYTE_ORDER_INTEL;\n \n-\tdatao += exif_get_long (buf + datao + 8, EXIF_BYTE_ORDER_INTEL);\n+\tif (CHECKOVERFLOW(datao + 8, buf_size, 4)) {\n+\t\texif_log (en->log, EXIF_LOG_CODE_CORRUPT_DATA,\n+\t\t\t  \"ExifMnoteDataFuji\", \"Short MakerNote header\");\n+\t\treturn;\n+\t}\n+\n+\tExifLong offset_to_entries = exif_get_long (buf + datao + 8, EXIF_BYTE_ORDER_INTEL);\n+\n+\tif (offset_to_entries > buf_size) {\n+\t\texif_log (en->log, EXIF_LOG_CODE_CORRUPT_DATA,\n+\t\t\t  \"ExifMnoteDataFuji\", \"Invalid entry offset in MakerNote (%u > %u)\", \n+\t\t\t  offset_to_entries, buf_size);\n+\t\treturn;\n+\t}\n+\n+\tif (datao > buf_size - offset_to_entries) {\n+\t\texif_log (en->log, EXIF_LOG_CODE_CORRUPT_DATA,\n+\t\t\t  \"ExifMnoteDataFuji\", \"Entry offset out of bounds (%u + %u > %u)\",\n+\t\t\t  (unsigned int)datao, offset_to_entries, buf_size);\n+\t\treturn;\n+\t}\n+\n+\tdatao += offset_to_entries;\n+\n \tif (CHECKOVERFLOW(datao, buf_size, 2)) {\n \t\texif_log (en->log, EXIF_LOG_CODE_CORRUPT_DATA,\n \t\t\t  \"ExifMnoteDataFuji\", \"Short MakerNote\");\n@@ -239,9 +262,24 @@\n \t\tn->entries[tcount].size = s;\n \t\tif (s) {\n \t\t\tsize_t dataofs = o + 8;\n-\t\t\tif (s > 4)\n-\t\t\t\t/* The data in this case is merely a pointer */\n-\t\t\t\tdataofs = exif_get_long (buf + dataofs, n->order) + 6 + n->offset;\n+\t\t\tif (s > 4) {\n+\t\t\t\tExifLong data_offset = exif_get_long (buf + dataofs, n->order);\n+\n+\t\t\t\tif (data_offset > buf_size) {\n+\t\t\t\t\texif_log (en->log, EXIF_LOG_CODE_CORRUPT_DATA,\n+\t\t\t\t\t\t\t  \"ExifMnoteDataFuji\", \"Invalid data offset in entry\");\n+\t\t\t\t\tcontinue;\n+\t\t\t\t}\n+\n+\t\t\t\tsize_t base_offset = 6 + n->offset;\n+\t\t\t\tif (base_offset > buf_size || data_offset > buf_size - base_offset) {\n+\t\t\t\t\texif_log (en->log, EXIF_LOG_CODE_CORRUPT_DATA,\n+\t\t\t\t\t\t\t  \"ExifMnoteDataFuji\", \"Data offset out of bounds\");\n+\t\t\t\t\tcontinue;\n+\t\t\t\t}\n+\n+\t\t\t\tdataofs = data_offset + base_offset;\n+\t\t\t}\n \n \t\t\tif (CHECKOVERFLOW(dataofs, buf_size, s)) {\n \t\t\t\texif_log (en->log, EXIF_LOG_CODE_CORRUPT_DATA,\n",
+  "stdout": "",
+  "stderr": ""
+}

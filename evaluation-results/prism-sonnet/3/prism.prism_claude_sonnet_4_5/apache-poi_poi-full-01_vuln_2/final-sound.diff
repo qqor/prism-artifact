@@ -1,0 +1,75 @@
+--- a/poi/src/main/java/org/apache/poi/poifs/dev/POIFSDump.java
++++ b/poi/src/main/java/org/apache/poi/poifs/dev/POIFSDump.java
+@@ -72,7 +72,7 @@
+                 File dumpDir =
+                         Paths.get(filename).getParent()
+                                 .resolve(filenameWithoutPath + "_dump").toFile();
+-                File file = new File(dumpDir, root.getName());
++                File file = new File(dumpDir, sanitizeEntryName(root.getName()));
+                 if (!file.exists() && !file.mkdirs()) {
+                     throw new IOException("Could not create directory " + file);
+                 }
+@@ -95,6 +95,48 @@
+             }
+         }
+     }
++    /**
++     * Sanitizes an entry name to prevent path traversal attacks.
++     * Removes or replaces path separators, parent directory references,
++     * and other potentially dangerous characters.
++     * 
++     * @param name the entry name to sanitize
++     * @return a safe filename that cannot escape the parent directory
++     */
++    private static String sanitizeEntryName(String name) {
++        if (name == null || name.isEmpty()) {
++            return "unnamed";
++        }
++        
++        name = name.trim();
++        
++        if (name.isEmpty()) {
++            return "unnamed";
++        }
++        
++        StringBuilder result = new StringBuilder();
++        for (int i = 0; i < name.length(); i++) {
++            char ch = name.charAt(i);
++            if (ch == '/' || ch == '\\' || ch == ':' || ch < 32 || ch == 127) {
++                result.append('_');
++            } else {
++                result.append(ch);
++            }
++        }
++        
++        String sanitized = result.toString();
++        
++        while (sanitized.contains("..")) {
++            sanitized = sanitized.replace("..", "__");
++        }
++        
++        sanitized = sanitized.trim();
++        if (sanitized.isEmpty()) {
++            return "unnamed";
++        }
++        
++        return sanitized;
++    }
+     
+     public static void dump(DirectoryEntry root, File parent) throws IOException {
+         for(Iterator<Entry> it = root.getEntries(); it.hasNext();){
+@@ -105,12 +147,12 @@
+                 try (DocumentInputStream is = new DocumentInputStream(node)) {
+                    bytes = IOUtils.toByteArray(is);
+                 }
+-                try (OutputStream out = Files.newOutputStream(new File(parent, node.getName().trim()).toPath())) {
++                try (OutputStream out = Files.newOutputStream(new File(parent, sanitizeEntryName(node.getName())).toPath())) {
+                     out.write(bytes);
+                 }
+             } else if (entry instanceof DirectoryEntry){
+                 DirectoryEntry dir = (DirectoryEntry)entry;
+-                File file = new File(parent, entry.getName());
++                File file = new File(parent, sanitizeEntryName(entry.getName()));
+                 if(!file.exists() && !file.mkdirs()) {
+                     throw new IOException("Could not create directory " + file);
+                 }

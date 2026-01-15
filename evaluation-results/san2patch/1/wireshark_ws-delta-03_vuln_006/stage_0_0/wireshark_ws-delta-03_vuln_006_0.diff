@@ -1,0 +1,159 @@
+diff --git a/epan/dissectors/packet-irc.c b/epan/dissectors/packet-irc.c
+index 481a619eca..a8df209737 100644
+--- a/epan/dissectors/packet-irc.c
++++ b/epan/dissectors/packet-irc.c
+@@ -530,43 +530,51 @@
+      int end_offset;
+      int length;
+      uint8_t *channel_name;
+- 
++
+      if (tvb_get_uint8(tvb, offset) != '#')
+-         return;
++// FIXME: Crash CWE-787: Out-of-bounds Write
++          return;
+      
+      channel_name = malloc(CHANNELLEN+1);
+- 
++
+      if (channel_name == NULL ) {
+          return;
+      }
+- 
++
+      start_offset = offset;
+- 
++
+      tree = proto_item_add_subtree(item, ett_irc_request_command_names);
+- 
++
+      while(tvb_offset_exists(tvb, start_offset) ) {
+          length = tvb_captured_length_remaining(tvb, start_offset);
+          end_offset = tvb_find_uint8(tvb, start_offset, length, ',');
+- 
++
+          if ( end_offset == -1 ) {
++             /* Rationale: clamp length to allocated buffer size */
++             int copy_len = (length < CHANNELLEN) ? length : CHANNELLEN;
+              proto_tree_add_item(tree, hf_irc_request_command_names_channel, tvb, start_offset, length, ENC_ASCII);
+              
+              memset(channel_name, 0, CHANNELLEN+1);
+-             tvb_memcpy(tvb, channel_name, start_offset, (length < CHANNELLEN) ? length : CHANNELLEN);
++             tvb_memcpy(tvb, channel_name, start_offset, copy_len);
++             channel_name[copy_len] = '\0';
+              proto_item_append_text(tree, "Channel: %s", channel_name);
+- 
++
+              free(channel_name);
+              return;
+          }
+- 
++
++         int seg_len = end_offset - start_offset;
++         /* Rationale: clamp segment length */
++         int copy_len2 = (seg_len < CHANNELLEN) ? seg_len : CHANNELLEN;
+          memset(channel_name, 0, CHANNELLEN+1);
+-         tvb_memcpy(tvb, channel_name, start_offset, length);
++         tvb_memcpy(tvb, channel_name, start_offset, copy_len2);
++         channel_name[copy_len2] = '\0';
+          proto_item_append_text(tree, "Channel: %s", channel_name);
+- 
+-         proto_tree_add_item(tree, hf_irc_request_command_names_channel, tvb, start_offset, end_offset-start_offset, ENC_ASCII);
++
++         proto_tree_add_item(tree, hf_irc_request_command_names_channel, tvb, start_offset, seg_len, ENC_ASCII);
+          start_offset = end_offset + 1;
+      }
+- 
++
+      free(channel_name);
+      return;
+  }
+@@ -698,45 +706,68 @@
+          ti = proto_tree_add_item(request_tree, hf_irc_request_command_topic, tvb, offset, end_offset-offset, ENC_ASCII);
+          dissect_irc_topic(tvb, ti, end_offset+1);
+      } else if (strcmp(str_command, "NAMES") == 0) {
+-         ti = proto_tree_add_item(request_tree, hf_irc_request_command_names, tvb, offset, end_offset-offset, ENC_ASCII);
+-         dissect_irc_names(tvb, ti, end_offset+1);
++         /* Clamp the nickname data length to prevent overflow */
++         size_t names_len = end_offset - offset;
++         if (names_len > CHANNELLEN) names_len = CHANNELLEN;
++         ti = proto_tree_add_item(request_tree, hf_irc_request_command_names,
++                                  tvb, offset, names_len, ENC_ASCII);
++         dissect_irc_names(tvb, ti, offset + (int)names_len + 1);
+      } else if (strcmp(str_command, "LIST") == 0) {
+-         ti = proto_tree_add_item(request_tree, hf_irc_request_command_list, tvb, offset, end_offset-offset, ENC_ASCII);
++         ti = proto_tree_add_item(request_tree, hf_irc_request_command_list, tvb, offset,
++                                  end_offset-offset, ENC_ASCII);
+          dissect_irc_list(tvb, ti, end_offset+1);
+      } else if (strcmp(str_command, "WHO") == 0) {
+-         ti = proto_tree_add_item(request_tree, hf_irc_request_command_who, tvb, offset, end_offset-offset, ENC_ASCII);
++         ti = proto_tree_add_item(request_tree, hf_irc_request_command_who, tvb, offset,
++                                  end_offset-offset, ENC_ASCII);
+      } else if (strcmp(str_command, "WHOIS") == 0) {
+-         ti = proto_tree_add_item(request_tree, hf_irc_request_command_whois, tvb, offset, end_offset-offset, ENC_ASCII);
++         ti = proto_tree_add_item(request_tree, hf_irc_request_command_whois,
++                                  tvb, offset, end_offset-offset, ENC_ASCII);
+          dissect_irc_whois(tvb, ti, end_offset+1);
+      } else if (strcmp(str_command, "WHOWAS") == 0) {
+-         ti = proto_tree_add_item(request_tree, hf_irc_request_command_whowas, tvb, offset, end_offset-offset, ENC_ASCII);
++         ti = proto_tree_add_item(request_tree, hf_irc_request_command_whowas,
++                                  tvb, offset, end_offset-offset, ENC_ASCII);
+      } else if (strcmp(str_command, "INVITE") == 0) {
+-         ti = proto_tree_add_item(request_tree, hf_irc_request_command_invite, tvb, offset, end_offset-offset, ENC_ASCII);
++         ti = proto_tree_add_item(request_tree, hf_irc_request_command_invite,
++                                  tvb, offset, end_offset-offset, ENC_ASCII);
+      } else if (strcmp(str_command, "KICK") == 0) {
+-         ti = proto_tree_add_item(request_tree, hf_irc_request_command_kick, tvb, offset, end_offset-offset, ENC_ASCII);
++         ti = proto_tree_add_item(request_tree, hf_irc_request_command_kick,
++                                  tvb, offset, end_offset-offset, ENC_ASCII);
+      } else if (strcmp(str_command, "AWAY") == 0) {
+-         ti = proto_tree_add_item(request_tree, hf_irc_request_command_away, tvb, offset, end_offset-offset, ENC_ASCII);
++         ti = proto_tree_add_item(request_tree, hf_irc_request_command_away,
++                                  tvb, offset, end_offset-offset, ENC_ASCII);
+      } else if (strcmp(str_command, "ISON") == 0) {
+-         ti = proto_tree_add_item(request_tree, hf_irc_request_command_who, tvb, offset, end_offset-offset, ENC_ASCII);
++         ti = proto_tree_add_item(request_tree, hf_irc_request_command_who,
++                                  tvb, offset, end_offset-offset, ENC_ASCII);
+      } else if (strcmp(str_command, "TIME") == 0) {
+-         ti = proto_tree_add_item(request_tree, hf_irc_request_command_time, tvb, offset, end_offset-offset, ENC_ASCII);
++         ti = proto_tree_add_item(request_tree, hf_irc_request_command_time,
++                                  tvb, offset, end_offset-offset, ENC_ASCII);
+      } else if (strcmp(str_command, "MOTD") == 0) {
+-         ti = proto_tree_add_item(request_tree, hf_irc_request_command_motd, tvb, offset, end_offset-offset, ENC_ASCII);
++         ti = proto_tree_add_item(request_tree, hf_irc_request_command_motd,
++                                  tvb, offset, end_offset-offset, ENC_ASCII);
+      } else if (strcmp(str_command, "VERSION") == 0) {
+-         ti = proto_tree_add_item(request_tree, hf_irc_request_command_version, tvb, offset, end_offset-offset, ENC_ASCII);
++         ti = proto_tree_add_item(request_tree, hf_irc_request_command_version,
++                                  tvb, offset, end_offset-offset, ENC_ASCII);
+      } else if (strcmp(str_command, "STATS") == 0) {
+-         ti = proto_tree_add_item(request_tree, hf_irc_request_command_stats, tvb, offset, end_offset-offset, ENC_ASCII);
++         ti = proto_tree_add_item(request_tree, hf_irc_request_command_stats,
++                                  tvb, offset, end_offset-offset, ENC_ASCII);
+      } else if (strcmp(str_command, "LINKS") == 0) {
+-         ti = proto_tree_add_item(request_tree, hf_irc_request_command_links, tvb, offset, end_offset-offset, ENC_ASCII);
++         ti = proto_tree_add_item(request_tree, hf_irc_request_command_links,
++                                  tvb, offset, end_offset-offset, ENC_ASCII);
+      } else if (strcmp(str_command, "TRACE") == 0) {
+-         ti = proto_tree_add_item(request_tree, hf_irc_request_command_trace, tvb, offset, end_offset-offset, ENC_ASCII);
++         ti = proto_tree_add_item(request_tree, hf_irc_request_command_trace,
++                                  tvb, offset, end_offset-offset, ENC_ASCII);
+      } else if (strcmp(str_command, "ADMIN") == 0) {
+-         ti = proto_tree_add_item(request_tree, hf_irc_request_command_admin, tvb, offset, end_offset-offset, ENC_ASCII);
++         ti = proto_tree_add_item(request_tree, hf_irc_request_command_admin,
++                                  tvb, offset, end_offset-offset, ENC_ASCII);
+      } else if (strcmp(str_command, "INFO") == 0) {
+-         ti = proto_tree_add_item(request_tree, hf_irc_request_command_info, tvb, offset, end_offset-offset, ENC_ASCII);
++         ti = proto_tree_add_item(request_tree, hf_irc_request_command_info,
++                                  tvb, offset, end_offset-offset, ENC_ASCII);
+      } else {
+-         proto_tree_add_string_format_value(request_tree, hf_irc_request_command, tvb, offset, end_offset-offset, str_command,
+-                                            "Unknown or unhandled command: %s", str_command);
++         proto_tree_add_string_format_value(request_tree, hf_irc_request_command,
++                                            tvb, offset, end_offset-offset,
++                                            str_command,
++                                            "Unknown or unhandled command: %s",
++                                            str_command);
+      }
+  }
+  

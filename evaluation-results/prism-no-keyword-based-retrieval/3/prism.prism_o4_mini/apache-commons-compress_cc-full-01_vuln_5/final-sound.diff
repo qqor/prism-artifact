@@ -1,0 +1,23 @@
+--- a/src/main/java/org/apache/commons/compress/archivers/ArchiveEntry.java
++++ b/src/main/java/org/apache/commons/compress/archivers/ArchiveEntry.java
+@@ -73,10 +73,17 @@
+      * @since 1.26.0
+      */
+     default Path resolveIn(final Path parentPath) throws IOException {
++        // 1. Normalize parent directory (and convert to absolute to handle relative bases safely)
++        final Path normalizedParent = parentPath.toAbsolutePath().normalize();
++        // 2. Resolve entry name against normalized parent
+         final String name = getName();
+-        final Path outputFile = parentPath.resolve(name);
+-        if (!outputFile.startsWith(parentPath)) {
+-            throw new IOException(String.format("Zip slip '%s' + '%s' -> '%s'", parentPath, name, outputFile));
++        // 3. Build candidate output path and normalize it (collapse '..' segments)
++        final Path outputFile = normalizedParent.resolve(name).toAbsolutePath().normalize();
++        // 4. Security check: ensure no traversal outside normalizedParent
++        if (!outputFile.startsWith(normalizedParent)) {
++            throw new IOException(String.format(
++                "Zip slip: parent=%s, entryName=%s, resolved=%s",
++                normalizedParent, name, outputFile));
+         }
+         return outputFile;
+     }

@@ -1,0 +1,34 @@
+diff --git a/lib/file.c b/lib/file.c
+index 7440b3c66..080177ac1 100644
+--- a/lib/file.c
++++ b/lib/file.c
+@@ -475,7 +475,7 @@ static CURLcode file_do(struct Curl_easy *data, bool *done)
+         msnprintf(header, sizeof(header), "Content-Length: %" FMT_OFF_T "\r\n",
+                   expected_size);
+       result = Curl_client_write(data, CLIENTWRITE_HEADER,
+-                                   header, headerlen);
++                                 header, headerlen);
+       if(result)
+         return result;
+ 
+@@ -490,11 +490,16 @@ static CURLcode file_do(struct Curl_easy *data, bool *done)
+     if(result)
+       return result;
+ 
++    /* Allocate dynamic buffer for no_body to avoid overflow */
+     if(data->req.no_body) {
+-      headerlen =
+-      msnprintf(header, sizeof(no_body), "%s (%ld bytes) \r\n",
+-                  no_body, expected_size);
+-      result = Curl_client_write(data, CLIENTWRITE_HEADER, header, headerlen);
++      size_t bufsize = strlen(no_body) + 32 + 1;
++      char *hdr = malloc(bufsize);
++      if(!hdr)
++        return CURLE_OUT_OF_MEMORY;
++      headerlen = msnprintf(hdr, bufsize, "%s (%ld bytes) \r\n",
++                           no_body, expected_size);
++      result = Curl_client_write(data, CLIENTWRITE_HEADER, hdr, headerlen);
++      free(hdr);
+     }
+     else {
+       result = Curl_client_write(data, CLIENTWRITE_HEADER,

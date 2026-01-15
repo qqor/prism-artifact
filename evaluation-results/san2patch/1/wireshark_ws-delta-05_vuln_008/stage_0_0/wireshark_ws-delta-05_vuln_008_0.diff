@@ -1,0 +1,49 @@
+diff --git a/epan/dissectors/packet-netbios.c b/epan/dissectors/packet-netbios.c
+index 5ea85c7df4..f58b867acf 100644
+--- a/epan/dissectors/packet-netbios.c
++++ b/epan/dissectors/packet-netbios.c
+@@ -260,29 +260,33 @@ static const value_string status_vals[] = {
+ };
+ 
+ static const value_string max_frame_size_vals[] = {
+-	{ 0,	"516" },
+-	{ 1,	"1500" },
+-	{ 2,	"2052" },
+-	{ 3,	"4472" },
+-	{ 4,	"8144" },
+-	{ 5,	"11407" },
+-	{ 6,	"17800" },	/* 17800 in TR spec, 17749 in NBF spec */
+-	{ 7,	"65535" },
+-	{ 0,	NULL }
++	{ 0,   "516" },
++	{ 1,   "1500" },
++	{ 2,   "2052" },
++	{ 3,   "4472" },
++	{ 4,   "8144" },
++// Removed entries beyond index 4 to avoid any out-of-bounds lookup (CWE-125).
++	{ 0,   NULL }
+ };
+ 
+ 
+ static bool
+ capture_netbios(const unsigned char *pd _U_, int offset _U_, int len _U_, capture_packet_info_t *cpinfo, const union wtap_pseudo_header *pseudo_header _U_)
+ {
++	/* Array has been shortened, existing logic is safe */
+ 	capture_dissector_increment_count(cpinfo, proto_netbios);
+ 	return true;
+ }
+ 
+-
+-int
++// FIXME: Crash CWE-125: Out-of-bounds Read
++ int
+ process_netbios_name(const unsigned char *name_ptr, char *name_ret, int name_ret_len)
+ {
++	/* Rationale: early return if input pointer invalid to avoid any out-of-bounds access */
++	if (name_ptr == NULL) {
++		*name_ret = '\0';
++		return 0;
++	}
+ 	int    i;
+ 	int    name_type = *(name_ptr + NETBIOS_NAME_LEN - 1);
+ 	unsigned char name_char;

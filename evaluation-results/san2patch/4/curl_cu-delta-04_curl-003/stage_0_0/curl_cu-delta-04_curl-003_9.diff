@@ -1,0 +1,76 @@
+diff --git a/lib/multi.c b/lib/multi.c
+index 1851dc731..c1b4f9d75 100644
+--- a/lib/multi.c
++++ b/lib/multi.c
+@@ -702,13 +702,9 @@ static CURLcode multi_done(struct Curl_easy *data,
+ #endif
+ 
+   if(data->state.done)
+-    /* Stop if multi_done() has already been called */
+     return CURLE_OK;
+ 
+-  /* Stop the resolver and free its own resources (but not dns_entry yet). */
+   Curl_resolver_kill(data);
+-
+-  /* Cleanup possible redirect junk */
+   Curl_safefree(data->req.newurl);
+   Curl_safefree(data->req.location);
+ 
+@@ -716,49 +712,41 @@ static CURLcode multi_done(struct Curl_easy *data,
+   case CURLE_ABORTED_BY_CALLBACK:
+   case CURLE_READ_ERROR:
+   case CURLE_WRITE_ERROR:
+-    /* When we are aborted due to a callback return code it basically have to
+-       be counted as premature as there is trouble ahead if we do not. We have
+-       many callbacks and protocols work differently, we could potentially do
+-       this more fine-grained in the future. */
+     premature = TRUE;
+     FALLTHROUGH();
+   default:
+     break;
+   }
+ 
+-  /* this calls the protocol-specific function pointer previously set */
+   if(conn->handler->done)
+     result = conn->handler->done(data, status, premature);
+   else
+     result = status;
+ 
+   if(CURLE_ABORTED_BY_CALLBACK != result) {
+-    /* avoid this if we already aborted by callback to avoid this calling
+-       another callback */
+     int rc = Curl_pgrsDone(data);
+     if(!result && rc)
+       result = CURLE_ABORTED_BY_CALLBACK;
+   }
+ 
+-  /* Make sure that transfer client writes are really done now. */
+   r2 = Curl_xfer_write_done(data, premature);
+   if(r2 && !result)
+     result = r2;
+ 
+-  /* Inform connection filters that this transfer is done */
+   Curl_conn_ev_data_done(data, premature);
+ 
+-  process_pending_handles(data->multi); /* connection / multiplex */
+-
+-  if(!result)
+-    result = Curl_req_done(&data->req, data, premature);
++  process_pending_handles(data->multi);
+ 
+-  /* Under the potential connection pool's share lock, decide what to
+-   * do with the transfer's connection. */
++  /* Under the potential connection pool's share lock, flush first */
+   mdctx.premature = premature;
+   Curl_cpool_do_locked(data, data->conn, multi_done_locked, &mdctx);
+ 
+-  /* flush the netrc cache */
++  /* Prevent use-after-free: clear DOH context before req done */
++  data->req.doh = NULL;
++
++  if(!result)
++    result = Curl_req_done(&data->req, data, premature);
++
+   Curl_netrc_cleanup(&data->state.netrc);
+   return result;
+ }

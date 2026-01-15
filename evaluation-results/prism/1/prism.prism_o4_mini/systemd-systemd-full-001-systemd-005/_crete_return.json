@@ -1,0 +1,14 @@
+{
+  "project_name": "systemd",
+  "vulnerability_identifier": "systemd-systemd-full-001-systemd-005",
+  "source_directory": "/tasks/4d0b56e5-fc68-40e3-9f6e-e14e62699c8b/official-afc-systemd",
+  "llm_usage": {
+    "total_cost": 1.2140964,
+    "prompt_tokens": 682644,
+    "completion_tokens": 105270
+  },
+  "variant": "sound",
+  "diff": "--- a/src/shared/parse-argument.c\n+++ b/src/shared/parse-argument.c\n@@ -65,19 +65,25 @@\n          */\n \n         if (isempty(path)) {\n-                *arg = mfree(*arg);\n+                *arg = NULL;\n                 return 0;\n         }\n \n         r = path_make_absolute_cwd(path, &p);\n-        if (r < 0)\n+        if (r < 0) {\n+                *arg = NULL;\n                 return log_error_errno(r, \"Failed to parse path \\\"%s\\\" and make it absolute: %m\", path);\n+        }\n \n         path_simplify(p);\n-        if (suppress_root && empty_or_root(p))\n-                p = mfree(p);\n+        if (suppress_root && empty_or_root(p)) {\n+                free(p);\n+                *arg = NULL;\n+                return 0;\n+        }\n \n-        return free_and_replace(*arg, p);\n+        *arg = p;\n+        return 0;\n }\n \n int parse_signal_argument(const char *s, int *ret) {\n\n--- a/src/basic/alloc-util.h\n+++ b/src/basic/alloc-util.h\n@@ -104,6 +104,7 @@\n \n static inline void freep(void *p) {\n         free(*(void**) p);\n+        *(void**) p = NULL;\n }\n \n #define _cleanup_free_ _cleanup_(freep)\n",
+  "stdout": "",
+  "stderr": ""
+}

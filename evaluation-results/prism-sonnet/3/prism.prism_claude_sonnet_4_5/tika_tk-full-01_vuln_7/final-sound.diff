@@ -1,0 +1,134 @@
+--- a/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-text-module/src/main/java/org/apache/tika/parser/csv/TextAndCSVConfig.java
++++ b/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-text-module/src/main/java/org/apache/tika/parser/csv/TextAndCSVConfig.java
+@@ -41,6 +41,38 @@
+     private Map<String, Character> nameToDelimiterMap = NAME_TO_DELIMITER_MAP;
+     private Map<Character, String> delimiterToNameMap = DELIMITER_TO_NAME_MAP;
+ 
++    /**
++     * If <code>false</code> (the default), hyperlink URLs found in HYPERLINK formulas
++     * will be extracted and rendered as HTML anchor tags, but the actual URL content
++     * will NOT be fetched or parsed.
++     * <p/>
++     * If <code>true</code>, the parser will attempt to fetch and parse the content
++     * from URLs found in HYPERLINK formulas. Even when enabled, only HTTP and HTTPS
++     * protocols are permitted for security reasons.
++     * <p/>
++     * <b>SECURITY WARNING:</b> Setting this to <code>true</code> can expose your
++     * application to Server Side Request Forgery (SSRF) attacks. Malicious CSV files
++     * could contain URLs that:
++     * <ul>
++     * <li>Access internal network resources (e.g., http://localhost/admin)</li>
++     * <li>Exfiltrate data to external servers</li>
++     * <li>Scan internal ports and services</li>
++     * <li>Exploit internal services via crafted requests</li>
++     * </ul>
++     * <p/>
++     * Set to <code>true</code> only with the greatest caution and only when:
++     * <ul>
++     * <li>You trust the source of all CSV files being processed</li>
++     * <li>You have implemented additional security controls (URL allowlists, network isolation, etc.)</li>
++     * <li>You understand and accept the SSRF risks</li>
++     * </ul>
++     * <p/>
++     * The default is <code>false</code>.
++     * 
++     * @since Apache Tika 4.0
++     */
++    private boolean fetchHyperlinkContent = false;
++
+     public Map<String, Character> getNameToDelimiterMap() {
+         return nameToDelimiterMap;
+     }
+@@ -55,4 +87,27 @@
+         nameToDelimiterMap.entrySet()
+                           .forEach(e -> delimiterToNameMap.put(e.getValue(), e.getKey()));
+     }
++
++    /**
++     * @see #setFetchHyperlinkContent(boolean)
++     */
++    public boolean isFetchHyperlinkContent() {
++        return fetchHyperlinkContent;
++    }
++
++    /**
++     * Controls whether URLs in HYPERLINK formulas should be fetched and parsed.
++     * <p/>
++     * <b>SECURITY WARNING:</b> Setting this to <code>true</code> exposes your
++     * application to Server Side Request Forgery (SSRF) attacks. See field
++     * documentation for full security implications.
++     * <p/>
++     * The default is <code>false</code>.
++     * 
++     * @param fetchHyperlinkContent whether to fetch and parse hyperlink URLs
++     * @see #isFetchHyperlinkContent()
++     */
++    public void setFetchHyperlinkContent(boolean fetchHyperlinkContent) {
++        this.fetchHyperlinkContent = fetchHyperlinkContent;
++    }
+ }
+
+--- a/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-text-module/src/main/java/org/apache/tika/parser/csv/TextAndCSVParser.java
++++ b/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-text-module/src/main/java/org/apache/tika/parser/csv/TextAndCSVParser.java
+@@ -39,6 +39,8 @@
+ import org.apache.commons.csv.CSVParser;
+ import org.apache.commons.csv.CSVRecord;
+ import org.apache.commons.io.input.CloseShieldInputStream;
++import org.slf4j.Logger;
++import org.slf4j.LoggerFactory;
+ import org.xml.sax.ContentHandler;
+ import org.xml.sax.SAXException;
+ 
+@@ -79,6 +81,8 @@
+  * </p>
+  */
+ public class TextAndCSVParser extends AbstractEncodingDetectorParser {
++
++    private static final Logger LOG = LoggerFactory.getLogger(TextAndCSVParser.class);
+ 
+     static final MediaType CSV = MediaType.text("csv");
+     static final MediaType TSV = MediaType.text("tsv");
+@@ -258,7 +262,20 @@
+             xhtml.startElement("a", "href", url);
+             xhtml.characters(name);
+             xhtml.endElement("a");
+-            processURL(url, name, xhtml, metadata, context);
++            
++            // Retrieve configuration to check if URL fetching is enabled
++            TextAndCSVConfig config = context.get(TextAndCSVConfig.class, new TextAndCSVConfig());
++            
++            // Only fetch URL content if explicitly configured AND allowed by embedded document extractor
++            if (config.isFetchHyperlinkContent()) {
++                EmbeddedDocumentExtractor ex = EmbeddedDocumentUtil.getEmbeddedDocumentExtractor(context);
++                Metadata hyperlinkMetadata = new Metadata();
++                hyperlinkMetadata.set(TikaCoreProperties.RESOURCE_NAME_KEY, name);
++                
++                if (ex.shouldParseEmbedded(hyperlinkMetadata)) {
++                    processURL(url, name, xhtml, metadata, context);
++                }
++            }
+         } else {
+             xhtml.characters(cellContent);
+         }
+@@ -271,8 +288,21 @@
+         EmbeddedDocumentExtractor ex = EmbeddedDocumentUtil.getEmbeddedDocumentExtractor(context);
+         Metadata metadata = new Metadata();
+         metadata.set(TikaCoreProperties.RESOURCE_NAME_KEY, name);
++        
+         try {
+             URL url = new URL(urlString);
++            
++            // Validate URL scheme to prevent SSRF attacks - only allow HTTP/HTTPS
++            String protocol = url.getProtocol();
++            if (!"http".equalsIgnoreCase(protocol) && !"https".equalsIgnoreCase(protocol)) {
++                LOG.warn("Blocked attempt to fetch content from non-HTTP(S) URL in HYPERLINK formula. " +
++                         "Protocol '{}' is not allowed. URL: {}", protocol, urlString);
++                parentMetadata.set(TikaCoreProperties.EMBEDDED_EXCEPTION,
++                        "URL protocol '" + protocol + "' is not allowed for security reasons. " +
++                        "Only HTTP and HTTPS protocols are permitted.");
++                return;
++            }
++            
+             URLConnection connection = url.openConnection();
+             connection.setConnectTimeout(5000);
+             try (TikaInputStream tis = TikaInputStream.get(connection.getInputStream())) {

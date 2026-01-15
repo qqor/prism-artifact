@@ -1,0 +1,43 @@
+diff --git a/src/json.c b/src/json.c
+index 2a91900..507b463 100644
+--- a/src/json.c
++++ b/src/json.c
+@@ -303,20 +303,27 @@ json_value * json_parse_ex (json_settings * settings,
+                   case 't':  string_add ('\t');  break;
+                   case 'u':
+ 
+-                    if (end - state.ptr < 4 || 
+-                        (uc_b1 = hex_value (*++ state.ptr)) == 0xFF ||
+-                        (uc_b2 = hex_value (*++ state.ptr)) == 0xFF ||
+-                        (uc_b3 = hex_value (*++ state.ptr)) == 0xFF ||
+-                        (uc_b4 = hex_value (*++ state.ptr)) == 0xFF)
++                    /* Use small helper to read hex digit safely */
++                    static int read_hex(const char **pp, const char *end_ptr, unsigned *out) {
++                        if (*pp + 1 >= end_ptr) return -1;
++                        (*pp)++;
++                        *out = hex_value(**pp);
++                        return (*out == 0xFF) ? -1 : 0;
++                    }
+                     {
+-                        sprintf (error, "Invalid character value `%c` (at %d:%d)", b, line_and_col);
+-                        goto e_failed;
++                        const char *p = state.ptr;
++                        unsigned d1, d2, d3, d4;
++                        if (read_hex(&p, end, &d1) < 0 || read_hex(&p, end, &d2) < 0 ||
++                            read_hex(&p, end, &d3) < 0 || read_hex(&p, end, &d4) < 0) {
++                            sprintf (error, "Invalid character value `%c` (at %d:%d)", b, line_and_col);
++                            goto e_failed;
++                        }
++                        state.ptr = p;
++                        uc_b1 = (d1 << 4) | d2;
++                        uc_b2 = (d3 << 4) | d4;
++                        uchar = (uc_b1 << 8) | uc_b2;
+                     }
+ 
+-                    uc_b1 = (uc_b1 << 4) | uc_b2;
+-                    uc_b2 = (uc_b3 << 4) | uc_b4;
+-                    uchar = (uc_b1 << 8) | uc_b2;
+-
+                     if ((uchar & 0xF800) == 0xD800) {
+                         json_uchar uchar2;
+                         

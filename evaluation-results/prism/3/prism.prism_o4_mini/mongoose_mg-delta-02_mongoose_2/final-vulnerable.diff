@@ -1,0 +1,28 @@
+--- a/src/net_builtin.c
++++ b/src/net_builtin.c
+@@ -379,6 +379,10 @@
+   }
+ }
+ 
++static void rx_icmp(struct mg_tcpip_if *ifp, struct pkt *pkt) {
++  /* Sanity-check ICMP header is fully within the raw buffer */
++  if ((char *)pkt->icmp + sizeof(*pkt->icmp) > pkt->raw.ptr + pkt->raw.len) return;
++  struct icmp *icmph = pkt->icmp;
+ static void rx_icmp(struct mg_tcpip_if *ifp, struct pkt *pkt) {
+   // MG_DEBUG(("ICMP %d", (int) len));
+   if (pkt->icmp->type == 8 && pkt->ip != NULL && pkt->ip->dst == ifp->ip) {
+@@ -799,9 +803,11 @@
+     struct mg_connection *c = getpeer(ifp->mgr, pkt, false);
+     if (c) mg_error(c, "Received fragmented packet");
+   } else if (pkt->ip->proto == 1) {
+-    pkt->icmp = (struct icmp *) (pkt->ip + 1);
+-    if (pkt->pay.len < sizeof(*pkt->icmp)) return;
+-    mkpay(pkt, pkt->icmp + 1);
++    // ICMP: header fits wholly in IP payload?
++    if (pkt->pay.len < sizeof(struct icmp)) return;
++    pkt->icmp = (struct icmp *) pkt->pay.ptr;
++    // Advance to ICMP payload
++    mkpay(pkt, pkt->pay.ptr + sizeof(struct icmp));
+     rx_icmp(ifp, pkt);
+   } else if (pkt->ip->proto == 17) {
+     pkt->udp = (struct udp *) (pkt->ip + 1);

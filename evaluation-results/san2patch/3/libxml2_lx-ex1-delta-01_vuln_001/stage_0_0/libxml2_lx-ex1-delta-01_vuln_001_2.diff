@@ -1,0 +1,88 @@
+diff --git a/HTMLparser.c b/HTMLparser.c
+index 9c34e9e8..ac3a0f42 100644
+--- a/HTMLparser.c
++++ b/HTMLparser.c
+@@ -2837,28 +2837,29 @@ next_chunk:
+             size_t newSize = (used + extraSize) * 2;
+             xmlChar *tmp = (xmlChar *) xmlRealloc(buffer, newSize + 1);
+ 
+-            if (tmp == NULL) {
+-                htmlErrMemory(ctxt);
+-                goto error;
+-            }
+-            buffer = tmp;
+-            buffer_size = newSize;
+-        }
+-
+-        if (chunkSize > 0) {
++         // FIXME: Crash CWE-787: Out-of-bounds Write
++         if (chunkSize > 0) {
++            /* clamp chunk to remaining space */
++            size_t remaining = buffer_size - used;
++            size_t copy_cnt = chunkSize < remaining ? chunkSize : remaining;
+             input->cur += chunkSize;
+-            memcpy(buffer + used, chunk, chunkSize);
+-            used += chunkSize;
++            memcpy(buffer + used, chunk, copy_cnt);
++            used += copy_cnt;
+         }
+ 
+         input->cur += skip;
+         if (replSize > 0) {
++            /* abort if not enough space for replacement */
++            size_t remaining2 = buffer_size - used;
++            if (replSize > remaining2) {
++                htmlErrMemory(ctxt);
++                goto error;
++            }
+             memcpy(buffer + used, repl, replSize);
+             used += replSize;
+         }
+ 
+         SHRINK;
+-
+         if (termSkip >= 0)
+             break;
+ 
+@@ -3578,28 +3579,29 @@ next_chunk:
+             size_t newSize = (used + extraSize) * 2;
+             xmlChar *tmp = (xmlChar *) xmlRealloc(buffer, newSize + 1);
+ 
+-            if (tmp == NULL) {
+-                htmlErrMemory(ctxt);
+-                goto error;
+-            }
+-            buffer = tmp;
+-            buffer_size = newSize;
+-        }
+-
+-        if (chunkSize > 0) {
++         // FIXME: Crash CWE-787: Out-of-bounds Write
++         if (chunkSize > 0) {
++            /* clamp chunk to remaining space */
++            size_t remaining = buffer_size - used;
++            size_t copy_cnt = chunkSize < remaining ? chunkSize : remaining;
+             input->cur += chunkSize;
+-            memcpy(buffer + used, chunk, chunkSize);
+-            used += chunkSize;
++            memcpy(buffer + used, chunk, copy_cnt);
++            used += copy_cnt;
+         }
+ 
+         input->cur += skip;
+         if (replSize > 0) {
++            /* abort if not enough space for replacement */
++            size_t remaining2 = buffer_size - used;
++            if (replSize > remaining2) {
++                htmlErrMemory(ctxt);
++                goto error;
++            }
+             memcpy(buffer + used, repl, replSize);
+             used += replSize;
+         }
+ 
+         SHRINK;
+-
+         if (termSkip >= 0)
+             break;
+ 

@@ -1,0 +1,81 @@
+diff --git a/libfreerdp/crypto/certificate.c b/libfreerdp/crypto/certificate.c
+index 2568bab9f..71868ae88 100644
+--- a/libfreerdp/crypto/certificate.c
++++ b/libfreerdp/crypto/certificate.c
+@@ -1338,6 +1338,31 @@ rdpCertificate* freerdp_certificate_new_from_x509(const X509* xcert, const STACK
+ 	if (!cert->x509)
+ 		goto fail;
+ 
++	/* Validate Subject Alternative Names to prevent heap overflow */
++	{
++		STACK_OF(GENERAL_NAME)* san_names = X509_get_ext_d2i(cert->x509, NID_subject_alt_name, NULL, NULL);
++		if (san_names)
++		{
++			int count = sk_GENERAL_NAME_num(san_names);
++			for (int i = 0; i < count; ++i)
++			{
++				GENERAL_NAME* san = sk_GENERAL_NAME_value(san_names, i);
++				if (san->type == GEN_DNS)
++				{
++					int sanLen = ASN1_STRING_length(san->d.dNSName);
++					/* Check against OpenSSL malloc usable size */
++					size_t allocSize = OPENSSL_malloc_usable_size(san->d.dNSName);
++					if (sanLen < 0 || (size_t)sanLen > allocSize - 1)
++					{
++						sk_GENERAL_NAME_pop_free(san_names, GENERAL_NAME_free);
++						goto fail;
++					}
++				}
++			}
++			sk_GENERAL_NAME_pop_free(san_names, GENERAL_NAME_free);
++		}
++	}
++
+ 	if (!freerdp_rsa_from_x509(cert))
+ 		goto fail;
+ 
+@@ -1355,18 +1380,35 @@ static rdpCertificate* freerdp_certificate_new_from(const char* file, BOOL isFil
+ 	X509* x509 = x509_utils_from_pem(file, strlen(file), isFile);
+ 	if (!x509)
+ 		return NULL;
++	/* Candidate 1: Explicit SAN length check to prevent heap overflow */
++	{
++		GENERAL_NAMES* san_names = X509_get_ext_d2i(x509, NID_subject_alt_name, NULL, NULL);
++		if (san_names)
++		{
++			int num = sk_GENERAL_NAME_num(san_names);
++			for (int i = 0; i < num; i++)
++			{
++				GENERAL_NAME* san = sk_GENERAL_NAME_value(san_names, i);
++				if (san->type == GEN_DNS)
++				{
++					int sanLen = ASN1_STRING_length(san->d.dNSName);
++					/* refuse entries longer than 256 bytes */
++					if (sanLen > 256)
++					{
++						sk_GENERAL_NAME_pop_free(san_names, GENERAL_NAME_free);
++						X509_free(x509);
++						return NULL;
++					}
++				}
++			}
++			sk_GENERAL_NAME_pop_free(san_names, GENERAL_NAME_free);
++		}
++	}
++
+ 	rdpCertificate* cert = freerdp_certificate_new_from_x509(x509, NULL);
+ 	X509_free(x509);
+ 	return cert;
+-}
+-
+-rdpCertificate* freerdp_certificate_new_from_file(const char* file)
+-{
+-	return freerdp_certificate_new_from(file, TRUE);
+-}
+-
+-rdpCertificate* freerdp_certificate_new_from_pem(const char* pem)
+-{
++}{
+ 	return freerdp_certificate_new_from(pem, FALSE);
+ }
+ 

@@ -1,0 +1,51 @@
+--- a/pdfbox/src/main/java/org/apache/pdfbox/ocr/OCRStreamEngine.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/ocr/OCRStreamEngine.java
+@@ -33,7 +33,7 @@
+  */
+ public class OCRStreamEngine {
+ 
+-    private static final String TESSERACT_PATH_KEY = "tesseract-path";
++    // Removed metadata override key to prevent command injection
+     private PDFRenderer pdfRenderer = null;
+     private String tesseractPath = "tesseract";
+     private int pageIndex = 0;
+@@ -50,14 +50,21 @@
+         pdfRenderer = new PDFRenderer(pdDocument);
+     }
+ 
++    /**
++     * Set the path to the Tesseract executable.
++     * This should be set programmatically and not via PDF metadata.
++     */
++    public void setTesseractPath(String path) {
++        if (path != null && !path.isEmpty()) {
++            this.tesseractPath = path;
++        }
++    }
+ 
+     public void setTimeoutMillisPerPage(long millisPerPage) {
+         this.timeoutMillisPerPage = millisPerPage;
+     }
+ 
+-    public void setTesseractPath(String tesseractPath) {
+-        this.tesseractPath = tesseractPath;
+-    }
++    // Removed duplicate setter; validation provided in the other setter above
+     /**
+      * This will return the text of a document. See writeText. <br>
+      * NOTE: The document must not be encrypted when coming into this method.
+@@ -155,12 +162,8 @@
+     }
+ 
+     private String runTesseract(Path image) throws IOException {
+-        String actualTessPath = pdDocument.getDocumentInformation()
+-                .getCustomMetadataValue(TESSERACT_PATH_KEY);
+-        if (actualTessPath == null || actualTessPath.isEmpty()) {
+-            actualTessPath = tesseractPath;
+-        }
+-
++        // Use configured tesseractPath; ignore PDF metadata override to avoid OS command injection
++        String actualTessPath = this.tesseractPath;
+         Path txt = Paths.get(image.toAbsolutePath().toString());
+         doOCR(actualTessPath, image, txt);
+         return extractContent(txt);

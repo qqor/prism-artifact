@@ -1,0 +1,36 @@
+diff --git a/libfreerdp/codec/rfx.c b/libfreerdp/codec/rfx.c
+index 3b9168ab6..f8092def5 100644
+--- a/libfreerdp/codec/rfx.c
++++ b/libfreerdp/codec/rfx.c
+@@ -707,9 +707,9 @@ static INLINE BOOL rfx_process_message_frame_end(RFX_CONTEXT* WINPR_RESTRICT con
+ }
+ 
+ static INLINE BOOL rfx_process_message_metadata(RFX_CONTEXT* WINPR_RESTRICT context,
+-												RFX_MESSAGE* WINPR_RESTRICT message,
+-												wStream* WINPR_RESTRICT s,
+-												UINT16* WINPR_RESTRICT pExpectedBlockType)
++                                                RFX_MESSAGE* WINPR_RESTRICT message,
++                                                wStream* WINPR_RESTRICT s,
++                                                UINT16* WINPR_RESTRICT pExpectedBlockType)
+ {
+ 	UINT32 magic = 0;
+ 
+@@ -731,7 +731,17 @@ static INLINE BOOL rfx_process_message_metadata(RFX_CONTEXT* WINPR_RESTRICT cont
+ 		WLog_Print(context->priv->log, WLOG_ERROR, "invalid magic number 0x%08" PRIX32 "", magic);
+ 		return FALSE;
+ 	}
+-	*(UINT64*)metadataBlock = metadataData;
++
++	/* Patch 3: use memmove for safety with bounds check */
++	{
++		size_t blockLen = sizeof(metadataBlock);
++		if (blockLen < sizeof(metadataData))
++		{
++			WLog_Print(context->priv->log, WLOG_ERROR, "insufficient metadataBlock (%zu bytes)", blockLen);
++			return FALSE;
++		}
++		memmove(metadataBlock, &metadataData, sizeof(metadataData));
++	}
+ 	return TRUE;
+ }
+ 

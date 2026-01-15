@@ -1,0 +1,49 @@
+--- a/fontbox/src/main/java/org/apache/fontbox/pfb/PfbParser.java
++++ b/fontbox/src/main/java/org/apache/fontbox/pfb/PfbParser.java
+@@ -68,7 +68,12 @@
+     /**
+      * Heuristically chosen max length to buffer a Type1 font
+      */
+-    private static final long MAX_LENGTH = 100_000_000;
++    private static final long MAX_LENGTH = 10_000_000;
++    
++    /**
++     * Maximum allowed size for a single segment in a Type1 font
++     */
++    private static final int MAX_SEGMENT_SIZE = 5_000_000;
+ 
+     /**
+      * the parsed pfb-data.
+@@ -157,10 +162,30 @@
+             size += in.read() << 8;
+             size += in.read() << 16;
+             size += in.read() << 24;
++            
++            if (size < 0)
++            {
++                throw new IOException("Invalid negative segment size: " + size);
++            }
++            
++            if (size > MAX_SEGMENT_SIZE)
++            {
++                throw new IOException("Segment size " + size + " exceeds maximum allowed size of " + 
++                                      MAX_SEGMENT_SIZE + " bytes");
++            }
++            
++            if (size > in.available())
++            {
++                throw new IOException("Segment size " + size + " exceeds remaining data: " + 
++                                      in.available() + " bytes");
++            }
++            
+             LOG.debug("record type: {}, segment size: {}", recordType, size);
+             long newTotal = total + size;
+-            if (newTotal > MAX_LENGTH) {
+-                throw new IOException("record size would be too large: " + newTotal);
++            if (newTotal > MAX_LENGTH)
++            {
++                throw new IOException("Cumulative font size " + newTotal + " exceeds maximum allowed size of " + 
++                                      MAX_LENGTH + " bytes");
+             }
+ 
+             byte[] ar = new byte[size];

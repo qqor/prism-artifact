@@ -1,0 +1,138 @@
+--- a/tika-pipes/tika-emitters/tika-emitter-fs/src/main/java/org/apache/tika/pipes/emitter/fs/FileSystemEmitter.java
++++ b/tika-pipes/tika-emitters/tika-emitter-fs/src/main/java/org/apache/tika/pipes/emitter/fs/FileSystemEmitter.java
+@@ -73,6 +73,44 @@
+ 
+     private boolean prettyPrint = false;
+ 
++    /**
++     * Validates that the resolved path is a descendant of basePath and does not contain
++     * malicious patterns that could lead to path traversal attacks.
++     * 
++     * @param path the relative path to validate and resolve
++     * @return the validated resolved path
++     * @throws TikaEmitterException if validation fails
++     */
++    private Path validateAndResolve(String path) throws TikaEmitterException {
++        // Basic validation
++        if (path == null || path.isEmpty()) {
++            throw new TikaEmitterException("path must not be null or empty");
++        }
++        
++        // Prevent null byte injection
++        if (path.contains("\u0000")) {
++            throw new TikaEmitterException("path must not contain null bytes");
++        }
++        
++        // Prevent absolute path injection
++        Path pathObj = Paths.get(path);
++        if (pathObj.isAbsolute()) {
++            throw new TikaEmitterException("path must not be absolute: " + path);
++        }
++        
++        // Resolve and validate against path traversal
++        Path target = basePath.resolve(path);
++        Path normalizedTarget = target.toAbsolutePath().normalize();
++        Path normalizedBase = basePath.toAbsolutePath().normalize();
++        
++        if (!normalizedTarget.startsWith(normalizedBase)) {
++            throw new TikaEmitterException(
++                "path must not escape basePath. Attempted path: " + path);
++        }
++        
++        return target;
++    }
++
+     @Override
+     public void emit(String emitKey, List<Metadata> metadataList, ParseContext parseContext) throws IOException, TikaEmitterException {
+         Path output;
+@@ -84,7 +122,7 @@
+             emitKey += "." + fileExtension;
+         }
+         if (basePath != null) {
+-            output = basePath.resolve(emitKey);
++            output = validateAndResolve(emitKey);
+         } else {
+             output = Paths.get(emitKey);
+         }
+@@ -144,7 +182,7 @@
+ 
+     @Override
+     public void emit(String path, InputStream inputStream, Metadata userMetadata, ParseContext parseContext) throws IOException, TikaEmitterException {
+-        Path target = basePath.resolve(path);
++        Path target = validateAndResolve(path);
+ 
+         if (!Files.isDirectory(target.getParent())) {
+             Files.createDirectories(target.getParent());
+
+--- a/tika-core/src/main/java/org/apache/tika/extractor/AbstractEmbeddedDocumentBytesHandler.java
++++ b/tika-core/src/main/java/org/apache/tika/extractor/AbstractEmbeddedDocumentBytesHandler.java
+@@ -75,6 +75,9 @@
+                                 EmbeddedDocumentBytesConfig embeddedDocumentBytesConfig,
+                                 Metadata metadata) {
+         String embeddedPath = metadata.get(TikaCoreProperties.RESOURCE_NAME_KEY);
++        if (embeddedPath == null || embeddedPath.isEmpty()) {
++            embeddedPath = "unknown";
++        }
+         StringBuilder emitKey = new StringBuilder(containerEmitKey);
+         emitKey.append("/");
+         String dirPath = addSubDirs(embeddedPath);
+@@ -91,27 +94,42 @@
+     }
+ 
+     private String addSubDirs(String embeddedPath) {
++        if (embeddedPath == null || embeddedPath.isEmpty()) {
++            return "";
++        }
++        
+         StringBuilder sb = new StringBuilder();
+-        //for safety
+-        File cwd = new File(".");
+-        File f = new File(cwd, embeddedPath);
+-        String relPath = cwd.toPath().relativize(f.toPath()).toString();
+-        if (relPath.startsWith("/")) {
+-            relPath = relPath.substring(1);
+-        }
+-        relPath = relPath.replaceAll("\\.\\./", "/");
+-        relPath = relPath.replaceAll("/+", "/");
+-
+-        String[] parts = relPath.split("[/\\\\]");
++        
++        // Split the path into components using both forward and back slashes
++        String normalizedPath = embeddedPath.replace("\\", "/");
++        String[] parts = normalizedPath.split("/");
++        
+         for (int i = 0; i < parts.length - 1; i++) {
+-            //confirm there's a file name
+-            if (containsAlphaNumeric(parts[i])) {
+-                sb.append(parts[i] + "/attach/");
+-            } else {
+-                sb.append(parts[i] + "/");
++            String part = parts[i];
++            // Skip empty parts, current directory references, and parent directory references
++            if (part.isEmpty() || part.equals(".") || part.equals("..")) {
++                continue;
++            }
++            
++            // Use FilenameUtils to ensure the part is a valid filename component
++            String safePart = FilenameUtils.getName(part);
++            if (!safePart.isEmpty() && containsAlphaNumeric(safePart)) {
++                sb.append(safePart).append("/attach/");
+             }
+         }
+-        sb.append(parts[parts.length - 1]);
++        
++        // Process the last component (the filename)
++        if (parts.length > 0) {
++            String lastPart = parts[parts.length - 1];
++            // Skip traversal sequences
++            if (!lastPart.isEmpty() && !lastPart.equals(".") && !lastPart.equals("..")) {
++                String safeFilename = FilenameUtils.getName(lastPart);
++                if (!safeFilename.isEmpty()) {
++                    sb.append(safeFilename);
++                }
++            }
++        }
++        
+         return sb.toString();
+     }
+ 

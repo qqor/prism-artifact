@@ -1,0 +1,52 @@
+diff --git a/src/libsystemd/sd-journal/catalog.c b/src/libsystemd/sd-journal/catalog.c
+index a8d65ea4bf..4d98470de0 100644
+--- a/src/libsystemd/sd-journal/catalog.c
++++ b/src/libsystemd/sd-journal/catalog.c
+@@ -280,7 +280,8 @@ int catalog_import_file(OrderedHashmap *h, const char *path) {
+                 size_t line_len;
+ 
+                 r = read_line(f, LONG_LINE_MAX, &line);
+-                if (r < 0)
++// FIXME: Crash CWE-416: Use After Free
++                 if (r < 0)
+                         return log_error_errno(r, "Failed to read file %s: %m", path);
+                 if (r == 0)
+                         break;
+@@ -319,6 +320,13 @@ int catalog_import_file(OrderedHashmap *h, const char *path) {
+                                                                        path,
+                                                                        n);
+ 
++                                        /* ensure no overflow on finish_item append */
++                                        if (payload_size > (size_t) LONG_LINE_MAX) {
++                                                return log_error_errno(SYNTHETIC_ERRNO(EINVAL),
++                                                                       "[%s:%u] Payload too large.",
++                                                                       path, n);
++                                        }
++
+                                         r = finish_item(h, id, lang ?: deflang, payload, payload_size);
+                                         if (r < 0)
+                                                 return r;
+@@ -328,9 +336,7 @@ int catalog_import_file(OrderedHashmap *h, const char *path) {
+                                 }
+ 
+                                 if (with_language) {
+-                                        char *t;
+-
+-                                        t = strstrip(line + 2 + 1 + 32 + 1);
++                                        char *t = strstrip(line + 2 + 1 + 32 + 1);
+                                         r = catalog_entry_lang(path, n, t, deflang, &lang);
+                                         if (r < 0)
+                                                 return r;
+@@ -351,6 +357,12 @@ int catalog_import_file(OrderedHashmap *h, const char *path) {
+                                                path, n);
+ 
+                 line_len = strlen(line);
++                /* re-check after read */
++                if (line_len > LONG_LINE_MAX) {
++                        return log_error_errno(SYNTHETIC_ERRNO(EINVAL),
++                                               "[%s:%u] Line too long.",
++                                               path, n);
++                }
+                 if (!GREEDY_REALLOC(payload, payload_size + (empty_line ? 1 : 0) + line_len + 1 + 1))
+                         return log_oom();
+ 

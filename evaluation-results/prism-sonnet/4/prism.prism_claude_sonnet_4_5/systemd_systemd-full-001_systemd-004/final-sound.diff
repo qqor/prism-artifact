@@ -1,0 +1,31 @@
+--- a/src/shared/condition.c
++++ b/src/shared/condition.c
+@@ -97,13 +97,23 @@
+ }
+ 
+ Condition* condition_free_list_type(Condition *head, ConditionType type) {
+-        LIST_FOREACH(conditions, c, head)
+-                if (type < 0 || c->type == type) {
++        /* When type < 0, free all conditions */
++        if (type < 0) {
++                Condition *c;
++                while ((c = LIST_POP(conditions, head)))
++                        condition_free(c);
++                return NULL;  /* List is now empty */
++        }
++        
++        /* When type >= 0, free only conditions matching the specific type */
++        LIST_FOREACH_WITH_NEXT(conditions, c, next, head) {
++                if (c->type == type) {
++                        LIST_REMOVE(conditions, head, c);
+                         condition_free(c);
+                 }
+-
+-        assert(type >= 0 || !head);
+-        return head;
++        }
++        
++        return head;  /* Return updated head (may be different if first node was removed) */
+ }
+ 
+ static int condition_test_kernel_command_line(Condition *c, char **env) {

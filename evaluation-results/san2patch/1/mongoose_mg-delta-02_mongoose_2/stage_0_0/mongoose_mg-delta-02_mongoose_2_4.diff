@@ -1,0 +1,48 @@
+diff --git a/src/net_builtin.c b/src/net_builtin.c
+index 793874f4..1e213954 100644
+--- a/src/net_builtin.c
++++ b/src/net_builtin.c
+@@ -380,18 +380,34 @@ static void rx_arp(struct mg_tcpip_if *ifp, struct pkt *pkt) {
+ }
+ 
+ static void rx_icmp(struct mg_tcpip_if *ifp, struct pkt *pkt) {
+-  // MG_DEBUG(("ICMP %d", (int) len));
++// FIXME: Crash CWE-125: Out-of-bounds Read
++   // MG_DEBUG(("ICMP %d", (int) len));
+   if (pkt->icmp->type == 8 && pkt->ip != NULL && pkt->ip->dst == ifp->ip) {
+-    size_t hlen = sizeof(struct eth) + sizeof(struct ip) + sizeof(struct icmp);
+-    size_t space = ifp->tx.len - hlen, plen = pkt->pay.len;
+-    if (plen > space) plen = space;
++    // Dynamic header calculations
++    size_t ip_hl = pkt->ip->ihl * 4;
++    size_t eth_hl = sizeof(struct eth);
++    size_t icmp_hl = sizeof(struct icmp);
++    size_t total_hl = eth_hl + ip_hl + icmp_hl;
++    // Validate full headers exist in received packet
++    if (pkt->len < total_hl) {
++      return;
++    }
++    size_t data_len = pkt->len - total_hl;
++    // Limit to provided payload buffer length
++    if (data_len > pkt->pay.len) {
++      data_len = pkt->pay.len;
++    }
++    // Ensure TX buffer capacity
++    if (data_len > ifp->tx.len - total_hl) {
++      data_len = ifp->tx.len - total_hl;
++    }
+     struct ip *ip = tx_ip(ifp, pkt->eth->src, 1, ifp->ip, pkt->ip->src,
+-                          sizeof(struct icmp) + plen);
++                          icmp_hl + data_len);
+     struct icmp *icmp = (struct icmp *) (ip + 1);
+-    memset(icmp, 0, sizeof(*icmp));        // Set csum to 0
+-    memcpy(icmp + 1, pkt->pay.buf, plen);  // Copy RX payload to TX
+-    icmp->csum = ipcsum(icmp, sizeof(*icmp) + plen);
+-    ether_output(ifp, hlen + plen);
++    memset(icmp, 0, icmp_hl);               // Set csum to 0
++    memcpy(icmp + 1, pkt->pay.buf, data_len);  // Copy RX payload to TX
++    icmp->csum = ipcsum(icmp, icmp_hl + data_len);
++    ether_output(ifp, total_hl + data_len);
+   }
+ }
+ 

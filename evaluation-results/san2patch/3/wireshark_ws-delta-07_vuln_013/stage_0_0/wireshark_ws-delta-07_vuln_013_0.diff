@@ -1,0 +1,34 @@
+diff --git a/epan/dissectors/packet-gvcp.c b/epan/dissectors/packet-gvcp.c
+index d49324a429..18023840ba 100644
+--- a/epan/dissectors/packet-gvcp.c
++++ b/epan/dissectors/packet-gvcp.c
+@@ -971,7 +971,6 @@ void process_register_writes(proto_tree *tree, tvbuff_t *tvb, int offset)
+ 
+ 	return;
+ }
+-
+ /*
+ Attempts to dissect a bootstrap register
+ */
+@@ -979,10 +978,19 @@ Attempts to dissect a bootstrap register
+ static int dissect_register(uint32_t addr, proto_tree *branch, tvbuff_t *tvb, int offset, int length)
+ {
+ 	uint32_t value = 0;
++	// Define maximum registers to prevent overflow
++	static const int MAX_GVCP_REGISTERS = 64;
++// FIXME: Crash CWE-787: Out-of-bounds Write
+ 	
+ 	value = tvb_get_letohl(tvb, offset);
+-	gvcp_register_number[gvcp_register_count] = addr;
+-	gvcp_register_value[gvcp_register_count++] = value;
++	// Rationale: Validate index before writing to prevent buffer overflow
++	if (gvcp_register_count < MAX_GVCP_REGISTERS) {
++		gvcp_register_number[gvcp_register_count] = addr;
++		gvcp_register_value[gvcp_register_count++] = value;
++	} else {
++		// Overflow: drop packet or log error
++		return 0;
++	}
+ 
+ 	switch (addr)
+ 	{

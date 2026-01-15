@@ -1,0 +1,45 @@
+diff --git a/src/cmsps2.c b/src/cmsps2.c
+index cb2db85..9bf8655 100644
+--- a/src/cmsps2.c
++++ b/src/cmsps2.c
+@@ -1049,7 +1049,6 @@ cmsUInt32Number GenerateCSA(cmsContext ContextID,
+     }
+     else {
+ 
+-
+         // Any profile class are allowed (including devicelink), but
+         // output (PCS) colorspace must be XYZ or Lab
+         cmsColorSpaceSignature ColorSpace = cmsGetPCS(hProfile);
+@@ -1066,16 +1065,26 @@ cmsUInt32Number GenerateCSA(cmsContext ContextID,
+         lut = _cmsReadInputLUT(hProfile, Intent);
+         if (lut == NULL) goto Error;
+ 
++        // Attempt matrix+shaper path
++        if (cmsPipelineCheckAndRetreiveStages(lut, 2,
++                                             cmsSigCurveSetElemType,
++                                             cmsSigMatrixElemType,
++                                             &Shaper, &Matrix)) {
+ 
+-        // Tone curves + matrix can be implemented without any LUT
+-        if (cmsPipelineCheckAndRetreiveStages(lut, 2, cmsSigCurveSetElemType, cmsSigMatrixElemType, &Shaper, &Matrix)) {
+-
++            if (Shaper == NULL || Matrix == NULL) {
++                cmsSignalError(ContextID, cmsERROR_RANGE,
++                               "Failed to retrieve matrix or shaper stage");
++                goto Error;
++            }
+             if (!WriteInputMatrixShaper(mem, hProfile, Matrix, Shaper)) goto Error;
+-
+         }
+         else {
+-           // We need a LUT for the rest
+-           if (!WriteInputLUT(mem, hProfile, Intent, dwFlags)) goto Error;
++            // Fallback: write full LUT
++            if (!WriteInputLUT(mem, hProfile, Intent, dwFlags)) {
++                cmsSignalError(ContextID, cmsERROR_RANGE,
++                               "WriteInputLUT failure");
++                goto Error;
++            }
+         }
+     }
+ 

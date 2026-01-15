@@ -1,0 +1,65 @@
+diff --git a/src/shared/condition.c b/src/shared/condition.c
+index 67894f9319..6e8f17da3d 100644
+--- a/src/shared/condition.c
++++ b/src/shared/condition.c
+@@ -95,20 +95,55 @@ Condition* condition_free(Condition *c) {
+         free(c->parameter);
+         return mfree(c);
+ }
+-
++// FIXME: Crash CWE-416: Use After Free
++ 
+ Condition* condition_free_list_type(Condition *head, ConditionType type) {
+-        LIST_FOREACH(conditions, c, head)
++        // two-pass array collection and freeing approach
++        int count = 0;
++        LIST_FOREACH(conditions, c, head) {
++                if (type < 0 || c->type == type)
++                        count++;
++        }
++        if (count == 0) {
++                assert(type >= 0 || !head);
++                return head;
++        }
++
++        // collect pointers to free
++        Condition **to_free = malloc(sizeof(Condition *) * count);
++        if (!to_free)
++                return head; // OOM, skip freeing
++
++        int idx = 0;
++        Condition *current = head;
++        while (current) {
++                if (type < 0 || current->type == type)
++                        to_free[idx++] = current;
++                current = current->next;
++        }
++
++        // unlink matching nodes from original list
++        Condition **pp = &head;
++        while (*pp) {
++                Condition *c = *pp;
+                 if (type < 0 || c->type == type) {
+-                        condition_free(c);
++                        *pp = c->next;
++                } else {
++                        pp = &c->next;
+                 }
++        }
++
++        // free collected nodes
++        for (int i = 0; i < idx; i++)
++                condition_free(to_free[i]);
++        free(to_free);
+ 
+         assert(type >= 0 || !head);
+         return head;
+ }
+ 
+ static int condition_test_kernel_command_line(Condition *c, char **env) {
+-        _cleanup_strv_free_ char **args = NULL;
+-        int r;
++        _cleanup_strv_free_ char **args = NULL;        int r;
+ 
+         assert(c);
+         assert(c->parameter);

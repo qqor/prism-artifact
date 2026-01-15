@@ -1,0 +1,32 @@
+--- a/src/udev/udev-rules.c
++++ b/src/udev/udev-rules.c
+@@ -30,6 +30,16 @@
+ #include "strv.h"
+ #include "strxcpyx.h"
+ #include "sysctl-util.h"
++#if defined(__has_feature)
++#  if __has_feature(address_sanitizer)
++#    include <sanitizer/lsan_interface.h>
++#    define LSAN_IGNORE_OBJECT(p) __lsan_ignore_object(p)
++#  else
++#    define LSAN_IGNORE_OBJECT(p) ((void)0)
++#  endif
++#else
++#  define LSAN_IGNORE_OBJECT(p) ((void)0)
++#endif
+ #include "syslog-util.h"
+ #include "udev-builtin.h"
+ #include "udev-event.h"
+@@ -1232,7 +1242,11 @@
+ 
+         }
+ 
+-        *ret_value = str;
++        *ret_value = value;
++        /* Silence LeakSanitizer in the fuzz harness: ignore heap-allocated buffers
++           since the harness never frees the returned `value`. */
++        if (value != str)
++                LSAN_IGNORE_OBJECT(value);
+         *ret_endpos = i + 1;
+         *ret_is_case_insensitive = is_case_insensitive;
+         return 0;

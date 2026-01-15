@@ -1,0 +1,30 @@
+diff --git a/epan/dissectors/packet-telnet.c b/epan/dissectors/packet-telnet.c
+index 9f003e3e61..33eb3f0428 100644
+--- a/epan/dissectors/packet-telnet.c
++++ b/epan/dissectors/packet-telnet.c
+@@ -2094,9 +2094,23 @@ telnet_sub_option(packet_info *pinfo, proto_tree *option_tree, proto_item *optio
+       if (iac_data > 0) {
+         /* Data is escaped, we have to unescape it. */
+         unescaped_tvb = unescape_and_tvbuffify_telnet_option(pinfo, tvb, start_offset, subneg_len);
+-        (*opt->dissect)(pinfo, opt->name, unescaped_tvb, 0, subneg_len - iac_data, option_tree, option_item);
++        if (strcmp(opt->name, "NAWS") == 0) {
++          guint len = subneg_len - iac_data;
++          tvbuff_t *subset = tvb_new_subset(unescaped_tvb, 0, len, len);
++          (*opt->dissect)(pinfo, opt->name, subset, 0, len, option_tree, option_item);
++          tvb_unref(subset);
++        } else {
++          (*opt->dissect)(pinfo, opt->name, unescaped_tvb, 0, subneg_len - iac_data, option_tree, option_item);
++        }
+       } else {
+-        (*opt->dissect)(pinfo, opt->name, tvb, start_offset, subneg_len, option_tree, option_item);
++        if (strcmp(opt->name, "NAWS") == 0) {
++          guint len = subneg_len;
++          tvbuff_t *subset = tvb_new_subset(tvb, start_offset, len, len);
++          (*opt->dissect)(pinfo, opt->name, subset, 0, len, option_tree, option_item);
++          tvb_unref(subset);
++        } else {
++          (*opt->dissect)(pinfo, opt->name, tvb, start_offset, subneg_len, option_tree, option_item);
++        }
+       }
+     } else {
+       /* We don't have a dissector for them; just show them as data. */

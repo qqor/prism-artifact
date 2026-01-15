@@ -1,0 +1,76 @@
+--- a/libfreerdp/codec/rfx_types.h
++++ b/libfreerdp/codec/rfx_types.h
+@@ -94,6 +94,10 @@
+ 	PROFILER_DEFINE(prof_rfx_dwt_2d_encode)
+ 	PROFILER_DEFINE(prof_rfx_rgb_to_ycbcr)
+ 	PROFILER_DEFINE(prof_rfx_encode_format_rgb)
++
++	/* metadata array and count for RemoteFX codec */
++	UINT64* metadata;
++	UINT16 metadataCount;
+ };
+ 
+ struct S_RFX_MESSAGE
+
+--- a/libfreerdp/codec/rfx.c
++++ b/libfreerdp/codec/rfx.c
+@@ -387,6 +387,13 @@
+ 		}
+ 
+ 		BufferPool_Free(priv->BufferPool);
++
++		/* free metadata array if allocated */
++		if (priv->metadata)
++		{
++			free(priv->metadata);
++		}
++
+ 		winpr_aligned_free(priv);
+ 	}
+ 	winpr_aligned_free(context);
+@@ -657,15 +664,17 @@
+ 	WINPR_ASSERT(message);
+ 	WINPR_ASSERT(pExpectedBlockType);
+ 
++	RFX_CONTEXT_PRIV* priv = context->priv;
++
+ 	if (*pExpectedBlockType != WBT_FRAME_BEGIN)
+ 	{
+-		WLog_Print(context->priv->log, WLOG_ERROR, "message unexpected wants WBT_FRAME_BEGIN");
++		WLog_Print(priv->log, WLOG_ERROR, "message unexpected wants WBT_FRAME_BEGIN");
+ 		return FALSE;
+ 	}
+ 
+ 	*pExpectedBlockType = WBT_REGION;
+ 
+-	if (!Stream_CheckAndLogRequiredLengthWLog(context->priv->log, s, 6))
++	if (!Stream_CheckAndLogRequiredLengthWLog(priv->log, s, 6))
+ 		return FALSE;
+ 
+ 	Stream_Read_UINT32(
+@@ -673,10 +682,22 @@
+ 	Stream_Read_UINT16(s, numRegions); /* numRegions (2 bytes) */
+ 	if (Stream_GetRemainingLength(s) >= 8)
+ 	{
+-	        UINT64 blockOffset = 0;
++	        UINT64 blockOffset = 0, blockData = 0;
+ 	        Stream_Read_UINT64(s, blockOffset);
+-	        Stream_Read_UINT64(s, metadataData);
+-	        metadataBlock += blockOffset;
++	        Stream_Read_UINT64(s, blockData);
++
++	        /* allocate metadata buffer if not yet allocated */
++	        if (!priv->metadata)
++	        {
++	            priv->metadataCount = 1;
++	            priv->metadata = (UINT64*) calloc(priv->metadataCount, sizeof(UINT64));
++	            if (!priv->metadata)
++	                return FALSE;
++	        }
++
++	        /* point to our allocated metadata slot and store data */
++	        metadataBlock = (UINT64) priv->metadata;
++	        metadataData  = blockData;
+ 	}
+ 	WLog_Print(context->priv->log, WLOG_DEBUG,
+ 	           "RFX_FRAME_BEGIN: frameIdx: %" PRIu32 " numRegions: %" PRIu16 "", frameIdx,

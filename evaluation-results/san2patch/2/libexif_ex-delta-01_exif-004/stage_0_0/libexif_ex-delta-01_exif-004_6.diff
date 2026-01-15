@@ -1,0 +1,34 @@
+diff --git a/libexif/apple/exif-mnote-data-apple.c b/libexif/apple/exif-mnote-data-apple.c
+index 83a9cb1..9feb39c 100644
+--- a/libexif/apple/exif-mnote-data-apple.c
++++ b/libexif/apple/exif-mnote-data-apple.c
+@@ -117,18 +117,24 @@ exif_mnote_data_apple_load(ExifMnoteData *md, const unsigned char *buf, unsigned
+         } else {
+             dofs = ofs + 8;
+         }
+-	if (dofs > buf_size) {
+-		exif_log (md->log, EXIF_LOG_CODE_CORRUPT_DATA,
++    if (dofs > buf_size) {
++        exif_log (md->log, EXIF_LOG_CODE_CORRUPT_DATA,
+                                   "ExifMnoteApplet", "Tag size overflow detected (%u vs size %u)", dofs, buf_size);
+-		continue;
+-	}
++        continue;
++    }
+         ofs += 12;
+         d->entries[i].data = exif_mem_alloc(md->mem, dsize);
+         if (!d->entries[i].data) {
+             EXIF_LOG_NO_MEMORY(md->log, "ExifMnoteApple", dsize);
+             continue;
+         }
+-        memcpy(d->entries[i].data, buf + dofs, dsize);
++        /* Use bounds-checked memcpy_s to prevent OOB read */
++        if (memcpy_s(d->entries[i].data, dsize, buf + dofs, dsize) != 0) {
++            exif_log(md->log, EXIF_LOG_CODE_CORRUPT_DATA,
++                     "ExifMnoteApple", "memcpy_s failed or overflow (%u vs %u)", dsize, dsize);
++            exif_mem_free(d->entries[i].data);
++            continue;
++        }
+         d->entries[i].size = dsize;
+     }
+     d->count = tcount;

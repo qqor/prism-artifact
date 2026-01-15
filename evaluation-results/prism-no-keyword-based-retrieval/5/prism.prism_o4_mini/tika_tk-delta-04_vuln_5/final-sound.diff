@@ -1,0 +1,45 @@
+--- a/tika-pipes/tika-emitters/tika-emitter-fs/src/main/java/org/apache/tika/pipes/emitter/fs/FileSystemEmitter.java
++++ b/tika-pipes/tika-emitters/tika-emitter-fs/src/main/java/org/apache/tika/pipes/emitter/fs/FileSystemEmitter.java
+@@ -83,11 +83,7 @@
+         if (fileExtension != null && fileExtension.length() > 0) {
+             emitKey += "." + fileExtension;
+         }
+-        if (basePath != null) {
+-            output = basePath.resolve(emitKey);
+-        } else {
+-            output = Paths.get(emitKey);
+-        }
++        output = safeResolve(emitKey);
+ 
+         if (!Files.isDirectory(output.getParent())) {
+             Files.createDirectories(output.getParent());
+@@ -142,9 +138,28 @@
+         this.prettyPrint = prettyPrint;
+     }
+ 
++    /**
++     * Safely resolve a user-supplied path against basePath (or CWD if basePath is null),
++     * preventing absolute paths or directory traversal attacks.
++     */
++    private Path safeResolve(String userPath) throws TikaEmitterException {
++        Path relative = Paths.get(userPath);
++        if (relative.isAbsolute()) {
++            throw new TikaEmitterException("Invalid absolute path: " + userPath);
++        }
++        Path root = (basePath != null
++                ? basePath.toAbsolutePath().normalize()
++                : Paths.get("").toAbsolutePath().normalize());
++        Path combined = root.resolve(relative).normalize();
++        if (!combined.startsWith(root)) {
++            throw new TikaEmitterException("File path traversal attempt: " + userPath);
++        }
++        return combined;
++    }
++
+     @Override
+     public void emit(String path, InputStream inputStream, Metadata userMetadata, ParseContext parseContext) throws IOException, TikaEmitterException {
+-        Path target = basePath.resolve(path);
++        Path target = safeResolve(path);
+ 
+         if (!Files.isDirectory(target.getParent())) {
+             Files.createDirectories(target.getParent());

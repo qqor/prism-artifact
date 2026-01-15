@@ -1,0 +1,44 @@
+diff --git a/src/json.c b/src/json.c
+index 2a91900..be34d7e 100644
+--- a/src/json.c
++++ b/src/json.c
+@@ -303,20 +303,28 @@ json_value * json_parse_ex (json_settings * settings,
+                   case 't':  string_add ('\t');  break;
+                   case 'u':
+ 
+-                    if (end - state.ptr < 4 || 
+-                        (uc_b1 = hex_value (*++ state.ptr)) == 0xFF ||
+-                        (uc_b2 = hex_value (*++ state.ptr)) == 0xFF ||
+-                        (uc_b3 = hex_value (*++ state.ptr)) == 0xFF ||
+-                        (uc_b4 = hex_value (*++ state.ptr)) == 0xFF)
+                     {
+-                        sprintf (error, "Invalid character value `%c` (at %d:%d)", b, line_and_col);
+-                        goto e_failed;
++                        /* Bound-checked manual read of four hex digits */
++                        const char *p = state.ptr;
++                        unsigned v1, v2, v3, v4;
++                        if (end - p < 4) {
++                            sprintf (error, "Invalid character value `%c` (at %d:%d)", b, line_and_col);
++                            goto e_failed;
++                        }
++                        p++; v1 = hex_value (*p);
++                        if (v1 == 0xFF) { sprintf (error, "Invalid character value `%c` (at %d:%d)", b, line_and_col); goto e_failed; }
++                        p++; v2 = hex_value (*p);
++                        if (v2 == 0xFF) { sprintf (error, "Invalid character value `%c` (at %d:%d)", b, line_and_col); goto e_failed; }
++                        p++; v3 = hex_value (*p);
++                        if (v3 == 0xFF) { sprintf (error, "Invalid character value `%c` (at %d:%d)", b, line_and_col); goto e_failed; }
++                        p++; v4 = hex_value (*p);
++                        if (v4 == 0xFF) { sprintf (error, "Invalid character value `%c` (at %d:%d)", b, line_and_col); goto e_failed; }
++                        state.ptr = p;
++                        uc_b1 = (v1 << 4) | v2;
++                        uc_b2 = (v3 << 4) | v4;
++                        uchar = (uc_b1 << 8) | uc_b2;
+                     }
+ 
+-                    uc_b1 = (uc_b1 << 4) | uc_b2;
+-                    uc_b2 = (uc_b3 << 4) | uc_b4;
+-                    uchar = (uc_b1 << 8) | uc_b2;
+-
+                     if ((uchar & 0xF800) == 0xD800) {
+                         json_uchar uchar2;
+                         

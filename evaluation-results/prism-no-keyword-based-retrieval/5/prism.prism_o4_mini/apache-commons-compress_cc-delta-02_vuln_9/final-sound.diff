@@ -1,0 +1,38 @@
+--- a/src/main/java/org/apache/commons/compress/compressors/z/ZCompressorInputStream.java
++++ b/src/main/java/org/apache/commons/compress/compressors/z/ZCompressorInputStream.java
+@@ -21,6 +21,7 @@
+ import java.io.IOException;
+ import java.io.InputStream;
+ import java.nio.ByteOrder;
++import org.apache.commons.compress.compressors.CompressorException;
+ 
+ import org.apache.commons.compress.compressors.lzw.LZWInputStream;
+ 
+@@ -79,7 +80,12 @@
+             throw new IOException("Input is not in .Z format");
+         }
+         blockMode = (thirdByte & BLOCK_MODE_MASK) != 0;
+-        maxCodeSize = thirdByte & MAX_CODE_SIZE_MASK;
++        final int rawMax = thirdByte & MAX_CODE_SIZE_MASK;
++        if (rawMax < DEFAULT_CODE_SIZE || rawMax > 16) {
++            throw new CompressorException("Unsupported LZW code size: " + rawMax
++                + ". Must be between " + DEFAULT_CODE_SIZE + " and 16.");
++        }
++        maxCodeSize = rawMax;
+         if (blockMode) {
+             setClearCode(DEFAULT_CODE_SIZE);
+         }
+
+--- a/src/main/java/org/apache/commons/compress/compressors/lzw/LZWInputStream.java
++++ b/src/main/java/org/apache/commons/compress/compressors/lzw/LZWInputStream.java
+@@ -176,6 +176,10 @@
+      * @throws IllegalArgumentException if {@code maxCodeSize} is out of bounds for {@code prefixes} and {@code characters}.
+      */
+     protected void initializeTables(final int maxCodeSize) {
++        if (maxCodeSize > 16) {
++            throw new IllegalArgumentException("maxCodeSize " + maxCodeSize
++                + " exceeds allowed maximum of 16");
++        }
+         // maxCodeSize shifted cannot be less than 256, otherwise the loop in initializeTables() will throw an ArrayIndexOutOfBoundsException
+         // maxCodeSize cannot be smaller than getCodeSize(), otherwise addEntry() will throw an ArrayIndexOutOfBoundsException
+         if (1 << maxCodeSize < 256 || getCodeSize() > maxCodeSize) {

@@ -1,0 +1,45 @@
+--- a/src/cmsps2.c
++++ b/src/cmsps2.c
+@@ -753,12 +753,22 @@
+ static
+ int EmitCIEBasedDEF(cmsIOHANDLER* m, cmsPipeline* Pipeline, cmsUInt32Number Intent, cmsCIEXYZ* BlackPoint)
+ {
++    // Validate pipeline structure: at least two stages (curve + CLUT)
++    if (Pipeline == NULL || Pipeline->Elements == NULL || Pipeline->Elements->Next == NULL)
++        return FALSE;
++
++    cmsStage* mpe0 = Pipeline->Elements;
++    cmsStage* mpe1 = mpe0->Next;
++    // Check stage types: first a curve, then a CLUT
++    if (mpe0->Type != cmsSigCurveSetElemType || mpe1->Type != cmsSigCLutElemType)
++        return FALSE;
++
+     const char* PreMaj;
+     const char* PostMaj;
+     const char* PreMin, *PostMin;
+     cmsStage* mpe;
+         
+-    mpe = Pipeline->Elements;
++    mpe = mpe0;
+ 
+     switch (cmsStageInputChannels(mpe)) {
+     case 3:
+@@ -902,9 +912,17 @@
+ 
+             dwFlags |= cmsFLAGS_FORCE_CLUT;
+             _cmsOptimizePipeline(m->ContextID, &DeviceLink, Intent, &InputFormat, &OutFrm, &dwFlags);
++            
++            // Validate optimized pipeline before emitting DEF
++            if (DeviceLink == NULL || DeviceLink->Elements == NULL || DeviceLink->Elements->Next == NULL ||
++                DeviceLink->Elements->Type != cmsSigCurveSetElemType || DeviceLink->Elements->Next->Type != cmsSigCLutElemType) {
++                cmsPipelineFree(DeviceLink);
++                cmsDeleteTransform(xform);
++                return FALSE;
++            }
+ 
+             rc = EmitCIEBasedDEF(m, DeviceLink, Intent, &BlackPointAdaptedToD50);
+-            cmsPipelineFree(DeviceLink);            
++            cmsPipelineFree(DeviceLink);
+             if (!rc) {
+                 cmsDeleteTransform(xform);
+                 return FALSE;

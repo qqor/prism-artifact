@@ -1,0 +1,34 @@
+diff --git a/lib/doh.c b/lib/doh.c
+index 8769372e0..3c8e5b8ba 100644
+--- a/lib/doh.c
++++ b/lib/doh.c
+@@ -215,7 +215,8 @@ static void doh_print_buf(struct Curl_easy *data,
+ static int doh_done(struct Curl_easy *doh, CURLcode result)
+ {
+   struct Curl_easy *data; /* the transfer that asked for the DoH probe */
+-
++  // FIXME: Crash CWE-416: Use After Free
++ 
+   data = Curl_multi_get_handle(doh->multi, doh->set.dohfor_mid);
+   if(!data) {
+     DEBUGF(infof(doh, "doh_done: xfer for mid=%" FMT_OFF_T
+@@ -224,6 +225,10 @@ static int doh_done(struct Curl_easy *doh, CURLcode result)
+   }
+   else {
+     struct doh_probes *dohp = data->req.doh;
++    if(!dohp) {
++      /* guard against stale pointer use-after-free */
++      return 0;
++    }
+     /* one of the DoH request done for the 'data' transfer is now complete! */
+     dohp->pending--;
+     infof(doh, "a DoH request is completed, %u to go", dohp->pending);
+@@ -233,6 +238,8 @@ static int doh_done(struct Curl_easy *doh, CURLcode result)
+     if(!dohp->pending) {
+       /* DoH completed, run the transfer picking up the results */
+       Curl_expire(data, 0, EXPIRE_RUN_NOW);
++      free(dohp); /* free now to avoid stale pointer elsewhere */
++      data->req.doh = NULL; /* clear after free */
+     }
+   }
+   return 0;

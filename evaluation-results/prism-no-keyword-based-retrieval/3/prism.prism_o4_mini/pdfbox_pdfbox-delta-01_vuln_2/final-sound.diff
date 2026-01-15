@@ -1,0 +1,29 @@
+--- a/pdfbox/src/main/java/org/apache/pdfbox/ocr/OCRStreamEngine.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/ocr/OCRStreamEngine.java
+@@ -155,11 +155,8 @@
+     }
+ 
+     private String runTesseract(Path image) throws IOException {
+-        String actualTessPath = pdDocument.getDocumentInformation()
+-                .getCustomMetadataValue(TESSERACT_PATH_KEY);
+-        if (actualTessPath == null || actualTessPath.isEmpty()) {
+-            actualTessPath = tesseractPath;
+-        }
++        // Use configured Tesseract path only; ignore any custom metadata to prevent injection
++        String actualTessPath = tesseractPath;
+ 
+         Path txt = Paths.get(image.toAbsolutePath().toString());
+         doOCR(actualTessPath, image, txt);
+@@ -178,6 +175,12 @@
+     private void doOCR(String actualTesseractPath, Path input, Path output)
+             throws IOException {
+ 
++        // Validate that the Tesseract executable is present and executable
++        Path tessPath = Paths.get(actualTesseractPath);
++        if (!tessPath.toFile().canExecute()) {
++            throw new IOException("Invalid or non-executable Tesseract path: " + tessPath);
++        }
++        actualTesseractPath = tessPath.toAbsolutePath().toString();
+         ArrayList<String> cmd = new ArrayList<>(
+                 Arrays.asList(actualTesseractPath, input.toAbsolutePath().toString(),
+                         output.toAbsolutePath().toString()));

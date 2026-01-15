@@ -1,0 +1,86 @@
+diff --git a/epan/dissectors/packet-telnet.c b/epan/dissectors/packet-telnet.c
+index 9f003e3e61..393f055fec 100644
+--- a/epan/dissectors/packet-telnet.c
++++ b/epan/dissectors/packet-telnet.c
+@@ -2066,37 +2066,55 @@ telnet_sub_option(packet_info *pinfo, proto_tree *option_tree, proto_item *optio
+     /* Now dissect the suboption parameters. */
+     if (opt->dissect != NULL) {
+ 
+-      switch (opt->len_type) {
+-
+-      case NO_LENGTH:
+-        /* There isn't supposed to *be* sub-option negotiation for this. */
+-        expert_add_info_format(pinfo, option_item, &ei_telnet_suboption_length, "Bogus suboption data");
+-        return offset;
+-
+-      case FIXED_LENGTH:
+-        /* Make sure the length is what it's supposed to be. */
+-        if (subneg_len - iac_data != opt->optlen) {
+-          expert_add_info_format(pinfo, option_item, &ei_telnet_suboption_length, "Suboption parameter length is %d, should be %d", subneg_len, opt->optlen);
+-          return offset;
++      /* Special-case NAWS to isolate its buffer and avoid use-after-free */
++      if (strcmp(opt->name, "NAWS") == 0) {
++        tvbuff_t *source;
++        gint      length;
++
++        if (iac_data > 0) {
++          source = unescape_and_tvbuffify_telnet_option(pinfo, tvb, start_offset, subneg_len);
++          length = subneg_len - iac_data;
++        } else {
++          source = tvb;
++          length = subneg_len;
+         }
+-        break;
++        /* Copy raw NAWS data into a fresh tvb */
++        const guint8 *ptr = tvb_get_ptr(source, (source == tvb) ? start_offset : 0, length);
++        tvbuff_t *dup_tvb = tvb_new_real_data(g_memdup(ptr, length), length, length);
++        (*opt->dissect)(pinfo, opt->name, dup_tvb, 0, length, option_tree, option_item);
++        tvb_unref(dup_tvb);
++      } else {
++        /* Fallback to original logic for non-NAWS options */
++        switch (opt->len_type) {
+ 
+-      case VARIABLE_LENGTH:
+-        /* Make sure the length is greater than the minimum. */
+-        if (subneg_len - iac_data < opt->optlen) {
+-          expert_add_info_format(pinfo, option_item, &ei_telnet_suboption_length, "Suboption parameter length is %d, should be at least %d", subneg_len, opt->optlen);
++        case NO_LENGTH:
++          /* There isn't supposed to *be* sub-option negotiation for this. */
++          expert_add_info_format(pinfo, option_item, &ei_telnet_suboption_length, "Bogus suboption data");
+           return offset;
++
++        case FIXED_LENGTH:
++          /* Make sure the length is what it's supposed to be. */
++          if (subneg_len - iac_data != opt->optlen) {
++            expert_add_info_format(pinfo, option_item, &ei_telnet_suboption_length, "Suboption parameter length is %d, should be %d", subneg_len, opt->optlen);
++            return offset;
++          }
++          break;
++
++        case VARIABLE_LENGTH:
++          /* Make sure the length is greater than the minimum. */
++          if (subneg_len - iac_data < opt->optlen) {
++            expert_add_info_format(pinfo, option_item, &ei_telnet_suboption_length, "Suboption parameter length is %d, should be at least %d", subneg_len, opt->optlen);
++            return offset;
++          }
++          break;
+         }
+-        break;
+-      }
+ 
+-      /* We have a dissector for this suboption's parameters; call it. */
+-      if (iac_data > 0) {
+-        /* Data is escaped, we have to unescape it. */
+-        unescaped_tvb = unescape_and_tvbuffify_telnet_option(pinfo, tvb, start_offset, subneg_len);
+-        (*opt->dissect)(pinfo, opt->name, unescaped_tvb, 0, subneg_len - iac_data, option_tree, option_item);
+-      } else {
+-        (*opt->dissect)(pinfo, opt->name, tvb, start_offset, subneg_len, option_tree, option_item);
++        if (iac_data > 0) {
++          unescaped_tvb = unescape_and_tvbuffify_telnet_option(pinfo, tvb, start_offset, subneg_len);
++          (*opt->dissect)(pinfo, opt->name, unescaped_tvb, 0, subneg_len - iac_data, option_tree, option_item);
++        } else {
++          (*opt->dissect)(pinfo, opt->name, tvb, start_offset, subneg_len, option_tree, option_item);
++        }
+       }
+     } else {
+       /* We don't have a dissector for them; just show them as data. */

@@ -1,0 +1,28 @@
+--- a/epan/dissectors/packet-icmp.c
++++ b/epan/dissectors/packet-icmp.c
+@@ -924,12 +924,19 @@
+ 	switch(c_type) {
+ 		case ICMP_EXT_ECHO_IDENT_NAME:
+ 			/* Identification Name must be printable*/
+-			tvb_memcpy(tvb, ident_name, offset, obj_length - 4);
+-
+-			for (unsigned i = 0; i < obj_length - 4; i++)
+-				if (!g_ascii_isprint(ident_name[i]))
+-					break;
+-
++			{
++				/* Clamp the copy length to avoid overflow of ident_name[] */
++				size_t data_len = (obj_length > 4) ? (size_t)(obj_length - 4) : 0;
++				size_t copy_len = MIN(data_len, (size_t)ICMP_MAX_IDENT_NAME_LENGTH);
++
++				tvb_memcpy(tvb, ident_name, offset, copy_len);
++
++				/* Only check the printable range we safely copied */
++				for (size_t i = 0; i < copy_len; i++) {
++					if (!g_ascii_isprint(ident_name[i]))
++						break;
++				}
++			}
+ 			proto_tree_add_item(ext_object_tree, hf_icmp_int_ident_name_string, tvb, offset, obj_length - 4, ENC_ASCII);
+ 			break;
+ 		case ICMP_EXT_ECHO_IDENT_INDEX:

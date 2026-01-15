@@ -1,0 +1,35 @@
+diff --git a/libfreerdp/core/freerdp.c b/libfreerdp/core/freerdp.c
+index 594a1a2b8..7917e1ad8 100644
+--- a/libfreerdp/core/freerdp.c
++++ b/libfreerdp/core/freerdp.c
+@@ -1449,11 +1449,27 @@ BOOL freerdp_is_valid_mcs_create_response(const BYTE* data, size_t size)
+ 	wStream sbuffer = { 0 };
+ 	wStream* s = Stream_StaticConstInit(&sbuffer, data, size);
+ 
+-	WINPR_ASSERT(data || (size == 0));
+-	WINPR_ASSERT(s);
++	/* Rationale: log and return on totally empty buffer */
++	if (!data || size == 0)
++	{
++		WLog_ERR(TAG, "Empty or NULL data for MCS Create Response");
++		return FALSE;
++	}
++
++	/* Rationale: ensure at least the known minimum header size before parsing */
++	if (Stream_GetRemainingLength(s) < 6)
++	{
++		WLog_ERR(TAG, "Insufficient data length (%zu) for MCS Create Response", size);
++		return FALSE;
++	}
+ 
++	/* Rationale: guard against allocation failure */
+ 	rdpMcs* mcs = test_mcs_new();
+-	WINPR_ASSERT(mcs);
++	if (!mcs)
++	{
++		WLog_ERR(TAG, "test_mcs_new() failed");
++		return FALSE;
++	}
+ 
+ 	BOOL result = mcs_recv_connect_response(mcs, s);
+ 	test_mcs_free(mcs);

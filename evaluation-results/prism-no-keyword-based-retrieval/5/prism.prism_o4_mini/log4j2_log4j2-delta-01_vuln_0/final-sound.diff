@@ -1,0 +1,38 @@
+--- a/core/src/main/java/org/apache/logging/log4j/core/lookup/JndiLookup.java
++++ b/core/src/main/java/org/apache/logging/log4j/core/lookup/JndiLookup.java
+@@ -54,10 +54,14 @@
+         if (key == null || ! ENABLE_JNDI) {
+             return null;
+         }
++        final String fullName = convertJndiName(key);
++        if (fullName == null) {
++            return null;
++        }
+ 
+         try {
+             InitialContext ctx = new InitialContext();
+-            return (String) ctx.lookup(convertJndiName(key));
++            return (String) ctx.lookup(fullName);
+         } catch (NamingException e) {
+             return null;
+         }
+@@ -71,10 +75,17 @@
+      * @return The fully qualified name to look up.
+      */
+     private String convertJndiName(String jndiName) {
+-        if (!jndiName.startsWith(CONTAINER_JNDI_RESOURCE_PATH_PREFIX) && jndiName.indexOf(':') == -1) {
++        if (jndiName == null) {
++            return null;
++        }
++        int colonIdx = jndiName.indexOf(':');
++        // Disallow remote protocols except java:
++        if (colonIdx > 0 && !jndiName.startsWith("java:")) {
++            return null;
++        }
++        if (!jndiName.startsWith(CONTAINER_JNDI_RESOURCE_PATH_PREFIX) && colonIdx == -1) {
+             jndiName = CONTAINER_JNDI_RESOURCE_PATH_PREFIX + jndiName;
+         }
+-
+         return jndiName;
+     }
+ 

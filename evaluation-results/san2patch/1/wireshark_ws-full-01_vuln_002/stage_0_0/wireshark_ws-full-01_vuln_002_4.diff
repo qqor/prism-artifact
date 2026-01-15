@@ -1,0 +1,54 @@
+diff --git a/epan/dissectors/packet-telnet.c b/epan/dissectors/packet-telnet.c
+index 9f003e3e61..f8db2782bd 100644
+--- a/epan/dissectors/packet-telnet.c
++++ b/epan/dissectors/packet-telnet.c
+@@ -2069,12 +2069,10 @@ telnet_sub_option(packet_info *pinfo, proto_tree *option_tree, proto_item *optio
+       switch (opt->len_type) {
+ 
+       case NO_LENGTH:
+-        /* There isn't supposed to *be* sub-option negotiation for this. */
+         expert_add_info_format(pinfo, option_item, &ei_telnet_suboption_length, "Bogus suboption data");
+         return offset;
+ 
+       case FIXED_LENGTH:
+-        /* Make sure the length is what it's supposed to be. */
+         if (subneg_len - iac_data != opt->optlen) {
+           expert_add_info_format(pinfo, option_item, &ei_telnet_suboption_length, "Suboption parameter length is %d, should be %d", subneg_len, opt->optlen);
+           return offset;
+@@ -2082,7 +2080,6 @@ telnet_sub_option(packet_info *pinfo, proto_tree *option_tree, proto_item *optio
+         break;
+ 
+       case VARIABLE_LENGTH:
+-        /* Make sure the length is greater than the minimum. */
+         if (subneg_len - iac_data < opt->optlen) {
+           expert_add_info_format(pinfo, option_item, &ei_telnet_suboption_length, "Suboption parameter length is %d, should be at least %d", subneg_len, opt->optlen);
+           return offset;
+@@ -2092,22 +2089,25 @@ telnet_sub_option(packet_info *pinfo, proto_tree *option_tree, proto_item *optio
+ 
+       /* We have a dissector for this suboption's parameters; call it. */
+       if (iac_data > 0) {
+-        /* Data is escaped, we have to unescape it. */
+         unescaped_tvb = unescape_and_tvbuffify_telnet_option(pinfo, tvb, start_offset, subneg_len);
+         (*opt->dissect)(pinfo, opt->name, unescaped_tvb, 0, subneg_len - iac_data, option_tree, option_item);
+       } else {
+         (*opt->dissect)(pinfo, opt->name, tvb, start_offset, subneg_len, option_tree, option_item);
+       }
++      /* Instead of freeing immediately, register for deferred free */
++      register_cleanup(&naws, wmem_simple_free);
+     } else {
+-      /* We don't have a dissector for them; just show them as data. */
+       if (iac_data > 0) {
+-        /* Data is escaped, we have to unescape it. */
+         unescaped_tvb = unescape_and_tvbuffify_telnet_option(pinfo, tvb, start_offset, subneg_len);
+         proto_tree_add_item(option_tree, hf_telnet_option_data, unescaped_tvb, 0, subneg_len - iac_data, ENC_NA);
+       } else {
+         proto_tree_add_item(option_tree, hf_telnet_option_data, tvb, start_offset, subneg_len, ENC_NA);
+       }
+     }
++/* at end of function */
++if (cleanup_registered(naws))
++  wmem_simple_free(naws);  // ensure free after tvb_get_raw_bytes_as_stringz() has copied data
++
+   }
+   return offset;
+ }

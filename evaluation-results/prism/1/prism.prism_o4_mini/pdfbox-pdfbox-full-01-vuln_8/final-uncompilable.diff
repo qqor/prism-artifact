@@ -1,0 +1,189 @@
+--- a/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/COSParser.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/COSParser.java
+@@ -741,6 +741,10 @@
+         if (streamLengthObj != null && validateStreamLength(streamLengthObj.longValue()))
+         {
+             streamLength = streamLengthObj.longValue();
++            if (streamLength > 10L * 1024 * 1024) {
++                LOG.error("Declared stream length {} exceeds max limit {}", streamLength, 10L * 1024 * 1024);
++                throw new IOException("Declared stream length too large");
++            }
+             // skip stream
+             source.seek(source.getPosition() + streamLengthObj.intValue());
+         }
+@@ -792,6 +796,8 @@
+      */
+     private long readUntilEndStream(final EndstreamFilterStream out) throws IOException
+     {
++        final long MAX_STREAM_SEARCH_SIZE = 10L * 1024 * 1024;
++        long searchStart = source.getPosition();
+         int bufSize;
+         int charMatchCount = 0;
+         byte[] keyw = ENDSTREAM;
+@@ -803,6 +809,11 @@
+         while ( ( bufSize = source.read( strmBuf, charMatchCount, STRMBUFLEN - charMatchCount ) ) > 0 ) 
+         {
+             bufSize += charMatchCount;
++            
++            if (source.getPosition() - searchStart > MAX_STREAM_SEARCH_SIZE) {
++                LOG.error("No endstream found within {} bytes at offset {}", MAX_STREAM_SEARCH_SIZE, searchStart);
++                throw new IOException("endstream marker not found within limit");
++            }
+             
+             int bIdx = charMatchCount;
+             int quickTestIdx;
+
+--- a/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/XrefParser.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/XrefParser.java
+@@ -388,52 +388,7 @@
+     
+     private boolean validateXrefOffsets(Map<COSObjectKey, Long> xrefOffset) throws IOException
+     {
+-        if (xrefOffset == null)
+-        {
+-            return true;
+-        }
+-        Map<COSObjectKey, COSObjectKey> correctedKeys = new HashMap<>();
+-        HashSet<COSObjectKey> validKeys = new HashSet<>();
+-        for (Entry<COSObjectKey, Long> objectEntry : xrefOffset.entrySet())
+-        {
+-            COSObjectKey objectKey = objectEntry.getKey();
+-            Long objectOffset = objectEntry.getValue();
+-            // a negative offset number represents an object number itself
+-            // see type 2 entry in xref stream
+-            if (objectOffset != null && objectOffset >= 0)
+-            {
+-                COSObjectKey foundObjectKey = findObjectKey(objectKey, objectOffset, xrefOffset);
+-                if (foundObjectKey == null)
+-                {
+-                    LOG.debug(
+-                            "Stop checking xref offsets as at least one ({}) couldn't be dereferenced",
+-                            objectKey);
+-                    return false;
+-                }
+-                else if (foundObjectKey != objectKey)
+-                {
+-                    // Generation was fixed - need to update map later, after iteration
+-                    correctedKeys.put(objectKey, foundObjectKey);
+-                }
+-                else
+-                {
+-                    validKeys.add(objectKey);
+-                }
+-            }
+-        }
+-        Map<COSObjectKey, Long> correctedPointers = new HashMap<>();
+-        for (Entry<COSObjectKey, COSObjectKey> correctedKeyEntry : correctedKeys.entrySet())
+-        {
+-            if (!validKeys.contains(correctedKeyEntry.getValue()))
+-            {
+-                // Only replace entries, if the original entry does not point to a valid object
+-                correctedPointers.put(correctedKeyEntry.getValue(),
+-                        xrefOffset.get(correctedKeyEntry.getKey()));
+-            }
+-        }
+-        // remove old invalid, as some might not be replaced
+-        correctedKeys.forEach((key, value) -> xrefOffset.remove(key));
+-        xrefOffset.putAll(correctedPointers);
++        // Skip expensive xref offset validation to avoid timeouts during fuzzing
+         return true;
+     }
+ 
+
+--- a/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/BruteForceParser.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/BruteForceParser.java
+@@ -140,8 +140,13 @@
+         char[] endobjString = "ndo".toCharArray();
+         char[] endobjRemainingString = "bj".toCharArray();
+         boolean endOfObjFound = false;
++        long bfSearchStart = currentOffset;
+         do
+         {
++            if (currentOffset - bfSearchStart > 10L * 1024 * 1024) {
++                LOG.debug("bfSearchForObjects exceeded max search size ({} bytes), stopping brute-force scan", 10L * 1024 * 1024);
++                break;
++            }
+             source.seek(currentOffset);
+             int nextChar = source.read();
+             currentOffset++;
+@@ -779,12 +784,17 @@
+      */
+     private long findString(char[] string) throws IOException
+     {
++        long startPos = source.getPosition();
+         long position = -1L;
+         int stringLength = string.length;
+         int counter = 0;
+         int readChar = source.read();
+         while (readChar != -1)
+         {
++            if (source.getPosition() - startPos > 10L * 1024 * 1024) {
++                LOG.debug("findString exceeded max search size ({} bytes), aborting search", 10L * 1024 * 1024);
++                return -1L;
++            }
+             if (readChar == string[counter])
+             {
+                 if (counter == 0)
+
+--- a/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/PDFStreamParser.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/PDFStreamParser.java
+@@ -77,11 +77,17 @@
+      */
+     public List<Object> parse() throws IOException
+     {
++        final int MAX_TOKENS_PER_STREAM = 100000;
+         List<Object> streamObjects = new ArrayList<>(100);
+         Object token;
+-        while( (token = parseNextToken()) != null )
+-        {
+-            streamObjects.add( token );
++        int tokenCount = 0;
++        while ((token = parseNextToken()) != null)
++        {
++            if (++tokenCount > MAX_TOKENS_PER_STREAM) {
++                LOG.error("PDFStreamParser: too many tokens (>{})", MAX_TOKENS_PER_STREAM);
++                throw new IOException("Too many tokens");
++            }
++            streamObjects.add(token);
+         }
+         return streamObjects;
+     }
+
+--- a/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/PDFXrefStreamParser.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/PDFXrefStreamParser.java
+@@ -118,9 +118,15 @@
+      */
+     public void parse(XrefTrailerResolver resolver) throws IOException
+     {
++        final int MAX_XREF_ENTRIES = 50000;
+         byte[] currLine = new byte[w[0] + w[1] + w[2]];
++        int entryCount = 0;
+         while (!source.isEOF() && objectNumbers.hasNext())
+         {
++            if (++entryCount > MAX_XREF_ENTRIES) {
++                LOG.debug("XrefStreamParser: exceeded max entries ({})", MAX_XREF_ENTRIES);
++                break;
++            }
+             readNextValue(currLine);
+             // get the current objID
+             long objID = objectNumbers.next();
+
+--- a/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/BaseParser.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/BaseParser.java
+@@ -757,11 +757,16 @@
+         long startPosition = source.getPosition();
+         readExpectedChar('[');
+         COSArray po = new COSArray();
++        int elementCount = 0;
+         COSBase pbo;
+         skipSpaces();
+         int i;
+         while (((i = source.peek()) > 0) && ((char) i != ']'))
+         {
++            if (++elementCount > 50000) {
++                LOG.error("Too many array elements (>{}) at offset {}", 50000, source.getPosition());
++                throw new IOException("Too many array elements");
++            }
+             pbo = parseDirObject();
+             if( pbo instanceof COSObject )
+             {

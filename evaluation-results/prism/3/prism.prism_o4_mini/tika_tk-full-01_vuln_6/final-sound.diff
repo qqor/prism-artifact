@@ -1,0 +1,33 @@
+--- a/tika-app/src/main/java/org/apache/tika/cli/TikaUntar.java
++++ b/tika-app/src/main/java/org/apache/tika/cli/TikaUntar.java
+@@ -33,17 +33,26 @@
+     public static void main(String[] args) throws IOException {
+         Path inputFile = Paths.get(args[0]);
+         Path extractDir = Paths.get(args[1]);
++        Files.createDirectories(extractDir);
++        Path canonicalRoot = extractDir.toAbsolutePath().normalize();
+         try (InputStream is = Files.newInputStream(inputFile);
+-                TarArchiveInputStream tais = new TarArchiveInputStream(is)) {
++             TarArchiveInputStream tais = new TarArchiveInputStream(is)) {
+ 
+             TarArchiveEntry tae = tais.getNextEntry();
+ 
+             while (tae != null) {
+                 if (tae.isFile()) {
+-                    Path target = extractDir.resolve(tae.getName()).normalize();
+-                    if (!Files.isDirectory(target.getParent())) {
+-                        Files.createDirectories(target.getParent());
++                    // Sanitize the entry name: strip leading separators
++                    String rawName = tae.getName().replaceFirst("^[/\\\\]+", "");
++                    Path entryPath = Paths.get(rawName).normalize();
++                    Path target = canonicalRoot.resolve(entryPath).normalize();
++                    // Validation: prevent path traversal
++                    if (!target.startsWith(canonicalRoot)) {
++                        System.err.println("Skipping tar entry outside extraction directory: " + tae.getName());
++                        tae = tais.getNextEntry();
++                        continue;
+                     }
++                    Files.createDirectories(target.getParent());
+                     Files.write(target, tais.readAllBytes());
+                 }
+                 tae = tais.getNextEntry();

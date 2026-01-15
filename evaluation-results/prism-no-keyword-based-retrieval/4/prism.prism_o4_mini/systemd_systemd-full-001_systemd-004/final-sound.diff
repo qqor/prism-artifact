@@ -1,0 +1,24 @@
+--- a/src/shared/condition.c
++++ b/src/shared/condition.c
+@@ -97,10 +97,18 @@
+ }
+ 
+ Condition* condition_free_list_type(Condition *head, ConditionType type) {
+-        LIST_FOREACH(conditions, c, head)
+-                if (type < 0 || c->type == type) {
+-                        condition_free(c);
++        if (type < 0) {
++                /* Free entire list safely and set head to NULL */
++                head = LIST_CLEAR(conditions, head, condition_free);
++        } else {
++                /* Iterate safely, capturing next before removal/free */
++                LIST_FOREACH_WITH_NEXT(conditions, c, n, head) {
++                        if (c->type == type) {
++                                LIST_REMOVE(conditions, head, c);
++                                condition_free(c);
++                        }
+                 }
++        }
+ 
+         assert(type >= 0 || !head);
+         return head;

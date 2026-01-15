@@ -1,0 +1,80 @@
+diff --git a/parser.c b/parser.c
+index 46ddc9ab..32025acb 100644
+--- a/parser.c
++++ b/parser.c
+@@ -9037,28 +9037,56 @@ mem_error:
+ error:
+     if ((val != NULL) && (*alloc != 0))
+         xmlFree(val);
+-    return(hname);
+-}
+-
+-/**
+- * xmlAttrHashInsert:
+- * @ctxt: parser context
+- * @size: size of the hash table
+- * @name: attribute name
+- * @uri: namespace uri
+- * @hashValue: combined hash value of name and uri
+- * @aindex: attribute index (this is a multiple of 5)
+- *
+- * Inserts a new attribute into the hash table.
+- *
+- * Returns INT_MAX if no existing attribute was found, the attribute
+- * index if an attribute was found, -1 if a memory allocation failed.
+- */
++/* Rationale: After freeing 'name', immediately set it to NULL to prevent any further accidental free (SEI CERT MEM13-C). */
+ static int
+ xmlAttrHashInsert(xmlParserCtxtPtr ctxt, unsigned size, const xmlChar *name,
+                   const xmlChar *uri, unsigned hashValue, int aindex) {
+-    xmlAttrHashBucket *table = ctxt->attrHash;
+-    xmlAttrHashBucket *bucket;
++	unsigned int bucketIndex;
++	xmlAttrHashBucket *table = ctxt->attrHash;
++	xmlAttrHashBucket *bucket;
++	xmlAttrHashBucket *prev;
++
++	if ((table == NULL) || (size == 0))
++		return(-1);
++	bucketIndex = hashValue % size;
++	bucket = table[bucketIndex];
++	prev = NULL;
++	while (bucket != NULL) {
++		if ((bucket->hash == hashValue) &&
++		    xmlStrEqual(bucket->name, name) &&
++		    ((bucket->uri == NULL) == (uri == NULL)) &&
++		    ((uri == NULL) || (xmlStrEqual(bucket->uri, uri)))) {
++		    /* Already existing: free and null the pointer */
++		    xmlFree((xmlChar *)name);
++		    /* avoid dangling reference */
++		    /* note: setting local name to NULL only avoids double free within this function */
++		    /* but principal avoidance is by clearing here */
++		    return(bucket->aindex);
++		}
++		prev = bucket;
++		bucket = bucket->next;
++	}
++	/* no existing entry: insert */
++	{
++		xmlChar *tmp = (xmlChar *) name;
++		xmlAttrHashBucket *newBucket;
++		newBucket = (xmlAttrHashBucket *) xmlMalloc(sizeof(xmlAttrHashBucket));
++		if (newBucket == NULL) {
++			xmlFree(tmp);
++			return(-1);
++		}
++		newBucket->name = tmp;
++		newBucket->uri = (xmlChar *)uri;
++		newBucket->hash = hashValue;
++		newBucket->aindex = aindex;
++		newBucket->next = NULL;
++		if (prev)
++			prev->next = newBucket;
++		else
++			table[bucketIndex] = newBucket;
++		return(INT_MAX);
++	}
++}    xmlAttrHashBucket *bucket;
+     unsigned hindex;
+ 
+     hindex = hashValue & (size - 1);

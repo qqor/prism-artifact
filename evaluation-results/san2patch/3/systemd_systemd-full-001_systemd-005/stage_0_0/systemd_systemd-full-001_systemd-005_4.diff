@@ -1,0 +1,37 @@
+diff --git a/src/shared/parse-argument.c b/src/shared/parse-argument.c
+index e6159c1482..4b6c458bfb 100644
+--- a/src/shared/parse-argument.c
++++ b/src/shared/parse-argument.c
+@@ -53,7 +53,7 @@ int parse_json_argument(const char *s, sd_json_format_flags_t *ret) {
+ }
+ 
+ int parse_path_argument(const char *path, bool suppress_root, char **arg) {
+-        char *p;
++        char *p = NULL;
+         int r;
+ 
+         /*
+@@ -63,10 +63,11 @@ int parse_path_argument(const char *path, bool suppress_root, char **arg) {
+          * NOTE THAT THIS WILL FREE THE PREVIOUS ARGUMENT POINTER ON SUCCESS!
+          * Hence, do not pass in uninitialized pointers.
+          */
+-
++// FIXME: Crash CWE-415: Double Free
++ 
++        /* Rationale: Consolidate all frees into final free_and_replace call */
+         if (isempty(path)) {
+-                *arg = mfree(*arg);
+-                return 0;
++                return free_and_replace(*arg, NULL);
+         }
+ 
+         r = path_make_absolute_cwd(path, &p);
+@@ -75,7 +76,7 @@ int parse_path_argument(const char *path, bool suppress_root, char **arg) {
+ 
+         path_simplify(p);
+         if (suppress_root && empty_or_root(p))
+-                p = mfree(p);
++                p = NULL;
+ 
+         return free_and_replace(*arg, p);
+ }

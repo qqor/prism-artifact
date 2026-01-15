@@ -1,0 +1,55 @@
+--- a/epan/dissectors/packet-aim.c
++++ b/epan/dissectors/packet-aim.c
+@@ -581,16 +581,34 @@
+ static int
+ aim_get_buddyname(wmem_allocator_t *pool, uint8_t **name, tvbuff_t *tvb, int offset)
+ {
++	guint off, reported_length, available_length;
+ 	uint16_t buddyname_length;
+ 
+-	*name = wmem_alloc(pool, 256);
+-
++	/* Read buddy name length from the packet */
+ 	buddyname_length = tvb_get_ntohs(tvb, offset);
+ 
+-	if (pool)
+-		memcpy(*name, tvb_get_ptr(tvb,offset,1), buddyname_length);
+-
+-	return buddyname_length;
++	/* Calculate start offset for the name field */
++	off = (guint)(offset + 2);
++
++	/* Determine total reported length and available bytes */
++	reported_length = tvb_reported_length(tvb);
++	available_length = (reported_length > off) ? (reported_length - off) : 0;
++
++	/* Clamp buddyname_length to available data and protocol max */
++	if (buddyname_length > available_length)
++		buddyname_length = available_length;
++	if (buddyname_length > 255)
++		buddyname_length = 255;
++
++	/* Allocate buffer for the buddy name plus null terminator */
++	*name = wmem_alloc(pool, buddyname_length + 1);
++
++	/* Copy buddy name safely and null-terminate */
++	if (buddyname_length > 0)
++		tvb_memcpy(tvb, off, *name, buddyname_length);
++	(*name)[buddyname_length] = '\0';
++
++	return (int)buddyname_length;
+ }
+ 
+ 
+
+--- a/epan/dissectors/packet-hcrt.c
++++ b/epan/dissectors/packet-hcrt.c
+@@ -542,7 +542,7 @@
+     //     i += 1;
+     // }
+ 
+-    validate_message((uint8_t *)tvb_get_ptr(tvb, offset, body_len), val->str, body_len);
++    validate_message((uint8_t *)tvb_get_ptr(tvb, offset, body_len), *val->str, body_len);
+     *offset += body_len;
+     return val;
+ }

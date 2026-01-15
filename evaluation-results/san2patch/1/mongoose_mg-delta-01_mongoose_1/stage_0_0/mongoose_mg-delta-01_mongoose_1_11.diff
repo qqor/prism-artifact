@@ -1,0 +1,30 @@
+diff --git a/src/printf.c b/src/printf.c
+index d9998ccf..2f8741e7 100644
+--- a/src/printf.c
++++ b/src/printf.c
+@@ -34,6 +34,7 @@ static void mg_pfn_iobuf_private(char ch, void *param, bool expand) {
+   }
+ }
+ 
++/* Rationale: Reserve one byte for final null so vxprintf never writes past end */
+ static void mg_putchar_iobuf_static(char ch, void *param) {
+   mg_pfn_iobuf_private(ch, param, false);
+ }
+@@ -43,11 +44,14 @@ void mg_pfn_iobuf(char ch, void *param) {
+ }
+ 
+ size_t mg_vsnprintf(char *buf, size_t len, const char *fmt, va_list *ap) {
+-  struct mg_iobuf io = {(uint8_t *) buf, len, 0, 0};
++  if (len == 0) return 0;
++  /* reduce capacity by one for terminator */
++  size_t cap = (len > 1 ? len - 1 : 0);
++  struct mg_iobuf io = {(uint8_t *) buf, cap, 0, 0};
+   size_t n = mg_vxprintf(mg_putchar_iobuf_static, &io, fmt, ap);
+-  if (n < len) buf[n] = '\0';
++  buf[n] = '\0';
+   return n;
+-}
++}}
+ 
+ size_t mg_snprintf(char *buf, size_t len, const char *fmt, ...) {
+   va_list ap;

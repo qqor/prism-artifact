@@ -1,0 +1,83 @@
+diff --git a/parser.c b/parser.c
+index 836b4a4f..9894aefb 100644
+--- a/parser.c
++++ b/parser.c
+@@ -4068,29 +4068,21 @@ xmlParseEntityValue(xmlParserCtxtPtr ctxt, xmlChar **orig) {
+ 
+     quote = CUR;
+     if ((quote != '"') && (quote != '\'')) {
+-	xmlFatalErr(ctxt, XML_ERR_ATTRIBUTE_NOT_STARTED, NULL);
+-	return(NULL);
++        xmlFatalErr(ctxt, XML_ERR_ATTRIBUTE_NOT_STARTED, NULL);
++        return(NULL);
+     }
+     CUR_PTR++;
+ 
+     length = 0;
+-
+-    /*
+-     * Copy raw content of the entity into a buffer
+-     */
+     while (1) {
+         int c;
+-
+         if (PARSER_STOPPED(ctxt))
+             goto error;
+-
+         if (CUR_PTR >= ctxt->input->end) {
+             xmlFatalErrMsg(ctxt, XML_ERR_ENTITY_NOT_FINISHED, NULL);
+             goto error;
+         }
+-
+         c = CUR;
+-
+         if (c == 0) {
+             xmlFatalErrMsg(ctxt, XML_ERR_INVALID_CHAR,
+                     "invalid character in entity value\n");
+@@ -4100,10 +4092,6 @@ xmlParseEntityValue(xmlParserCtxtPtr ctxt, xmlChar **orig) {
+             break;
+         NEXTL(1);
+         length += 1;
+-
+-        /*
+-         * TODO: Check growth threshold
+-         */
+         if (ctxt->input->end - CUR_PTR < 10)
+             GROW;
+     }
+@@ -4116,6 +4104,15 @@ xmlParseEntityValue(xmlParserCtxtPtr ctxt, xmlChar **orig) {
+             xmlErrMemory(ctxt);
+     }
+ 
++    /* Only grow when needed */
++    if (buf.alloc - buf.len < (unsigned)length) {
++        if (xmlSBufGrow(&buf, buf.len + length) < 0) {
++            xmlErrMemory(ctxt);
++            xmlSBufCleanup(&buf, ctxt, "entity length too long");
++            return(NULL);
++        }
++    }
++
+     xmlExpandPEsInEntityValue(ctxt, &buf, start, length, ctxt->inputNr);
+ 
+     NEXTL(1);
+@@ -4404,6 +4401,7 @@ xmlExpandEntityInAttValue(xmlParserCtxtPtr ctxt, xmlSBuf *buf,
+  *
+  * Returns the expanded attribtue value.
+  */
++/* Rationale: After expansion, explicitly check that size did not exceed the configured maximum and abort if it did. */
+ xmlChar *
+ xmlExpandEntitiesInAttValue(xmlParserCtxtPtr ctxt, const xmlChar *str,
+                             int normalize) {
+@@ -4418,6 +4416,11 @@ xmlExpandEntitiesInAttValue(xmlParserCtxtPtr ctxt, const xmlChar *str,
+     xmlExpandEntityInAttValue(ctxt, &buf, str, NULL, normalize, &inSpace,
+                               ctxt->inputNr, /* check */ 0);
+ 
++    if (buf.size > maxLength) {
++        /* abort parse on overflow */
++        return(xmlSBufFinish(&buf, NULL, ctxt, "AttValue length too long"));
++    }
++
+     if ((normalize) && (inSpace) && (buf.size > 0))
+         buf.size--;
+ 

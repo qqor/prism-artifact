@@ -1,0 +1,173 @@
+--- a/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/EndstreamFilterStream.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/EndstreamFilterStream.java
+@@ -16,6 +16,7 @@
+ 
+ package org.apache.pdfbox.pdfparser;
+ 
++import java.io.IOException;
+ 
+ /**
+  * This class is only for the readUntilEndStream method, to prevent a final CR LF or LF (but not a final CR!) from being
+@@ -26,6 +27,7 @@
+  */
+ class EndstreamFilterStream
+ {
++    private static final long MAX_STREAM_SCAN = 10L * 1024 * 1024; // 10 MB cap
+     private boolean hasCR = false;
+     private boolean hasLF = false;
+     private int pos = 0;
+@@ -41,8 +43,14 @@
+      * @param off offset.
+      * @param len length of segment to write.
+      */
+-    public void filter(byte[] b, int off, int len)
++    public void filter(byte[] b, int off, int len) throws IOException
+     {
++        // update total scanned bytes and abort if exceeding cap
++        length += len;
++        if (length > MAX_STREAM_SCAN)
++        {
++            throw new IOException("Endstream scan exceeds cap of " + MAX_STREAM_SCAN + " bytes");
++        }
+         if (pos == 0 && len > 10)
+         {
+             // PDFBOX-2120 Don't filter if ASCII, i.e. keep a final CR LF or LF
+@@ -99,7 +107,6 @@
+                 }
+             }
+         }
+-        length += len;
+         pos += len;
+     }
+ 
+
+--- a/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/PDFParser.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/PDFParser.java
+@@ -31,6 +31,16 @@
+ import org.apache.pdfbox.pdmodel.PDDocument;
+ import org.apache.pdfbox.pdmodel.encryption.InvalidPasswordException;
+ 
++import java.io.IOException;
++import java.util.Set;
++import java.util.HashSet;
++import org.apache.pdfbox.cos.COSBase;
++import org.apache.pdfbox.cos.COSObject;
++import org.apache.pdfbox.cos.COSObjectKey;
++import org.apache.pdfbox.cos.COSArray;
++import org.apache.pdfbox.cos.COSName;
++import org.apache.pdfbox.cos.COSDictionary;
++
+ public class PDFParser extends COSParser
+ {
+     private static final Logger LOG = LogManager.getLogger(PDFParser.class);
+@@ -116,8 +126,8 @@
+         {
+             root.setItem(COSName.TYPE, COSName.CATALOG);
+         }
+-        // check pages dictionaries
+-        checkPages(root);
++        // guard against cyclic or overly deep page trees
++        safeCheckPages(root);
+         document.setDecrypted();
+         initialParseDone = true;
+     }
+@@ -233,4 +243,44 @@
+         return Loader.loadPDF(file, password);
+     }
+ 
++    private static final int MAX_PAGE_DEPTH = 1000;
++    private static final int MAX_PAGE_NODES = 5000;
++
++    private void safeCheckPages(COSDictionary root) throws IOException
++    {
++        Set<COSObjectKey> visited = new HashSet<>();
++        checkPagesRec(root, visited, 0);
++    }
++
++    private void checkPagesRec(COSDictionary node, Set<COSObjectKey> visited, int depth) throws IOException
++    {
++        if (depth > MAX_PAGE_DEPTH || visited.size() > MAX_PAGE_NODES)
++        {
++            throw new IOException("Page tree too deep or too many nodes, aborting parse");
++        }
++        COSName type = node.getCOSName(COSName.TYPE);
++        if (COSName.PAGES.equals(type))
++        {
++            COSBase kidsBase = node.getDictionaryObject(COSName.KIDS);
++            if (kidsBase instanceof COSArray)
++            {
++                for (COSBase kid : (COSArray) kidsBase)
++                {
++                    if (kid instanceof COSObject)
++                    {
++                        COSObjectKey key = ((COSObject) kid).getKey();
++                        if (!visited.add(key))
++                        {
++                            continue;
++                        }
++                        COSBase child = dereferenceCOSObject((COSObject) kid);
++                        if (child instanceof COSDictionary)
++                        {
++                            checkPagesRec((COSDictionary) child, visited, depth + 1);
++                        }
++                    }
++                }
++            }
++        }
++    }
+ }
+
+--- a/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/COSParser.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/COSParser.java
+@@ -397,7 +397,8 @@
+         }
+         return -1;
+     }
+-    
++    private static final long MAX_STREAM_LENGTH_CAP = 10L * 1024 * 1024; // 10 MB cap
++
+     /**
+      * Return true if parser is lenient. Meaning auto healing capacity of the parser are used.
+      *
+@@ -738,19 +739,32 @@
+ 
+         long streamStartPosition = source.getPosition();
+         long streamLength;
+-        if (streamLengthObj != null && validateStreamLength(streamLengthObj.longValue()))
+-        {
+-            streamLength = streamLengthObj.longValue();
+-            // skip stream
+-            source.seek(source.getPosition() + streamLengthObj.intValue());
++        if (streamLengthObj != null)
++        {
++            long declaredLength = streamLengthObj.longValue();
++            if (declaredLength > MAX_STREAM_LENGTH_CAP)
++            {
++                throw new IOException("Declared stream length exceeds cap of " + MAX_STREAM_LENGTH_CAP + " bytes");
++            }
++            if (validateStreamLength(declaredLength))
++            {
++                streamLength = declaredLength;
++                // skip stream
++                source.seek(source.getPosition() + (int) declaredLength);
++            }
++            else
++            {
++                streamLength = readUntilEndStream(new EndstreamFilterStream());
++                if (declaredLength != streamLength)
++                {
++                    dic.setLong(COSName.LENGTH, streamLength);
++                }
++            }
+         }
+         else
+         {
+             streamLength = readUntilEndStream(new EndstreamFilterStream());
+-            if (streamLengthObj == null || streamLengthObj.longValue() != streamLength)
+-            {
+-                dic.setLong(COSName.LENGTH, streamLength);
+-            }
++            dic.setLong(COSName.LENGTH, streamLength);
+         }
+         String endStream = readString();
+         if (endStream.equals("endobj") && isLenient)

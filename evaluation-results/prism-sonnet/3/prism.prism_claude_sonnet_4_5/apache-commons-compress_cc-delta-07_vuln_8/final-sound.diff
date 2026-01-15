@@ -1,0 +1,36 @@
+--- a/src/main/java/org/apache/commons/compress/archivers/examples/Expander.java
++++ b/src/main/java/org/apache/commons/compress/archivers/examples/Expander.java
+@@ -477,13 +477,13 @@
+             if (zae.isUnixSymlink()) {
+                 String targetName = IOUtils.toString(archive.getInputStream(zae),
+                         StandardCharsets.UTF_8);
+-                Path link = targetDirectory.resolve(zae.getName());
+-                Path target = targetDirectory.resolve(targetName);
+-                Path parent = createParentDirectory(targetDirectory, link);
+-
+-                if (!Files.isSameFile(link.getParent(), parent)) {
+-                    link = parent.relativize(link.getFileName()).normalize();
+-                }
++                Path link = zae.resolveIn(targetDirectory);
++                Path target = targetDirectory.resolve(targetName).normalize();
++                if (!target.startsWith(targetDirectory.normalize())) {
++                    throw new IOException(String.format("Symlink target escapes target directory: '%s' + '%s' -> '%s'",
++                            targetDirectory, targetName, target));
++                }
++                Files.createDirectories(link.getParent());
+                 if (!Files.isRegularFile(link) && !Files.isSymbolicLink(link)) {
+                     Files.createSymbolicLink(link, target);
+                 }
+@@ -493,11 +493,7 @@
+                     throw new IOException(String.format("Zip slip '%s' + '%s' -> '%s'",
+                             targetDirectory, zae.getName(), target));
+                 }
+-                Path parent = createParentDirectory(targetDirectory, target);
+-                if (! target.getParent().toAbsolutePath().normalize().equals(
+-                        parent.toAbsolutePath().normalize())) {
+-                    target = parent.normalize().resolve(target.getFileName());
+-                }
++                Files.createDirectories(target.getParent());
+                 try (InputStream is = archive.getInputStream(zae)) {
+                     Files.copy(is, target);
+                 }

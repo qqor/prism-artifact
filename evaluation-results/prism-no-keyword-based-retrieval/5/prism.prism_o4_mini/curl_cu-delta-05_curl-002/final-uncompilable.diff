@@ -1,0 +1,90 @@
+--- a/lib/parsedate.h
++++ b/lib/parsedate.h
+@@ -24,10 +24,13 @@
+  *
+  ***************************************************************************/
+ 
+-extern const char * const Curl_wkday[7];
+-extern const char * const Curl_month[12];
+-extern const char * const Curl_seconds[60];
++#define CURL_WKDAY_COUNT   7
++#define CURL_MONTH_COUNT   12
++#define CURL_SECONDS_COUNT 60
+ 
++extern const char * const Curl_wkday[CURL_WKDAY_COUNT];
++extern const char * const Curl_month[CURL_MONTH_COUNT];
++extern const char * const Curl_seconds[CURL_SECONDS_COUNT];
+ CURLcode Curl_gmtime(time_t intime, struct tm *store);
+ 
+ /* Curl_getdate_capped() differs from curl_getdate() in that this will return
+
+--- a/lib/parsedate.c
++++ b/lib/parsedate.c
+@@ -105,12 +105,12 @@
+ #if !defined(CURL_DISABLE_PARSEDATE) || !defined(CURL_DISABLE_FTP) || \
+   !defined(CURL_DISABLE_FILE)
+ /* These names are also used by FTP and FILE code */
+-const char * const Curl_wkday[] =
++const char * const Curl_wkday[CURL_WKDAY_COUNT] =
+ {"Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"};
+-const char * const Curl_month[]=
++const char * const Curl_month[CURL_MONTH_COUNT] =
+ { "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+   "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" };
+-const char * const Curl_seconds[] = {
++const char * const Curl_seconds[CURL_SECONDS_COUNT] = {
+     "zero", "one", "two", "three", "four", "five",
+     "six", "seven", "eight", "nine",
+     "ten", "eleven", "twelve", "thirteen",
+
+--- a/lib/ftp.c
++++ b/lib/ftp.c
+@@ -2095,16 +2095,38 @@
+           return result;
+ 
+         /* format: "Tue, 15 Nov 1994 12:45 and twenty-six seconds" */
+-        headerbuflen =
+-          msnprintf(headerbuf, sizeof(headerbuf),
+-            "Last-Modified: %s, %02d %s %4d %02d:%02d and %s seconds GMT\r\n",
+-                    Curl_wkday[tm->tm_wday ? tm->tm_wday-1 : 6],
+-                    tm->tm_mday,
+-                    Curl_month[tm->tm_mon],
+-                    tm->tm_year + 1900,
+-                    tm->tm_hour,
+-                    tm->tm_min,
+-                    Curl_seconds[tm->tm_sec]);
++        {
++          int wdayIndex, monIndex, secIndex;
++
++          /* Clamp weekday: map tm_wday (0=Sunday) into 0..6 (Mon=0 .. Sun=6) */
++          if(tm->tm_wday <= 0 || tm->tm_wday >= CURL_WKDAY_COUNT)
++            wdayIndex = CURL_WKDAY_COUNT - 1;
++          else
++            wdayIndex = tm->tm_wday - 1;
++
++          /* Clamp month: valid range 0..11 */
++          if(tm->tm_mon < 0 || tm->tm_mon >= CURL_MONTH_COUNT)
++            monIndex = CURL_MONTH_COUNT - 1;
++          else
++            monIndex = tm->tm_mon;
++
++          /* Clamp seconds: valid range 0..59 */
++          if(tm->tm_sec < 0 || tm->tm_sec >= CURL_SECONDS_COUNT)
++            secIndex = CURL_SECONDS_COUNT - 1;
++          else
++            secIndex = tm->tm_sec;
++
++          headerbuflen =
++            msnprintf(headerbuf, sizeof(headerbuf),
++              "Last-Modified: %s, %02d %s %4d %02d:%02d and %s seconds GMT\r\n",
++                      Curl_wkday[wdayIndex],
++                      tm->tm_mday,
++                      Curl_month[monIndex],
++                      tm->tm_year + 1900,
++                      tm->tm_hour,
++                      tm->tm_min,
++                      Curl_seconds[secIndex]);
++        }
+         result = client_write_header(data, headerbuf, headerbuflen);
+         if(result)
+           return result;

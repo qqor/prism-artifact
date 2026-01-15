@@ -1,0 +1,66 @@
+diff --git a/parser.c b/parser.c
+index 836b4a4f..53d57c58 100644
+--- a/parser.c
++++ b/parser.c
+@@ -4068,8 +4068,8 @@ xmlParseEntityValue(xmlParserCtxtPtr ctxt, xmlChar **orig) {
+ 
+     quote = CUR;
+     if ((quote != '"') && (quote != '\'')) {
+-	xmlFatalErr(ctxt, XML_ERR_ATTRIBUTE_NOT_STARTED, NULL);
+-	return(NULL);
++        xmlFatalErr(ctxt, XML_ERR_ATTRIBUTE_NOT_STARTED, NULL);
++        return(NULL);
+     }
+     CUR_PTR++;
+ 
+@@ -4101,9 +4101,6 @@ xmlParseEntityValue(xmlParserCtxtPtr ctxt, xmlChar **orig) {
+         NEXTL(1);
+         length += 1;
+ 
+-        /*
+-         * TODO: Check growth threshold
+-         */
+         if (ctxt->input->end - CUR_PTR < 10)
+             GROW;
+     }
+@@ -4116,6 +4113,21 @@ xmlParseEntityValue(xmlParserCtxtPtr ctxt, xmlChar **orig) {
+             xmlErrMemory(ctxt);
+     }
+ 
++    /* Reject too-large raw entities early */
++    if ((unsigned)length > maxLength) {
++        xmlFatalErrMsg(ctxt, XML_ERR_ENTITY_TOO_LONG,
++                       "entity raw length exceeds limit\n");
++        xmlSBufCleanup(&buf, ctxt, "entity length too long");
++        return(NULL);
++    }
++
++    /* Pre-grow buffer to hold raw entity content */
++    if (xmlSBufGrow(&buf, length) < 0) {
++        xmlErrMemory(ctxt);
++        xmlSBufCleanup(&buf, ctxt, "entity length too long");
++        return(NULL);
++    }
++
+     xmlExpandPEsInEntityValue(ctxt, &buf, start, length, ctxt->inputNr);
+ 
+     NEXTL(1);
+@@ -4404,6 +4416,7 @@ xmlExpandEntityInAttValue(xmlParserCtxtPtr ctxt, xmlSBuf *buf,
+  *
+  * Returns the expanded attribtue value.
+  */
++/* Rationale: Pre-grow the buffer to its maximum allowed size to accommodate any expansion and avoid out-of-bounds reads. */
+ xmlChar *
+ xmlExpandEntitiesInAttValue(xmlParserCtxtPtr ctxt, const xmlChar *str,
+                             int normalize) {
+@@ -4414,6 +4427,10 @@ xmlExpandEntitiesInAttValue(xmlParserCtxtPtr ctxt, const xmlChar *str,
+     int inSpace = 1;
+ 
+     xmlSBufInit(&buf, maxLength);
++    /* pre-allocate maxLength bytes to prevent overflow during expansion */
++    if (xmlSBufGrow(&buf, maxLength) < 0) {
++        return(xmlSBufFinish(&buf, NULL, ctxt, "AttValue length too long"));
++    }
+ 
+     xmlExpandEntityInAttValue(ctxt, &buf, str, NULL, normalize, &inSpace,
+                               ctxt->inputNr, /* check */ 0);

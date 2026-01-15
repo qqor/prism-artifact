@@ -1,0 +1,88 @@
+--- a/poi/src/main/java/org/apache/poi/hssf/usermodel/HSSFWorkbook.java
++++ b/poi/src/main/java/org/apache/poi/hssf/usermodel/HSSFWorkbook.java
+@@ -127,19 +127,14 @@
+ public final class HSSFWorkbook extends POIDocument implements Workbook {
+ 
+     //arbitrarily selected; may need to increase
+-    private static final int DEFAULT_MAX_RECORD_LENGTH = 100_000;
++    private static final int DEFAULT_MAX_RECORD_LENGTH = 0x100000;
+     private static int MAX_RECORD_LENGTH = DEFAULT_MAX_RECORD_LENGTH;
+     private static final int DEFAULT_MAX_IMAGE_LENGTH = 50_000_000;
+     private static int MAX_IMAGE_LENGTH = DEFAULT_MAX_IMAGE_LENGTH;
+ 
+     private static final Pattern COMMA_PATTERN = Pattern.compile(",");
+ 
+-    /**
+-     * The maximum number of cell styles in a .xls workbook.
+-     * The 'official' limit is 4,000, but POI allows a slightly larger number.
+-     * This extra delta takes into account built-in styles that are automatically
+-     * <p>
+-     * See http://office.microsoft.com/en-us/excel-help/excel-specifications-and-limits-HP005199291.aspx
++    // duplicate getMaxRecordLength() stub removed
+      */
+     private static final int MAX_STYLES = 4030;
+ 
+@@ -217,6 +212,7 @@
+     }
+ 
+     /**
++     * Returns the maximum allowed record length for string allocations.
+      * @return the max record length allowed for HSSFWorkbook
+      */
+     public static int getMaxRecordLength() {
+
+--- a/poi/src/main/java/org/apache/poi/hssf/record/RecordInputStream.java
++++ b/poi/src/main/java/org/apache/poi/hssf/record/RecordInputStream.java
+@@ -375,10 +375,10 @@
+     }
+ 
+     private String readStringCommon(int requestedLength, boolean pIsCompressedEncoding) {
+-        // Sanity check to detect garbage string lengths
+-        if (requestedLength < 0 || requestedLength > 0x100000) { // 16 million chars?
+-            throw new IllegalArgumentException("Bad requested string length (" + requestedLength + ")");
+-        }
++        org.apache.poi.util.IOUtils.safelyAllocateCheck(
++            requestedLength,
++            org.apache.poi.hssf.usermodel.HSSFWorkbook.getMaxRecordLength()
++        );
+         char[] buf = new char[requestedLength];
+         boolean isCompressedEncoding = pIsCompressedEncoding;
+         int curLen = 0;
+
+--- a/poi/src/main/java/org/apache/poi/hssf/record/FormatRecord.java
++++ b/poi/src/main/java/org/apache/poi/hssf/record/FormatRecord.java
+@@ -117,21 +117,20 @@
+     private static String readStringCommon(RecordInputStream ris, int requestedLength, boolean pIsCompressedEncoding) {
+         //custom copy of ris.readUnicodeLEString to allow for extra bytes at the end
+ 
+-        // Sanity check to detect garbage string lengths
+-        if (requestedLength < 0 || requestedLength > 0x100000) { // 16 million chars?
+-            throw new IllegalArgumentException("Bad requested string length (" + requestedLength + ")");
++        org.apache.poi.util.IOUtils.safelyAllocateCheck(
++            requestedLength,
++            org.apache.poi.hssf.usermodel.HSSFWorkbook.getMaxRecordLength()
++        );
++        int availableChars = pIsCompressedEncoding
++            ? ris.remaining()
++            : ris.remaining() / LittleEndianConsts.SHORT_SIZE;
++        if (availableChars < requestedLength) {
++            throw new org.apache.poi.util.RecordFormatException(
++                "Expected to read " + requestedLength
++                + " chars, but only " + availableChars + " available"
++            );
+         }
+-        char[] buf;
+-        int availableChars = pIsCompressedEncoding ? ris.remaining() : ris.remaining() / LittleEndianConsts.SHORT_SIZE;
+-        //everything worked out.  Great!
+-        if (requestedLength == availableChars) {
+-            buf = new char[requestedLength];
+-        } else {
+-            //sometimes in older Excel 97 .xls files,
+-            //the requested length is wrong.
+-            //Read all available characters.
+-            buf = new char[availableChars];
+-        }
++        char[] buf = new char[requestedLength];
+         for (int i = 0; i < buf.length; i++) {
+             char ch;
+             if (pIsCompressedEncoding) {

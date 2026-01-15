@@ -1,0 +1,40 @@
+diff --git a/libfreerdp/crypto/certificate.c b/libfreerdp/crypto/certificate.c
+index 30820bbc4..9ea3e3e5e 100644
+--- a/libfreerdp/crypto/certificate.c
++++ b/libfreerdp/crypto/certificate.c
+@@ -319,7 +319,7 @@ static BOOL certificate_read_x509_certificate(const rdpCertBlob* cert, rdpCertIn
+ 	error++;
+ 
+ 	if (!ber_read_sequence_tag(s, &length)) /* TBSCertificate (SEQUENCE) */
+-		goto error;
++	goto error;
+ 
+ 	error++;
+ 
+@@ -327,7 +327,15 @@ static BOOL certificate_read_x509_certificate(const rdpCertBlob* cert, rdpCertIn
+ 		goto error;
+ 
+ 	error++;
++	// Rationale: Ensure length does not exceed remaining BER data or limit
++	{
++		size_t remain = ber_get_remaining_length(s);
++		if (length > remain || length > MAX_PEM_SIZE)
++			goto error;
++	}
+ 
++	// FIXME: Crash CWE-787: Out-of-bounds Write
++ 
+ 	if (!ber_read_integer(s, &version)) /* version (INTEGER) */
+ 		goto error;
+ 
+@@ -338,9 +346,7 @@ static BOOL certificate_read_x509_certificate(const rdpCertBlob* cert, rdpCertIn
+ 	if (!ber_read_integer(s, NULL)) /* CertificateSerialNumber (INTEGER) */
+ 		goto error;
+ 
+-	error++;
+-
+-	/* signature */
++	error++;	/* signature */
+ 	if (!ber_read_sequence_tag(s, &length) ||
+ 	    !Stream_SafeSeek(s, length)) /* AlgorithmIdentifier (SEQUENCE) */
+ 		goto error;

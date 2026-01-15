@@ -1,0 +1,36 @@
+diff --git a/epan/dissectors/packet-json.c b/epan/dissectors/packet-json.c
+index fbf7776431..a9d557c101 100644
+--- a/epan/dissectors/packet-json.c
++++ b/epan/dissectors/packet-json.c
+@@ -562,19 +562,25 @@ get_json_string(wmem_allocator_t *scope, tvbparse_elem_t *tok, bool remove_quote
+ 	size_t length;
+ 
+ 	string = tvb_get_string_enc(scope, tok->tvb, tok->offset, tok->len, ENC_UTF_8);
++	// Rationale: Use a safe copy with extra padding to avoid one-byte over-read in unescape
++	size_t orig_len = strlen(string);
++	char *safe_input = wmem_alloc(scope, orig_len + 2);
++	memcpy(safe_input, string, orig_len + 1);
++	// Ensure at least two null terminators
++	safe_input[orig_len + 1] = '\0';
+ 
+ 	if (unescape_strings) {
+-		string = json_string_unescape(scope, string, &length);
+-	}
+-	else {
+-		length = strlen(string);
++		string = json_string_unescape(scope, safe_input, &length);
++	} else {
++		length = orig_len;
++		string = safe_input;
+ 	}
+ 
+ 	if (remove_quotes) {
+-		if (string[length - 1] == '"') {
++		if (length > 0 && string[length - 1] == '"') {
+ 			string[length - 1] = '\0';
+ 		}
+-		if (string[0] == '"') {
++		if (*string == '"') {
+ 			string += 1;
+ 		}
+ 	}

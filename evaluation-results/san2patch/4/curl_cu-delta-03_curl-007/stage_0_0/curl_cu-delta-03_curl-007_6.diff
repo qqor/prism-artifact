@@ -1,0 +1,44 @@
+diff --git a/lib/alliswellprotocoll.c b/lib/alliswellprotocoll.c
+index 5be67405e..6412b8e99 100644
+--- a/lib/alliswellprotocoll.c
++++ b/lib/alliswellprotocoll.c
+@@ -248,9 +248,14 @@ static CURLcode alliswellprotocoll_sm
+       if(result || !nread)
+         break;
+       if(memcmp(response, vnormal->state3, 128) == 0) {
+-        vnstate(data, ALLISWELLPROTOCOLL_STOP);
+-        Curl_pp_sendf(data, &conn->proto.vnormal.pp, "%s", "OK\r\n");
+-        *(unsigned int *)result = CURLE_OK;
++        if(vnormal) {
++          vnstate(data, ALLISWELLPROTOCOLL_STOP);
++          Curl_pp_sendf(data, &conn->proto.vnormal.pp, "%s", "OK\r\n");
++          result = CURLE_OK;
++        }
++        else {
++          result = CURLE_FAILED_INIT;
++        }
+       }
+       else if(strcasecmp("complete\r\n", response) == 0) {
+         Curl_pp_sendf(data, &conn->proto.vnormal.pp, "%s", "OK\r\n");
+@@ -272,8 +277,14 @@ static CURLcode alliswellprotocoll_sm
+   return result;
+ }
+ 
++// Rationale: Ensure 'data->conn' and 'conn->proto' are valid before accessing them.
+ static CURLcode alliswellprotocoll_doing(struct Curl_easy *data, bool *done)
+ {
++  /* validate input and internal protocol object */
++  if(!data || !data->conn || !data->conn->proto) {
++    *done = TRUE;
++    return CURLE_FAILED_INIT;
++  }
+   struct connectdata *conn = data->conn;
+   struct alliswellprotocoll_conn *vnormal = &conn->proto.vnormal;
+ 
+@@ -282,5 +293,4 @@ static CURLcode alliswellprotocoll_doing(struct Curl_easy *data, bool *done)
+   *done = (vnormal->state == ALLISWELLPROTOCOLL_STOP);
+ 
+   return result;
+-
+ }
+\ No newline at end of file

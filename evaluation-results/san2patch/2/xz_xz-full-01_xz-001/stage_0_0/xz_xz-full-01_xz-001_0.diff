@@ -1,0 +1,35 @@
+diff --git a/src/liblzma/check/treeck.c b/src/liblzma/check/treeck.c
+index f54d244e..59edb5c3 100644
+--- a/src/liblzma/check/treeck.c
++++ b/src/liblzma/check/treeck.c
+@@ -85,10 +85,29 @@ static uint32_t compute_tree_checksum(TreeNode *node, unsigned int depth)
+     node->state = STATE_HASHED;
+   }
+ 
+-  // Free the node and edges
++  // Rationale: buffer edge pointers to avoid reading freed memory
++  size_t count = node->edge_count;
++  TreeNode **buf = malloc(count * sizeof(*buf));
++  if (buf) {
++    for (size_t i = 0; i < count; ++i) {
++      buf[i] = node->edges[i];
++    }
++  }
++
++  // Free the node and its edges
+   free(node->edges);
+   free(node);
+ 
++  // Continue checksum calculation on buffered edges
++  if (buf) {
++    for (size_t i = 0; i < count; ++i) {
++      if (buf[i]) {
++        sum += compute_tree_checksum(buf[i], depth + 1);
++      }
++    }
++    free(buf);
++  }
++
+   return sum;
+ }
+ 

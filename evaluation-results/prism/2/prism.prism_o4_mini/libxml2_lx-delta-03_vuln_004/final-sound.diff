@@ -1,0 +1,60 @@
+--- a/encoding.c
++++ b/encoding.c
+@@ -2848,11 +2848,11 @@
+     unsigned char *outstart = out;
+     unsigned long int b0, b1, b2, b3, c, d;
+     int ret = XML_ENC_ERR_SPACE;
++    unsigned char *outend = out + (*outlen);
+ 
+     if ((in[0] != 0x20) && (in[1] != 0x20) && (in[2] != 0x20) && (in[3] != 0x20)) {
+         /* bom is managed already */
+     }
+-
+ 
+     while (in < inend) {
+         b0 = in[0];
+@@ -2865,15 +2865,18 @@
+         c = b0 | b1 | b2 | b3;
+ 
+         if (c < 0x80) {
++            if (out + 1 > outend) break;
+             out[0] = c;
+             in += 4;
+             out += 1;
+         } else if (c < 0x800) {
++            if (out + 2 > outend) break;
+             out[0] = (c >> 6)   | 0xC0;
+             out[1] = (c & 0x3F) | 0x80;
+             in += 4;
+             out += 2;
+         } else if ((c & 0xF800) != 0xD800) {
++            if (out + 3 > outend) break;
+             out[0] =  (c >> 12)         | 0xE0;
+             out[1] = ((c >>  6) & 0x3F) | 0x80;
+             out[2] =  (c        & 0x3F) | 0x80;
+@@ -2885,13 +2888,14 @@
+                 ret = XML_ERR_INTERNAL_ERROR;
+                 break;
+             }
+-	        if (inend - in < 4)
+-		        break;
++            if (inend - in < 4)
++                break;
+             d = in[2] | (in[3] << 8);
+             if ((d & 0xFC00) != 0xDC00) {
+                 ret = XML_ERR_INTERNAL_ERROR;
+                 break;
+             }
++            if (out + 4 > outend) break;
+             /*
+                 simplified due to encoding errors encountered with:
+ 
+@@ -2910,7 +2914,7 @@
+         }
+     }
+ 
+-    if (in-instart > 0)
++    if ((in - instart) > 0 && ret != XML_ENC_ERR_SPACE)
+         ret = out - outstart;
+ 
+     *outlen = out - outstart;

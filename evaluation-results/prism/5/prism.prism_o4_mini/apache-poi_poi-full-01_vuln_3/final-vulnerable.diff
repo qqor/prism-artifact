@@ -1,0 +1,71 @@
+--- a/poi/src/main/java/org/apache/poi/hssf/record/RecordInputStream.java
++++ b/poi/src/main/java/org/apache/poi/hssf/record/RecordInputStream.java
+@@ -40,7 +40,7 @@
+ public final class RecordInputStream implements LittleEndianInput {
+ 
+     /** Maximum size of a single record (minus the 4 byte header) without a continue*/
+-    public static final short MAX_RECORD_DATA_SIZE = 8224;
++    public static final int MAX_RECORD_DATA_SIZE = 8224;
+     private static final int INVALID_SID_VALUE = -1;
+ 
+     /**
+@@ -90,6 +90,7 @@
+      * of the current record.
+      */
+     private int _nextSid;
++    private int _nextDataLength = DATA_LEN_NEEDS_TO_BE_READ;
+     /**
+      * index within the data section of the current BIFF record
+      */
+@@ -185,19 +186,25 @@
+      * @return the sid of the next record or {@link #INVALID_SID_VALUE} if at end of stream
+      */
+     private int readNextSid() {
+-        int nAvailable  = _bhi.available();
++        int nAvailable = _bhi.available();
+         if (nAvailable < EOFRecord.ENCODED_SIZE) {
+             // some scrap left over, if nAvailable > 0?
+             // ex45582-22397.xls has one extra byte after the last record
+             // Excel reads that file OK
+             return INVALID_SID_VALUE;
+         }
+-        int result = _bhi.readRecordSID();
+-        if (result == INVALID_SID_VALUE) {
+-            throw new RecordFormatException("Found invalid sid (" + result + ")");
+-        }
++        int sid = _bhi.readRecordSID();
++        if (sid == INVALID_SID_VALUE) {
++            throw new RecordFormatException("Found invalid sid (" + sid + ")");
++        }
++        // read and validate the upcoming data size
++        int size = _bhi.readDataSize();
++        if (size > MAX_RECORD_DATA_SIZE) {
++            throw new RecordFormatException("Invalid record size: " + size + " for sid: " + sid);
++        }
++        _nextDataLength = size;
+         _currentDataLength = DATA_LEN_NEEDS_TO_BE_READ;
+-        return result;
++        return sid;
+     }
+ 
+     /** Moves to the next record in the stream.
+@@ -213,7 +220,8 @@
+         }
+         _currentSid = _nextSid;
+         _currentDataOffset = 0;
+-        _currentDataLength = _bhi.readDataSize();
++        // use previously read and validated size
++        _currentDataLength = _nextDataLength;
+         if (_currentDataLength > MAX_RECORD_DATA_SIZE) {
+             throw new RecordFormatException("The content of an excel record cannot exceed "
+                     + MAX_RECORD_DATA_SIZE + " bytes, but had: " + _currentDataLength +
+@@ -321,6 +329,9 @@
+             throw new NullPointerException();
+         } else if (off < 0 || len < 0 || len > buf.length - off) {
+             throw new IndexOutOfBoundsException();
++        }
++        if (!isPlain && len > MAX_RECORD_DATA_SIZE) {
++            throw new RecordFormatException("Requested read too large: " + len);
+         }
+ 
+         while (len > 0) {

@@ -1,0 +1,55 @@
+diff --git a/src/json.c b/src/json.c
+index cf6bc57b..2af4fe32 100644
+--- a/src/json.c
++++ b/src/json.c
+@@ -319,10 +319,15 @@ bool mg_json_unescape(struct mg_str s, char *to, size_t n) {
+ char *mg_json_get_str(struct mg_str json, const char *path) {
+   char *result = NULL;
+   int len = 0, off = mg_json_get(json, path, &len);
+-  if (off >= 0 && len > 1 && json.buf[off] == '"') {
+-    if ((result = (char *) calloc(1, (size_t) len)) != NULL &&
+-        !mg_json_unescape(mg_str_n(json.buf + off + 1, (size_t) (len - 2)),
+-                          result, (size_t) len)) {
++// Added bounds check: ensure offset and length stay within the JSON buffer
++  if (off < 0 || len <= 1 || off + len > (int) json.len || json.buf[off] != '"') {
++    return NULL;
++  }
++  /* Allocate exactly `len` bytes (zeroed) */
++  if ((result = (char *) calloc(1, (size_t) len)) != NULL) {
++    /* Unescape the inner string (without the surrounding quotes) */
++    if (mg_json_unescape(mg_str_n(json.buf + off + 1, (size_t)(len - 2)),
++                         result, (size_t) len)) {
+       free(result);
+       result = NULL;
+     }
+@@ -345,15 +350,22 @@ char *mg_json_get_b64(struct mg_str json, const char *path, int *slen) {
+ char *mg_json_get_hex(struct mg_str json, const char *path, int *slen) {
+   char *result = NULL;
+   int len = 0, off = mg_json_get(json, path, &len);
+-  if (off >= 0 && json.buf[off] == '"' && len > 1 &&
+-      (result = (char *) calloc(1, (size_t) len / 2)) != NULL) {
+-    int i;
+-    for (i = 0; i < len - 2; i += 2) {
+-      mg_str_to_num(mg_str_n(json.buf + off + 1 + i, 2), 16, &result[i >> 1],
+-                    sizeof(uint8_t));
++  if (off >= 0 && json.buf[off] == '"' && len > 1) {
++    /* Rationale: calculate exact byte count and allocate one extra byte for '\0' to prevent OOB */
++    int byte_count = (len - 2) / 2;
++    if (byte_count < 0) byte_count = 0;
++    result = (char *) calloc(1, (size_t)(byte_count + 1));
++    if (result != NULL) {
++      int i;
++      /* only iterate over actual hex digits: byte_count*2 chars */
++      for (i = 0; i < byte_count * 2; i += 2) {
++        mg_str_to_num(mg_str_n(json.buf + off + 1 + i, 2), 16,
++                      &result[i >> 1], sizeof(uint8_t));
++      }
++      /* safe null terminator at result[byte_count] */
++      result[byte_count] = '\0';
++      if (slen != NULL) *slen = byte_count;
+     }
+-    result[len / 2 - 1] = '\0';
+-    if (slen != NULL) *slen = len / 2 - 1;
+   }
+   return result;
+ }

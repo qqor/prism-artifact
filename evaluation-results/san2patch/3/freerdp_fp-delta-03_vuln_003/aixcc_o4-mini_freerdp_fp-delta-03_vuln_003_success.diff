@@ -1,0 +1,47 @@
+diff --git a/libfreerdp/codec/rfx.c b/libfreerdp/codec/rfx.c
+index 3b9168ab6..a4a2de2f9 100644
+--- a/libfreerdp/codec/rfx.c
++++ b/libfreerdp/codec/rfx.c
+@@ -1294,12 +1294,12 @@ BOOL rfx_process_message(RFX_CONTEXT* WINPR_RESTRICT context, const BYTE* WINPR_
+ 				ok = rfx_process_message_channels(context, subStream);
+ 				break;
+ 
+-				/* Data messages:
+-				 * The data associated with each encoded frame or image is always bracketed by the
+-				 * TS_RFX_FRAME_BEGIN (section 2.2.2.3.1) and TS_RFX_FRAME_END (section 2.2.2.3.2)
+-				 * messages. There MUST only be one TS_RFX_REGION (section 2.2.2.3.3) message per
+-				 * frame and one TS_RFX_TILESET (section 2.2.2.3.4) message per TS_RFX_REGION.
+-				 */
++			/* Data messages:
++			 * The data associated with each encoded frame or image is always bracketed by the
++			 * TS_RFX_FRAME_BEGIN (section 2.2.2.3.1) and TS_RFX_FRAME_END (section 2.2.2.3.2)
++			 * messages. There MUST only be one TS_RFX_REGION (section 2.2.2.3.3) message per
++			 * frame and one TS_RFX_TILESET (section 2.2.2.3.4) message per TS_RFX_REGION.
++			 */
+ 
+ 			case WBT_FRAME_BEGIN:
+ 				ok = rfx_process_message_frame_begin(context, message, subStream,
+@@ -1315,10 +1315,22 @@ BOOL rfx_process_message(RFX_CONTEXT* WINPR_RESTRICT context, const BYTE* WINPR_
+ 				ok = rfx_process_message_tileset(context, message, subStream,
+ 				                                 &context->expectedDataBlockType);
+ 				break;
+-
++// FIXME: Crash CWE-787: Out-of-bounds Write
++ 
+ 			case WBT_METADATA:
++			{
++				size_t avail = Stream_GetRemainingLength(subStream);
++				/* Ensure stream has enough data for at least two UINT32 values */
++				if (avail < 8)
++				{
++					WLog_ERR(TAG, "Insufficient metadata length: %zu bytes", avail);
++					return FALSE;
++				}
+ 				ok = rfx_process_message_metadata(context, message, subStream,
+ 				                                 &context->expectedDataBlockType);
++				if (!ok)
++					return FALSE;
++			}
+ 				break;
+ 
+ 			case WBT_FRAME_END:

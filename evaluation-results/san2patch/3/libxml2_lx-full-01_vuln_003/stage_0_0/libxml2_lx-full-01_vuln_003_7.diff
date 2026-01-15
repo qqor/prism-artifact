@@ -1,0 +1,93 @@
+diff --git a/parser.c b/parser.c
+index 836b4a4f..b28b18ef 100644
+--- a/parser.c
++++ b/parser.c
+@@ -4061,6 +4061,7 @@ xmlParseEntityValue(xmlParserCtxtPtr ctxt, xmlChar **orig) {
+     xmlSBuf buf;
+     const xmlChar *start;
+     int quote, length;
++    unsigned required;
+ 
+     xmlSBufInit(&buf, maxLength);
+ 
+@@ -4068,29 +4069,21 @@ xmlParseEntityValue(xmlParserCtxtPtr ctxt, xmlChar **orig) {
+ 
+     quote = CUR;
+     if ((quote != '"') && (quote != '\'')) {
+-	xmlFatalErr(ctxt, XML_ERR_ATTRIBUTE_NOT_STARTED, NULL);
+-	return(NULL);
++        xmlFatalErr(ctxt, XML_ERR_ATTRIBUTE_NOT_STARTED, NULL);
++        return(NULL);
+     }
+     CUR_PTR++;
+ 
+     length = 0;
+-
+-    /*
+-     * Copy raw content of the entity into a buffer
+-     */
+     while (1) {
+         int c;
+-
+         if (PARSER_STOPPED(ctxt))
+             goto error;
+-
+         if (CUR_PTR >= ctxt->input->end) {
+             xmlFatalErrMsg(ctxt, XML_ERR_ENTITY_NOT_FINISHED, NULL);
+             goto error;
+         }
+-
+         c = CUR;
+-
+         if (c == 0) {
+             xmlFatalErrMsg(ctxt, XML_ERR_INVALID_CHAR,
+                     "invalid character in entity value\n");
+@@ -4100,10 +4093,6 @@ xmlParseEntityValue(xmlParserCtxtPtr ctxt, xmlChar **orig) {
+             break;
+         NEXTL(1);
+         length += 1;
+-
+-        /*
+-         * TODO: Check growth threshold
+-         */
+         if (ctxt->input->end - CUR_PTR < 10)
+             GROW;
+     }
+@@ -4116,6 +4105,18 @@ xmlParseEntityValue(xmlParserCtxtPtr ctxt, xmlChar **orig) {
+             xmlErrMemory(ctxt);
+     }
+ 
++    /* Estimate worst-case expansion and grow buffer */
++    required = buf.size + (unsigned)length * 2;
++    if (required < buf.size)
++        required = maxLength; /* overflow guard */
++    if (required > maxLength)
++        required = maxLength;
++    if (xmlSBufGrow(&buf, required) < 0) {
++        xmlErrMemory(ctxt);
++        xmlSBufCleanup(&buf, ctxt, "entity length too long");
++        return(NULL);
++    }
++
+     xmlExpandPEsInEntityValue(ctxt, &buf, start, length, ctxt->inputNr);
+ 
+     NEXTL(1);
+@@ -4404,6 +4405,7 @@ xmlExpandEntityInAttValue(xmlParserCtxtPtr ctxt, xmlSBuf *buf,
+  *
+  * Returns the expanded attribtue value.
+  */
++/* Rationale: Double the initial allocation so that even large expansions fit without overflow. */
+ xmlChar *
+ xmlExpandEntitiesInAttValue(xmlParserCtxtPtr ctxt, const xmlChar *str,
+                             int normalize) {
+@@ -4414,6 +4416,10 @@ xmlExpandEntitiesInAttValue(xmlParserCtxtPtr ctxt, const xmlChar *str,
+     int inSpace = 1;
+ 
+     xmlSBufInit(&buf, maxLength);
++    /* grow buffer to twice its initial size to cover unexpected expansions */
++    if (xmlSBufGrow(&buf, maxLength * 2) < 0) {
++        return(xmlSBufFinish(&buf, NULL, ctxt, "AttValue length too long"));
++    }
+ 
+     xmlExpandEntityInAttValue(ctxt, &buf, str, NULL, normalize, &inSpace,
+                               ctxt->inputNr, /* check */ 0);

@@ -1,0 +1,14 @@
+{
+  "project_name": "tika",
+  "vulnerability_identifier": "tika_tk-full-01_vuln_6",
+  "source_directory": "/home/qqor/crete/.cache/official-afc-tika",
+  "llm_usage": {
+    "total_cost": 5.281098000000001,
+    "prompt_tokens": 1570056,
+    "completion_tokens": 38062
+  },
+  "variant": "sound",
+  "diff": "--- a/tika-app/src/main/java/org/apache/tika/cli/TikaUntar.java\n+++ b/tika-app/src/main/java/org/apache/tika/cli/TikaUntar.java\n@@ -24,11 +24,15 @@\n \n import org.apache.commons.compress.archivers.tar.TarArchiveEntry;\n import org.apache.commons.compress.archivers.tar.TarArchiveInputStream;\n+import org.slf4j.Logger;\n+import org.slf4j.LoggerFactory;\n \n /**\n  * Super simple utility class to untar a tar file\n  */\n public class TikaUntar {\n+\n+    private static final Logger LOG = LoggerFactory.getLogger(TikaUntar.class);\n \n     public static void main(String[] args) throws IOException {\n         Path inputFile = Paths.get(args[0]);\n@@ -41,12 +45,37 @@\n             while (tae != null) {\n                 if (tae.isFile()) {\n                     Path target = extractDir.resolve(tae.getName()).normalize();\n+                    \n+                    // Security check: Validate normalized path is within extraction directory\n+                    if (!target.startsWith(extractDir.toAbsolutePath().normalize())) {\n+                        LOG.warn(\"Skipping tar entry with path traversal attempt: {}\", tae.getName());\n+                        tae = tais.getNextEntry();\n+                        continue;\n+                    }\n+                    \n                     if (!Files.isDirectory(target.getParent())) {\n                         Files.createDirectories(target.getParent());\n                     }\n+                    \n+                    // Additional security check: Validate real path after directory creation (symlink protection)\n+                    try {\n+                        if (!target.toRealPath().startsWith(extractDir.toRealPath())) {\n+                            LOG.warn(\"Skipping tar entry with potential symlink attack: {}\", tae.getName());\n+                            tae = tais.getNextEntry();\n+                            continue;\n+                        }\n+                    } catch (IOException e) {\n+                        // If toRealPath() fails, skip the entry to be safe\n+                        LOG.warn(\"Skipping tar entry due to path resolution error: {}\", tae.getName(), e);\n+                        tae = tais.getNextEntry();\n+                        continue;\n+                    }\n+                    \n                     Files.write(target, tais.readAllBytes());\n+                    tae = tais.getNextEntry();\n+                } else {\n+                    tae = tais.getNextEntry();\n                 }\n-                tae = tais.getNextEntry();\n             }\n         }\n     }\n",
+  "stdout": "",
+  "stderr": ""
+}

@@ -1,0 +1,14 @@
+{
+  "project_name": "apache-commons-compress",
+  "vulnerability_identifier": "apache-commons-compress_cc-delta-06_vuln_7",
+  "source_directory": "/home/qqor/crete/.cache/official-afc-commons-compress",
+  "llm_usage": {
+    "total_cost": 0.27751899999999996,
+    "prompt_tokens": 103550,
+    "completion_tokens": 37185
+  },
+  "variant": "sound",
+  "diff": "--- a/src/main/java/org/apache/commons/compress/archivers/examples/Expander.java\n+++ b/src/main/java/org/apache/commons/compress/archivers/examples/Expander.java\n@@ -67,10 +67,21 @@\n     private <T extends ArchiveEntry> void expand(final ArchiveEntrySupplier<T> supplier, final ArchiveEntryBiConsumer<T> writer, final Path targetDirectory)\n             throws IOException {\n         final boolean nullTarget = targetDirectory == null;\n-        final Path targetDirPath = nullTarget ? null : targetDirectory.normalize();\n+        java.nio.file.Path basePath = nullTarget ? null : targetDirectory.toAbsolutePath().normalize();\n+        if (!nullTarget) {\n+            java.nio.file.Files.createDirectories(basePath);\n+            basePath = basePath.toRealPath(java.nio.file.LinkOption.NOFOLLOW_LINKS);\n+        }\n+        final Path targetDirPath = nullTarget ? null : basePath;\n         T nextEntry = supplier.get();\n         while (nextEntry != null) {\n-            final Path targetPath = nullTarget ? null : nextEntry.resolveIn(targetDirPath);\n+            Path targetPath = nullTarget ? null : nextEntry.resolveIn(targetDirPath);\n+            if (!nullTarget) {\n+                targetPath = targetPath.toAbsolutePath().normalize();\n+                if (!targetPath.startsWith(targetDirPath)) {\n+                    throw new IOException(\"Entry is outside of the target directory: \" + nextEntry.getName());\n+                }\n+            }\n             if (nextEntry.isDirectory()) {\n                 if (!nullTarget && !Files.isDirectory(targetPath) && Files.createDirectories(targetPath) == null) {\n                     throw new IOException(\"Failed to create directory \" + targetPath);\n@@ -475,8 +486,13 @@\n                 || ArchiveStreamFactory.SEVEN_Z.equalsIgnoreCase(format);\n     }\n \n-    private Path toPath(final File targetDirectory) {\n-        return targetDirectory != null ? targetDirectory.toPath() : null;\n+    private Path toPath(final File targetDirectory) throws IOException {\n+        if (targetDirectory == null) {\n+            return null;\n+        }\n+        java.nio.file.Path raw = targetDirectory.toPath().toAbsolutePath().normalize();\n+        java.nio.file.Files.createDirectories(raw);\n+        return raw.toRealPath(java.nio.file.LinkOption.NOFOLLOW_LINKS);\n     }\n \n }\n",
+  "stdout": "",
+  "stderr": ""
+}

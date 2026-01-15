@@ -1,0 +1,63 @@
+diff --git a/libfreerdp/core/freerdp.c b/libfreerdp/core/freerdp.c
+index 594a1a2b8..e38ce4a7d 100644
+--- a/libfreerdp/core/freerdp.c
++++ b/libfreerdp/core/freerdp.c
+@@ -1428,28 +1428,52 @@ fail:
+ 
+ BOOL freerdp_is_valid_mcs_create_request(const BYTE* data, size_t size)
+ {
++	#define MIN_MCS_REQ_SIZE 12
++	if (data == NULL || size < MIN_MCS_REQ_SIZE)
++	{
++		WLog_ERR(TAG, "Invalid MCS Create Request: insufficient data");
++		return FALSE;
++	}
+ 
+ 	wStream sbuffer = { 0 };
+-	wStream* s = Stream_StaticConstInit(&sbuffer, data, size);
++	wStream* s = NULL;
+ 
+-	WINPR_ASSERT(data || (size == 0));
+-	WINPR_ASSERT(s);
++	if ((s = Stream_StaticConstInit(&sbuffer, data, size)) == NULL)
++	{
++		WLog_ERR(TAG, "Stream init returned NULL");
++		return FALSE;
++	}
+ 
+-	rdpMcs* mcs = test_mcs_new();
+-	WINPR_ASSERT(mcs);
++	rdpMcs* mcs = NULL;
++	if ((mcs = test_mcs_new()) == NULL)
++	{
++		WLog_ERR(TAG, "Failed to create MCS object");
++		return FALSE;
++	}
+ 
+ 	BOOL result = mcs_recv_connect_initial(mcs, s);
+ 	test_mcs_free(mcs);
++	#undef MIN_MCS_REQ_SIZE
+ 	return result;
+ }
+ 
+ BOOL freerdp_is_valid_mcs_create_response(const BYTE* data, size_t size)
+ {
+ 
++	// Allow zero-length only if explicitly supported
++	if (!data && size != 0) {
++		WLog_ERR(TAG, "Invalid MCS Create Response: data is NULL with non-zero size");
++		return FALSE;
++	}
++	// Enforce a minimum response size
++	if (size < 6) {
++		WLog_ERR(TAG, "Invalid MCS Create Response: insufficient data length");
++		return FALSE;
++	}
++
+ 	wStream sbuffer = { 0 };
+ 	wStream* s = Stream_StaticConstInit(&sbuffer, data, size);
+ 
+-	WINPR_ASSERT(data || (size == 0));
+ 	WINPR_ASSERT(s);
+ 
+ 	rdpMcs* mcs = test_mcs_new();

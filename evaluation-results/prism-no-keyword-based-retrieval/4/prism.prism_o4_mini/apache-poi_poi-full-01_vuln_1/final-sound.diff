@@ -1,0 +1,37 @@
+--- a/poi/src/main/java/org/apache/poi/util/StringUtil.java
++++ b/poi/src/main/java/org/apache/poi/util/StringUtil.java
+@@ -83,6 +83,10 @@
+             throws ArrayIndexOutOfBoundsException, IllegalArgumentException {
+         if (len == 0) {
+             return "";
++        }
++        if (len > MAX_RECORD_LENGTH) {
++            throw new IllegalArgumentException("String length " + len
++                + " exceeds max allowed " + MAX_RECORD_LENGTH);
+         }
+         if ((offset < 0) || (offset >= string.length)) {
+             throw new ArrayIndexOutOfBoundsException("Illegal offset " + offset + " (String data is of length " + string.length + ")");
+
+--- a/poi-scratchpad/src/main/java/org/apache/poi/hmef/attribute/MAPIAttribute.java
++++ b/poi-scratchpad/src/main/java/org/apache/poi/hmef/attribute/MAPIAttribute.java
+@@ -118,11 +118,15 @@
+       }
+       try(UnsynchronizedByteArrayInputStream inp = UnsynchronizedByteArrayInputStream.builder().setByteArray(parent.getData()).get()) {
+          // First up, get the number of attributes
+-         int count = LittleEndian.readInt(inp);
+-         List<MAPIAttribute> attrs = new ArrayList<>();
+-
+-         // Now, read each one in in turn
+-         for(int i=0; i<count; i++) {
++            int count = LittleEndian.readInt(inp);
++            if (count < 0 || count > MAX_RECORD_COUNT) {
++                throw new IOException("Invalid MAPI attribute count " + count
++                    + ", exceeds max " + MAX_RECORD_COUNT);
++            }
++            List<MAPIAttribute> attrs = new ArrayList<>();
++
++            // Now, read each one in in turn
++            for(int i=0; i<count; i++) {
+             int typeAndMV = LittleEndian.readUShort(inp);
+             int id = LittleEndian.readUShort(inp);
+ 

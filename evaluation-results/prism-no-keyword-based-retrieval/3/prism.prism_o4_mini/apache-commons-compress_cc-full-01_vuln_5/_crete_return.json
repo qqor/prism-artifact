@@ -1,0 +1,14 @@
+{
+  "project_name": "apache-commons-compress",
+  "vulnerability_identifier": "apache-commons-compress_cc-full-01_vuln_5",
+  "source_directory": "/home/qqor/crete/.cache/official-afc-commons-compress",
+  "llm_usage": {
+    "total_cost": 0.08986120000000002,
+    "prompt_tokens": 47648,
+    "completion_tokens": 8511
+  },
+  "variant": "sound",
+  "diff": "--- a/src/main/java/org/apache/commons/compress/archivers/ArchiveEntry.java\n+++ b/src/main/java/org/apache/commons/compress/archivers/ArchiveEntry.java\n@@ -73,10 +73,17 @@\n      * @since 1.26.0\n      */\n     default Path resolveIn(final Path parentPath) throws IOException {\n+        // 1. Normalize parent directory (and convert to absolute to handle relative bases safely)\n+        final Path normalizedParent = parentPath.toAbsolutePath().normalize();\n+        // 2. Resolve entry name against normalized parent\n         final String name = getName();\n-        final Path outputFile = parentPath.resolve(name);\n-        if (!outputFile.startsWith(parentPath)) {\n-            throw new IOException(String.format(\"Zip slip '%s' + '%s' -> '%s'\", parentPath, name, outputFile));\n+        // 3. Build candidate output path and normalize it (collapse '..' segments)\n+        final Path outputFile = normalizedParent.resolve(name).toAbsolutePath().normalize();\n+        // 4. Security check: ensure no traversal outside normalizedParent\n+        if (!outputFile.startsWith(normalizedParent)) {\n+            throw new IOException(String.format(\n+                \"Zip slip: parent=%s, entryName=%s, resolved=%s\",\n+                normalizedParent, name, outputFile));\n         }\n         return outputFile;\n     }\n",
+  "stdout": "",
+  "stderr": ""
+}

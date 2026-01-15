@@ -1,0 +1,44 @@
+diff --git a/parser.c b/parser.c
+index 836b4a4f..56192efd 100644
+--- a/parser.c
++++ b/parser.c
+@@ -8412,24 +8412,30 @@ xmlParseInternalSubset(xmlParserCtxtPtr ctxt) {
+                (PARSER_STOPPED(ctxt) == 0)) {
+ 
+             /*
+-             * Conditional sections are allowed from external entities included
+-             * by PE References in the internal subset.
++             * After skipping blanks, ensure sbuf has capacity for upcoming data
++             * Rationale: calculate needed size so SHRINK/GROW macros won't overflow
+              */
++            SKIP_BLANKS_PE;
++            {
++                size_t rem = (size_t)(ctxt->input->end - ctxt->input->cur) + 1;
++                if (ctxt->sbuf && xmlBufAvail(ctxt->sbuf) < rem)
++                    xmlBufGrow(ctxt->sbuf, rem);
++            }
++            SHRINK;
++            GROW;
++
+             if ((PARSER_EXTERNAL(ctxt)) &&
+                 (RAW == '<') && (NXT(1) == '!') && (NXT(2) == '[')) {
+                 xmlParseConditionalSections(ctxt);
+             } else if ((RAW == '<') && ((NXT(1) == '!') || (NXT(1) == '?'))) {
+-	        xmlParseMarkupDecl(ctxt);
++                xmlParseMarkupDecl(ctxt);
+             } else if (RAW == '%') {
+-	        xmlParsePEReference(ctxt);
++                xmlParsePEReference(ctxt);
+             } else {
+-		xmlFatalErr(ctxt, XML_ERR_INT_SUBSET_NOT_FINISHED, NULL);
++                xmlFatalErr(ctxt, XML_ERR_INT_SUBSET_NOT_FINISHED, NULL);
+                 break;
+             }
+-	    SKIP_BLANKS_PE;
+-            SHRINK;
+-            GROW;
+-	}
++        }
+ 
+         while (ctxt->inputNr > oldInputNr)
+             xmlPopPE(ctxt);

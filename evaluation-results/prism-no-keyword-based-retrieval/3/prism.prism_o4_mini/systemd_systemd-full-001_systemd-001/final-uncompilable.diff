@@ -1,0 +1,142 @@
+--- a/src/udev/udev-rules.c
++++ b/src/udev/udev-rules.c
+@@ -1172,6 +1172,7 @@
+         m = str + is_escaped + is_case_insensitive + is_prefix_match;
+ 
+         if (!is_escaped) {
++                char *old_str = str;
+                 /* unescape double quotation '\"'->'"' */
+                 for (j = m, i = m + 1; *i != '"'; i++, j++) {
+                         if (*i == '\0')
+@@ -1180,11 +1181,24 @@
+                                 i++;
+                         *j = *i;
+                 }
+-                /*
+-                 * The return value must be terminated by two subsequent NULs
+-                 * so it could be safely interpreted as nulstr.
+-                 */
+-                if (is_prefix_match){
++                /* compute offsets of pointers and extra space needed */
++                {
++                        ptrdiff_t offset_m = m - old_str;
++                        ptrdiff_t offset_i = i - old_str;
++                        ssize_t l = j - m;
++                        size_t extra = is_prefix_match ? 3 : 2;
++                        size_t new_size = offset_m + l + extra;
++                        char *new_str = realloc(old_str, new_size);
++                        if (!new_str)
++                                return -ENOMEM;
++                        /* update pointers into new buffer */
++                        str = new_str;
++                        m   = str + offset_m;
++                        j   = m + l;
++                        i   = str + offset_i;
++                }
++                /* append terminators */
++                if (is_prefix_match) {
+                         j[0] = '*';
+                         j[1] = '\0';
+                         j[2] = '\0';
+@@ -1192,11 +1206,17 @@
+                         j[0] = '\0';
+                         j[1] = '\0';
+                 }
+-                str = m;            
++                /* return results */
++                *ret_value = m;
++                *ret_endpos = i + 1;
++                *ret_is_case_insensitive = is_case_insensitive;
++                return 0;
+         } else {
++        } else {
++                char *old_str = str;
+                 _cleanup_free_ char *unescaped = NULL;
+                 ssize_t l;
+-
++                
+                 /* find the end position of value */
+                 for (i = m + 1; *i != '"'; i++) {
+                         if (i[0] == '\\')
+@@ -1204,38 +1224,57 @@
+                         if (*i == '\0')
+                                 return -EINVAL;
+                 }
+-
++                
+                 l = cunescape_length(m + 1, i - (m + 1), 0, &unescaped);
+                 if (l < 0)
+                         return l;
+-
++                
+                 assert(l <= i - (m + 1));
+-
+-                /*
+-                * The return value must be terminated by two subsequent NULs
+-                * so it could be safely interpreted as nulstr.
+-                */
+-                if (is_prefix_match){
++                
++                /* compute offsets and reallocate buffer */
++                {
++                        ptrdiff_t offset_m = m - old_str;
++                        ptrdiff_t offset_i = i - old_str;
++                        size_t extra = is_prefix_match ? 3 : 2;
++                        size_t new_size = offset_m + l + extra;
++                        char *new_str = realloc(old_str, new_size);
++                        if (!new_str)
++                                return -ENOMEM;
++                        /* update base pointers */
++                        str = new_str;
++                        m = str + offset_m;
++                        i = str + offset_i;
++                }
++                
++                /* copy unescaped data */
++                if (is_prefix_match) {
+                         /* need more room to make rule glob match */
+                         memcpy(str + pos - 1, unescaped, l + 1);
+-                        str[pos + l - 1] = '*';
+-                        str[pos + l] = '\0';
+-                        str[pos + l + 1] = '\0';
+-                        m = str + pos - 1;
+-
++                        j = str + (pos - 1) + l;
+                 } else {
+                         memcpy(m, unescaped, l + 1);
+-                        m[l] = '\0';
+-                        m[l + 1] = '\0';
+-                }
+-                str = m;
+-
+-        }
+-
+-        *ret_value = str;
+-        *ret_endpos = i + 1;
+-        *ret_is_case_insensitive = is_case_insensitive;
+-        return 0;
++                        j = m + l;
++                }
++                
++                /* append terminators */
++                if (is_prefix_match) {
++                        j[0] = '*';
++                        j[1] = '\0';
++                        j[2] = '\0';
++                        m = str + pos - 1;
++                } else {
++                        j[0] = '\0';
++                        j[1] = '\0';
++                }
++                
++                /* return results */
++                *ret_value = m;
++                *ret_endpos = i + 1;
++                *ret_is_case_insensitive = is_case_insensitive;
++                return 0;
++        }
++
++        /* unreachable */
+ }
+ 
+ static int parse_line(char **line, char **ret_key, char **ret_attr, UdevRuleOperatorType *ret_op, char **ret_value, bool *ret_is_case_insensitive) {

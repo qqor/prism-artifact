@@ -1,0 +1,43 @@
+diff --git a/src/net_builtin.c b/src/net_builtin.c
+index 793874f4..91289478 100644
+--- a/src/net_builtin.c
++++ b/src/net_builtin.c
+@@ -357,10 +357,12 @@ static void rx_arp(struct mg_tcpip_if *ifp, struct pkt *pkt) {
+               &ifp->mac));
+     ether_output(ifp, PDIFF(eth, arp + 1));
+   } else if (pkt->arp->op == mg_htons(2)) {
++    /* Boundary check to ensure ARP header is within packet */
++    if ((uint8_t *)pkt->arp + sizeof(*pkt->arp) > (uint8_t *)pkt + ifp->rx.len) return;
+     if (memcmp(pkt->arp->tha, ifp->mac, sizeof(pkt->arp->tha)) != 0) return;
+     if (pkt->arp->spa == ifp->gw) {
+       // Got response for the GW ARP request. Set ifp->gwmac and IP -> READY
+-      memcpy(ifp->gwmac, pkt->arp->sha, sizeof(ifp->gwmac));
++       memcpy(ifp->gwmac, pkt->arp->sha, sizeof(ifp->gwmac));
+       if (ifp->state == MG_TCPIP_STATE_IP) {
+         ifp->state = MG_TCPIP_STATE_READY;
+         onstatechange(ifp);
+@@ -380,8 +382,23 @@ static void rx_arp(struct mg_tcpip_if *ifp, struct pkt *pkt) {
+ }
+ 
+ static void rx_icmp(struct mg_tcpip_if *ifp, struct pkt *pkt) {
+-  // MG_DEBUG(("ICMP %d", (int) len));
++// Rationale: Drop packets shorter than Ethernet + IP + ICMP headers to prevent OOB
++  uint8_t *base = (uint8_t *)pkt;
++  size_t rx_len = ifp->rx.len;
++  if (rx_len < sizeof(struct eth) + sizeof(struct ip) + sizeof(struct icmp)) {
++    return;
++  }
+   if (pkt->icmp->type == 8 && pkt->ip != NULL && pkt->ip->dst == ifp->ip) {
++    /* Rationale: Bounds‐check IP header */
++    struct ip *hdr_ip = pkt->ip;
++    if ((uint8_t *)(hdr_ip + 1) > base + rx_len) {
++      return;
++    }
++    /* Rationale: Bounds‐check ICMP header */
++    struct icmp *hdr_icmp = pkt->icmp;
++    if ((uint8_t *)(hdr_icmp + 1) > base + rx_len) {
++      return;
++    }
+     size_t hlen = sizeof(struct eth) + sizeof(struct ip) + sizeof(struct icmp);
+     size_t space = ifp->tx.len - hlen, plen = pkt->pay.len;
+     if (plen > space) plen = space;

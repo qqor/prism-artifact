@@ -1,0 +1,69 @@
+--- a/libfreerdp/core/gcc.c
++++ b/libfreerdp/core/gcc.c
+@@ -1854,13 +1854,13 @@
+ 	if (blockLength < 4)
+ 		return FALSE;
+ 
+-	Stream_Read_UINT8(s, mcs->channelCount); /* channelCount */
+-
+-	if (blockLength < 4 + (UINT8)mcs->channelCount * 12)
+-		return FALSE;
+-
+-	if (mcs->channelCount > CHANNEL_MAX_COUNT)
+-		return FALSE;
++    Stream_Read_UINT8(s, mcs->channelCount); /* channelCount */
++
++    /* Compute expected minimum size: channelCount byte + per-channel size */
++    UINT32 perChannelSize = CHANNEL_NAME_LEN + 1 + sizeof(UINT32);
++    UINT32 expectedMin = 1 + (UINT32)mcs->channelCount * perChannelSize;
++    if ((UINT8)mcs->channelCount > CHANNEL_MAX_COUNT || blockLength < expectedMin)
++        return FALSE;
+ 
+ 	/* channelDefArray */
+ 	for (UINT32 i = 0; i < mcs->channelCount; i++)
+@@ -1871,22 +1871,30 @@
+ 		 *   of seven ANSI characters that uniquely identify the channel.
+ 		 * - options: a 32-bit, unsigned integer. Channel option flags
+ 		 */
+-		rdpMcsChannel* channel = &mcs->channels[i];
+-		Stream_Read(s, channel->Name, CHANNEL_NAME_LEN + 1); /* name (8 bytes) */
+-
+-		if (!memchr(channel->Name, 0, CHANNEL_NAME_LEN + 1))
+-		{
+-			WLog_ERR(
+-			    TAG,
+-			    "protocol violation: received a static channel name with missing null-termination");
+-			return FALSE;
+-		}
+-
+-		Stream_Read_UINT32(s, channel->options); /* options (4 bytes) */
++        rdpMcsChannel* channel = &mcs->channels[i];
++        /* Ensure sufficient data for channel name */
++        if (!Stream_CheckAndLogRequiredLength(TAG, s, CHANNEL_NAME_LEN + 1))
++            return FALSE;
++        Stream_Read(s, channel->Name, CHANNEL_NAME_LEN + 1); /* name (8 bytes) */
++
++        if (!memchr(channel->Name, 0, CHANNEL_NAME_LEN + 1))
++        {
++            WLog_ERR(
++                TAG,
++                "protocol violation: received a static channel name with missing null-termination");
++            return FALSE;
++        }
++
++        /* Ensure sufficient data for channel options */
++        if (!Stream_CheckAndLogRequiredLength(TAG, s, sizeof(UINT32)))
++            return FALSE;
++        Stream_Read_UINT32(s, channel->options); /* options (4 bytes) */
+ 		channel->ChannelId = mcs->baseChannelId++;
+-	}
+-
+-	return TRUE;
++    }
++    /* Skip any trailing unused bytes in network data block */
++    if (blockLength > expectedMin)
++        Stream_Seek(s, blockLength - expectedMin);
++    return TRUE;
+ }
+ 
+ /**

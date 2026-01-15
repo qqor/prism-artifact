@@ -1,0 +1,50 @@
+--- a/src/main/java/org/apache/commons/compress/archivers/ArchiveEntry.java
++++ b/src/main/java/org/apache/commons/compress/archivers/ArchiveEntry.java
+@@ -74,9 +74,10 @@
+      */
+     default Path resolveIn(final Path parentPath) throws IOException {
+         final String name = getName();
+-        final Path outputFile = parentPath.resolve(name).normalize();
+-        if (!outputFile.startsWith(parentPath)) {
+-            throw new IOException(String.format("Zip slip '%s' + '%s' -> '%s'", parentPath, name, outputFile));
++        final Path parent = parentPath.toAbsolutePath().normalize();
++        final Path outputFile = parent.resolve(name).normalize();
++        if (!outputFile.toAbsolutePath().startsWith(parent)) {
++            throw new IOException(String.format("Zip slip '%s' + '%s' -> '%s'", parent, name, outputFile));
+         }
+         return outputFile;
+     }
+
+--- a/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveEntry.java
++++ b/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveEntry.java
+@@ -1484,11 +1484,13 @@
+     @Override
+     public Path resolveIn(final Path parentPath) throws IOException {
+         final String name = getName();
+-        final Path outputFile = parentPath.resolve(name).normalize();
+-        if (!outputFile.startsWith(parentPath)) {
+-            throw new IOException(String.format("Zip slip '%s' + '%s' -> '%s'", parentPath, name, outputFile));
+-        }
+-        return parentPath.resolve(Normalizer.normalize(name, Normalizer.Form.NFKD)).normalize();
++        final String normalizedName = Normalizer.normalize(name, Normalizer.Form.NFKD);
++        final Path parent = parentPath.toAbsolutePath().normalize();
++        final Path outputFile = parent.resolve(normalizedName).normalize();
++        if (!outputFile.toAbsolutePath().startsWith(parent)) {
++            throw new IOException(String.format("Zip slip '%s' + '%s' -> '%s'", parent, normalizedName, outputFile));
++        }
++        return outputFile;
+     }
+ 
+     /**
+
+--- a/src/main/java/org/apache/commons/compress/archivers/examples/Expander.java
++++ b/src/main/java/org/apache/commons/compress/archivers/examples/Expander.java
+@@ -67,7 +67,7 @@
+     private <T extends ArchiveEntry> void expand(final ArchiveEntrySupplier<T> supplier, final ArchiveEntryBiConsumer<T> writer, final Path targetDirectory)
+             throws IOException {
+         final boolean nullTarget = targetDirectory == null;
+-        final Path targetDirPath = nullTarget ? null : targetDirectory.normalize();
++        final Path targetDirPath = nullTarget ? null : targetDirectory.toAbsolutePath().normalize();
+         T nextEntry = supplier.get();
+         while (nextEntry != null) {
+             final Path targetPath = nullTarget ? null : nextEntry.resolveIn(targetDirPath);

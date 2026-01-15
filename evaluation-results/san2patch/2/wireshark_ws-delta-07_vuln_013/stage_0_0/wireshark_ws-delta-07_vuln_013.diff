@@ -1,0 +1,25 @@
+diff --git a/epan/dissectors/packet-gvcp.c b/epan/dissectors/packet-gvcp.c
+index d49324a429..107c042e05 100644
+--- a/epan/dissectors/packet-gvcp.c
++++ b/epan/dissectors/packet-gvcp.c
+@@ -2761,9 +2761,19 @@ static int dissect_gvcp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, voi
+ 		case GVCP_READREG_CMD:
+ 			dissect_readreg_cmd(gvcp_telegram_tree, tvb, pinfo, offset, data_length, gvcp_info, gvcp_trans);
+ 			break;
++// FIXME: Crash CWE-787: Out-of-bounds Write
+ 
+ 		case GVCP_WRITEREG_CMD:
+-			dissect_writereg_cmd(gvcp_telegram_tree, tvb, pinfo, offset, data_length, gvcp_info, gvcp_trans);
++			{
++				/* Rationale: derive limit from actual array size using sizeof to prevent OOB */
++				guint8 reg_index = tvb_get_guint8(tvb, offset);
++				size_t total_regs = sizeof(gvcp_register_number) / sizeof(gvcp_register_number[0]);
++				if (reg_index >= total_regs) {
++					/* Skip invalid write */
++					break;
++				}
++				dissect_writereg_cmd(gvcp_telegram_tree, tvb, pinfo, offset, data_length, gvcp_info, gvcp_trans);
++			}
+ 			break;
+ 
+ 		case GVCP_READMEM_CMD:

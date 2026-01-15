@@ -1,0 +1,152 @@
+diff --git a/src/libsystemd/sd-journal/catalog.c b/src/libsystemd/sd-journal/catalog.c
+index a8d65ea4bf..4bce407a94 100644
+--- a/src/libsystemd/sd-journal/catalog.c
++++ b/src/libsystemd/sd-journal/catalog.c
+@@ -426,70 +426,83 @@ static int64_t write_catalog(
+ }
+ 
+ int catalog_update(const char* database, const char* root, const char* const* dirs) {
+-        _cleanup_strv_free_ char **files = NULL;
+-        _cleanup_(strbuf_freep) struct strbuf *sb = NULL;
+-        _cleanup_ordered_hashmap_free_free_free_ OrderedHashmap *h = NULL;
+-        _cleanup_free_ CatalogItem *items = NULL;
+-        ssize_t offset;
+-        char *payload;
+-        CatalogItem *i;
+-        unsigned n;
+-        int r;
+-        int64_t sz;
+-
+-        h = ordered_hashmap_new(&catalog_hash_ops);
+-        sb = strbuf_new();
+-        if (!h || !sb)
+-                return log_oom();
+-
+-        r = conf_files_list_strv(&files, ".catalog", root, 0, dirs);
+-        if (r < 0)
+-                return log_error_errno(r, "Failed to get catalog files: %m");
+-
+-        STRV_FOREACH(f, files) {
+-                log_debug("Reading file '%s'", *f);
+-                r = catalog_import_file(h, *f);
+-                if (r < 0)
+-                        return log_error_errno(r, "Failed to import file '%s': %m", *f);
+-        }
+-
+-        if (ordered_hashmap_isempty(h)) {
+-                log_info("No items in catalog.");
+-                return 0;
+-        }
+-
+-        log_debug("Found %u items in catalog.", ordered_hashmap_size(h));
+-
+-        items = new(CatalogItem, ordered_hashmap_size(h));
+-        if (!items)
+-                return log_oom();
+-
+-        n = 0;
+-        ORDERED_HASHMAP_FOREACH_KEY(payload, i, h) {
+-                log_trace("Found " SD_ID128_FORMAT_STR ", language %s",
+-                          SD_ID128_FORMAT_VAL(i->id),
+-                          isempty(i->language) ? "C" : i->language);
+-
+-                offset = strbuf_add_string(sb, payload);
+-                if (offset < 0)
+-                        return log_oom();
+-
+-                i->offset = htole64((uint64_t) offset);
+-                items[n++] = *i;
+-        }
+-
+-        assert(n == ordered_hashmap_size(h));
+-        typesafe_qsort(items, n, catalog_compare_func);
+-
+-        strbuf_complete(sb);
+-
+-        sz = write_catalog(database, sb, items, n);
+-        if (sz < 0)
+-                return log_error_errno(sz, "Failed to write %s: %m", database);
+-
+-        log_debug("%s: wrote %u items, with %zu bytes of strings, %"PRIi64" total size.",
+-                  database, n, sb->len, sz);
+-        return 0;
++	_cleanup_strv_free_ char **files = NULL;
++	_cleanup_(strbuf_freep) struct strbuf *sb = NULL;
++	_cleanup_ordered_hashmap_free_free_free_ OrderedHashmap *h = NULL;
++	_cleanup_free_ CatalogItem *items = NULL;
++	ssize_t offset;
++	char *payload;
++	CatalogItem *i;
++	unsigned n;
++	int r;
++	int64_t sz;
++
++	/* Rationale: combine file-size precheck and payload postcheck for maximal defense */
++	#define MAX_CATALOG_FILE_SIZE (16 * 1024)
++	#define MAX_CATALOG_PAYLOAD   (16 * 1024)
++
++	h = ordered_hashmap_new(&catalog_hash_ops);
++	sb = strbuf_new();
++	if (!h || !sb)
++		return log_oom();
++
++	r = conf_files_list_strv(&files, ".catalog", root, 0, dirs);
++	if (r < 0)
++		return log_error_errno(r, "Failed to get catalog files: %m");
++
++	STRV_FOREACH(f, files) {
++		struct stat st;
++		if (stat(*f, &st) < 0)
++			return log_error_errno(errno, "Failed to stat '%s': %m", *f);
++		if (st.st_size > MAX_CATALOG_FILE_SIZE)
++			return log_error_errno(-EFBIG, "Catalog file '%s' too large", *f);
++
++		log_debug("Reading file '%s'", *f);
++		r = catalog_import_file(h, *f);
++		if (r < 0)
++			return log_error_errno(r, "Failed to import file '%s': %m", *f);
++
++		/* Post-import, verify payload lengths */
++		ORDERED_HASHMAP_FOREACH_KEY(payload, i, h) {
++			if (strlen(payload) > MAX_CATALOG_PAYLOAD)
++				return log_error_errno(-EFBIG, "Entry too long in '%s': %zu > %d", *f, strlen(payload), MAX_CATALOG_PAYLOAD);
++		}
++	}
++
++	if (ordered_hashmap_isempty(h)) {
++		log_info("No items in catalog.");
++		return 0;
++	}
++
++	log_debug("Found %u items in catalog.", ordered_hashmap_size(h));
++
++	items = new(CatalogItem, ordered_hashmap_size(h));
++	if (!items)
++		return log_oom();
++
++	n = 0;
++	ORDERED_HASHMAP_FOREACH_KEY(payload, i, h) {
++		offset = strbuf_add_string(sb, payload);
++		if (offset < 0)
++			return log_oom();
++
++		i->offset = htole64((uint64_t) offset);
++		items[n++] = *i;
++	}
++
++	assert(n == ordered_hashmap_size(h));
++
++typesafe_qsort(items, n, catalog_compare_func);
++
++	strbuf_complete(sb);
++
++	sz = write_catalog(database, sb, items, n);
++	if (sz < 0)
++		return log_error_errno(sz, "Failed to write %s: %m", database);
++
++	log_debug("%s: wrote %u items, with %zu bytes of strings, %"PRIi64" total size.",
++	          database, n, sb->len, sz);
++	return 0;
+ }
+ 
+ static int open_mmap(const char *database, int *_fd, struct stat *_st, void **_p) {

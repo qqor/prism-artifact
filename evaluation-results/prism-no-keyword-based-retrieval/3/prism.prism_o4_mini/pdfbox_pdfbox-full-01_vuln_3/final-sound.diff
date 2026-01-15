@@ -1,0 +1,68 @@
+--- a/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/COSParser.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/COSParser.java
+@@ -276,6 +276,17 @@
+         }
+         if (rebuildTrailer)
+         {
++            // fast-fail on clearly non-PDF inputs to avoid expensive brute-force
++            long savedPos = source.getPosition();
++            source.seek(0);
++            byte[] headerBytes = new byte[5];
++            int read = source.read(headerBytes);
++            source.seek(savedPos);
++            String header = new String(headerBytes, java.nio.charset.StandardCharsets.US_ASCII);
++            if (read == 5 && !header.startsWith("%PDF-"))
++            {
++                throw new IOException("Invalid PDF header: cannot reconstruct trailer in lenient mode");
++            }
+             // reset cross reference table
+             xrefTable.clear();
+             trailer = getBruteForceParser().rebuildTrailer(xrefTable);
+
+--- a/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/BruteForceParser.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/BruteForceParser.java
+@@ -131,6 +131,9 @@
+      */
+     private void bfSearchForObjects() throws IOException
+     {
++        // cap brute-force operations to avoid unbounded loops on random data
++        final long MAX_OPS = Long.getLong("pdfbox.bruteforce.maxOps", 10000000L);
++        long opCount = 0L;
+         long lastEOFMarker = bfSearchForLastEOFMarker();
+         long originOffset = source.getPosition();
+         long currentOffset = MINIMUM_SEARCH_OFFSET;
+@@ -142,6 +145,11 @@
+         boolean endOfObjFound = false;
+         do
+         {
++            // increment brute-force op counter and enforce limit
++            if (++opCount > MAX_OPS)
++            {
++                throw new IOException("Brute-force search exceeded max operations: " + opCount);
++            }
+             source.seek(currentOffset);
+             int nextChar = source.read();
+             currentOffset++;
+
+--- a/fontbox/src/main/java/org/apache/fontbox/type1/Type1Lexer.java
++++ b/fontbox/src/main/java/org/apache/fontbox/type1/Type1Lexer.java
+@@ -52,6 +52,8 @@
+     private final ByteBuffer buffer;
+     private Token aheadToken;
+     private int openParens = 0;
++    private static final long MAX_TOKENS = Long.getLong("pdfbox.type1.maxTokens", 100000L);
++    private long tokenCount = 0;
+ 
+     /**
+      * Constructs a new Type1Lexer given a header-less .pfb segment.
+@@ -116,6 +118,10 @@
+      */
+     private Token readToken(Token prevToken) throws IOException
+     {
++        if (++tokenCount > MAX_TOKENS)
++        {
++            throw new IOException("Type1 font parsing exceeded max tokens: " + tokenCount);
++        }
+         boolean skip;
+         do
+         {

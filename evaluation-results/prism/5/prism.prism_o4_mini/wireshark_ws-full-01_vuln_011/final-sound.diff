@@ -1,0 +1,41 @@
+--- a/epan/dissectors/packet-aim.c
++++ b/epan/dissectors/packet-aim.c
+@@ -581,16 +581,28 @@
+ static int
+ aim_get_buddyname(wmem_allocator_t *pool, uint8_t **name, tvbuff_t *tvb, int offset)
+ {
+-	uint16_t buddyname_length;
+-
+-	*name = wmem_alloc(pool, 256);
+-
+-	buddyname_length = tvb_get_ntohs(tvb, offset);
+-
+-	if (pool)
+-		memcpy(*name, tvb_get_ptr(tvb,offset,1), buddyname_length);
+-
+-	return buddyname_length;
++    /* Read buddy name length (2 bytes) */
++    guint buddyname_length = tvb_get_ntohs(tvb, offset);
++    const guint name_offset = (guint)offset + sizeof(guint16);
++    const guint tvb_len = tvb_reported_length(tvb);
++    /* Validate length field */
++    if (name_offset >= tvb_len ||
++        buddyname_length > tvb_len - name_offset) {
++        /* Malformed packet */
++        *name = NULL;
++        return 0;
++    }
++    /* Cap to reasonable maximum */
++    static const guint MAX_BUDDYNAME = 512;
++    if (buddyname_length > MAX_BUDDYNAME)
++        buddyname_length = MAX_BUDDYNAME;
++    /* Allocate and copy buddy name, with null terminator */
++    *name = wmem_alloc(pool, buddyname_length + 1);
++    memcpy(*name,
++           tvb_get_ptr(tvb, name_offset, buddyname_length),
++           buddyname_length);
++    (*name)[buddyname_length] = '\0';
++    return buddyname_length;
+ }
+ 
+ 

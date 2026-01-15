@@ -1,0 +1,35 @@
+--- a/src/main/java/org/apache/commons/compress/compressors/z/ZCompressorInputStream.java
++++ b/src/main/java/org/apache/commons/compress/compressors/z/ZCompressorInputStream.java
+@@ -23,6 +23,8 @@
+ import java.nio.ByteOrder;
+ 
+ import org.apache.commons.compress.compressors.lzw.LZWInputStream;
++import org.apache.commons.compress.compressors.CompressorException;
++import org.apache.commons.compress.MemoryLimitException;
+ 
+ /**
+  * Input stream that decompresses .Z files.
+@@ -80,8 +82,23 @@
+         }
+         blockMode = (thirdByte & BLOCK_MODE_MASK) != 0;
+         maxCodeSize = thirdByte & MAX_CODE_SIZE_MASK;
++        // prevent resource exhaustion by capping code size
++        final int MAX_ALLOWED_CODE_SIZE = 16;
++        if (maxCodeSize > MAX_ALLOWED_CODE_SIZE) {
++            throw new CompressorException("maxCodeSize " + maxCodeSize +
++                                          " is out of bounds (max: " + MAX_ALLOWED_CODE_SIZE + ")");
++        }
+         if (blockMode) {
+             setClearCode(DEFAULT_CODE_SIZE);
++        }
++        // enforce memory limit before table allocation
++        int maxTableSize = 1 << maxCodeSize;
++        long memoryUsageBytes = (Integer.BYTES + Byte.BYTES) * (long) maxTableSize;
++        long memoryUsageKiB = memoryUsageBytes >> 10;
++        if (memoryLimitInKiB > 0) {
++            if (memoryUsageKiB > memoryLimitInKiB) {
++                throw new MemoryLimitException(memoryUsageKiB, memoryLimitInKiB);
++            }
+         }
+         initializeTables(maxCodeSize, memoryLimitInKiB);
+         clearEntries();

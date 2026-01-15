@@ -1,0 +1,94 @@
+--- a/epan/dissectors/packet-gvcp.c
++++ b/epan/dissectors/packet-gvcp.c
+@@ -947,8 +947,12 @@
+ void process_register_writes(proto_tree *tree, tvbuff_t *tvb, int offset)
+ {
+     uint64_t total = 0;
+-
+-    for (uint32_t i = 0; i < gvcp_register_count; i++) {
++    uint32_t display_count = gvcp_register_count;
++    if (display_count > GVCP_MAX_REGISTER_COUNT) {
++        display_count = GVCP_MAX_REGISTER_COUNT;
++    }
++
++    for (uint32_t i = 0; i < display_count; i++) {
+         uint32_t addr = gvcp_register_number[i];
+         uint32_t val = gvcp_register_value[i];
+         total += val;
+@@ -959,17 +963,19 @@
+ 
+         if (is_protected(addr)) {
+             proto_tree_add_expert_format(tree, NULL, &ei_gvcp_privileged_register,
+-				tvb, offset + (int)(i * 8), 8,
+-				"Write to protected register 0x%08X", addr);
+-		}
+-			
++                tvb, offset + (int)(i * 8), 8,
++                "Write to protected register 0x%08X", addr);
++        }
+     }
+ 
+-    proto_item *summary = proto_tree_add_item(tree, -1, tvb, offset, gvcp_register_count * 8, ENC_NA);
++    proto_item *summary = proto_tree_add_item(tree, -1, tvb, offset, display_count * 8, ENC_NA);
+     proto_item_set_text(summary, "Summary: %d writes, total written value: 0x%016lX",
+-		gvcp_register_count, total);
+-
+-	return;
++        display_count, total);
++
++    /* clear register count after processing */
++    gvcp_register_count = 0;
++
++    return;
+ }
+ 
+ /*
+@@ -978,11 +984,14 @@
+ 
+ static int dissect_register(uint32_t addr, proto_tree *branch, tvbuff_t *tvb, int offset, int length)
+ {
+-	uint32_t value = 0;
+-	
+-	value = tvb_get_letohl(tvb, offset);
+-	gvcp_register_number[gvcp_register_count] = addr;
+-	gvcp_register_value[gvcp_register_count++] = value;
++    if (gvcp_register_count >= GVCP_MAX_REGISTER_COUNT) {
++        return 0;
++    }
++    uint32_t value = 0;
++    
++    value = tvb_get_letohl(tvb, offset);
++    gvcp_register_number[gvcp_register_count] = addr;
++    gvcp_register_value[gvcp_register_count++] = value;
+ 
+ 	switch (addr)
+ 	{
+@@ -1773,15 +1782,19 @@
+ 
+ static void dissect_writereg_cmd(proto_tree *gvcp_telegram_tree, tvbuff_t *tvb, packet_info *pinfo, int startoffset, int length, gvcp_conv_info_t *gvcp_info, gvcp_transaction_t* gvcp_trans)
+ {
+-	int offset = startoffset;
+-	int i;
+-	proto_item *item = NULL;
+-	uint32_t addr = 0;
+-	uint32_t value = 0;
+-	const char *address_string = NULL;
+-	bool is_custom_register = false;
+-	int num_registers = length / 8; /* divide by 8 because we are counting register-value pairs */
+-	proto_tree *subtree = NULL;
++    gvcp_register_count = 0;
++    int offset = startoffset;
++    int num_registers = length / 8; /* divide by 8 because we are counting register-value pairs */
++    if (num_registers > GVCP_MAX_REGISTER_COUNT) {
++        num_registers = GVCP_MAX_REGISTER_COUNT;
++    }
++    int i;
++    proto_item *item = NULL;
++    uint32_t addr = 0;
++    uint32_t value = 0;
++    const char *address_string = NULL;
++    bool is_custom_register = false;
++    proto_tree *subtree = NULL;
+ 
+ 	if (gvcp_trans)
+ 	{

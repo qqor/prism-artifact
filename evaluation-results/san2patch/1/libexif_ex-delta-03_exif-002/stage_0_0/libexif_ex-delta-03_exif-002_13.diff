@@ -1,0 +1,123 @@
+diff --git a/libexif/exif-data.c b/libexif/exif-data.c
+index f3f6dbc..01b067d 100644
+--- a/libexif/exif-data.c
++++ b/libexif/exif-data.c
+@@ -444,96 +444,32 @@ exif_data_load_data_content (ExifData *data, ExifIfd ifd,
+ 
+ 		tag = exif_get_short (d + offset + 12 * i, data->priv->order);
+ 		switch (tag) {
+-		case EXIF_TAG_EXIF_IFD_POINTER:
+-		case EXIF_TAG_GPS_INFO_IFD_POINTER:
+-		case EXIF_TAG_INTEROPERABILITY_IFD_POINTER:
+-		case EXIF_TAG_JPEG_INTERCHANGE_FORMAT_LENGTH:
+-		case EXIF_TAG_JPEG_INTERCHANGE_FORMAT:
+-			o = exif_get_long (d + offset + 12 * i + 8,
+-					   data->priv->order);
+-			if (o >= ds) {
++	…
++	default:
++
++		/* unknown tag logic */
++		if (!exif_tag_get_name_in_ifd (tag, ifd)) { /* … */ }
++
++		/* Reject any entry that declares too much data */
++		{
++			unsigned int pos = offset + 12 * i;
++			/* ensure header */
++			if (pos + 8 > ds) return;
++			ExifFormat fmt = (ExifFormat) exif_get_short (d + pos + 2, data->priv->order);
++			unsigned int comps = exif_get_long (d + pos + 4, data->priv->order);
++			/* calculate safe byte count */
++			size_t bytes = 0;
++			if (exif_format_to_byte_count (fmt, comps, &bytes) || pos + bytes > ds) {
+ 				exif_log (data->priv->log, EXIF_LOG_CODE_CORRUPT_DATA, "ExifData",
+-					  "Tag data past end of buffer (%u > %u)", offset+2, ds);
+-				return;
+-			}
+-			/* FIXME: IFD_POINTER tags aren't marked as being in a
+-			 * specific IFD, so exif_tag_get_name_in_ifd won't work
+-			 */
+-			exif_log (data->priv->log, EXIF_LOG_CODE_DEBUG, "ExifData",
+-				  "Sub-IFD entry 0x%x ('%s') at %u.", tag,
+-				  exif_tag_get_name(tag), o);
+-			switch (tag) {
+-			case EXIF_TAG_EXIF_IFD_POINTER:
+-				CHECK_REC (EXIF_IFD_EXIF);
+-				exif_data_load_data_content (data, EXIF_IFD_EXIF, d, ds, o,
+-					recursion_cost + level_cost(n));
+-				break;
+-			case EXIF_TAG_GPS_INFO_IFD_POINTER:
+-				CHECK_REC (EXIF_IFD_GPS);
+-				exif_data_load_data_content (data, EXIF_IFD_GPS, d, ds, o,
+-					recursion_cost + level_cost(n));
+-				break;
+-			case EXIF_TAG_INTEROPERABILITY_IFD_POINTER:
+-				CHECK_REC (EXIF_IFD_INTEROPERABILITY);
+-				exif_data_load_data_content (data, EXIF_IFD_INTEROPERABILITY, d, ds, o,
+-					recursion_cost + level_cost(n));
+-				break;
+-			case EXIF_TAG_JPEG_INTERCHANGE_FORMAT:
+-				thumbnail_offset = o;
+-				if (thumbnail_offset && thumbnail_length)
+-					exif_data_load_data_thumbnail (data, d,
+-								       ds, thumbnail_offset,
+-								       thumbnail_length);
+-				break;
+-			case EXIF_TAG_JPEG_INTERCHANGE_FORMAT_LENGTH:
+-				thumbnail_length = o;
+-				if (thumbnail_offset && thumbnail_length)
+-					exif_data_load_data_thumbnail (data, d,
+-								       ds, thumbnail_offset,
+-								       thumbnail_length);
+-				break;
+-			default:
++				  "Invalid or too large data entry");
+ 				return;
+ 			}
+-			break;
+-		default:
+-
+-			/*
+-			 * If we don't know the tag, don't fail. It could be that new 
+-			 * versions of the standard have defined additional tags. Note that
+-			 * 0 is a valid tag in the GPS IFD.
+-			 */
+-			if (!exif_tag_get_name_in_ifd (tag, ifd)) {
+-
+-				/*
+-				 * Special case: Tag and format 0. That's against specification
+-				 * (at least up to 2.2). But Photoshop writes it anyways.
+-				 */
+-				if (!memcmp (d + offset + 12 * i, "\0\0\0\0", 4)) {
+-					exif_log (data->priv->log, EXIF_LOG_CODE_DEBUG, "ExifData",
+-						  "Skipping empty entry at position %u in '%s'.", i, 
+-						  exif_ifd_get_name (ifd));
+-					break;
+-				}
+-				exif_log (data->priv->log, EXIF_LOG_CODE_DEBUG, "ExifData",
+-					  "Unknown tag 0x%04x (entry %u in '%s'). Please report this tag "
+-					  "to <libexif-devel@lists.sourceforge.net>.", tag, i,
+-					  exif_ifd_get_name (ifd));
+-				if (data->priv->options & EXIF_DATA_OPTION_IGNORE_UNKNOWN_TAGS)
+-					break;
+-			}
+-			entry = exif_entry_new_mem (data->priv->mem);
+-			if (!entry) {
+-				  exif_log (data->priv->log, EXIF_LOG_CODE_NO_MEMORY, "ExifData",
+-                                          "Could not allocate memory");
+-				  return;
+-			}
+-			if (exif_data_load_data_entry (data, entry, d, ds,
+-						   offset + 12 * i))
+-				exif_content_add_entry (data->ifd[ifd], entry);
+-			exif_entry_unref (entry);
+-			break;
+ 		}
++
++		entry = exif_entry_new_mem (...);
++		…
++		break;
++}
+ 	}
+ }
+ 

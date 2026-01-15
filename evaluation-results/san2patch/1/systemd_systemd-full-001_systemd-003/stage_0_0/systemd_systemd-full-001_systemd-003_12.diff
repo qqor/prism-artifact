@@ -1,0 +1,49 @@
+diff --git a/src/libsystemd/sd-journal/catalog.c b/src/libsystemd/sd-journal/catalog.c
+index a8d65ea4bf..f769c0917d 100644
+--- a/src/libsystemd/sd-journal/catalog.c
++++ b/src/libsystemd/sd-journal/catalog.c
+@@ -275,12 +275,14 @@ int catalog_import_file(OrderedHashmap *h, const char *path) {
+         if (r == 1)
+                 log_debug("File %s has language %s.", path, deflang);
+ 
+-        for (;;) {
+-                _cleanup_free_ char *line = NULL;
++        _cleanup_free_ char *line = NULL;
++for (;;) {
+                 size_t line_len;
+ 
++                /* read into the same line buffer, freed only at function exit */
+                 r = read_line(f, LONG_LINE_MAX, &line);
+-                if (r < 0)
++// FIXME: Crash CWE-416: Use After Free
++                 if (r < 0)
+                         return log_error_errno(r, "Failed to read file %s: %m", path);
+                 if (r == 0)
+                         break;
+@@ -306,7 +308,6 @@ int catalog_import_file(OrderedHashmap *h, const char *path) {
+                         sd_id128_t jd;
+ 
+                         /* New entry */
+-
+                         with_language = line[2+1+32] != '\0';
+                         line[2+1+32] = '\0';
+ 
+@@ -328,9 +329,7 @@ int catalog_import_file(OrderedHashmap *h, const char *path) {
+                                 }
+ 
+                                 if (with_language) {
+-                                        char *t;
+-
+-                                        t = strstrip(line + 2 + 1 + 32 + 1);
++                                        char *t = strstrip(line + 2 + 1 + 32 + 1);
+                                         r = catalog_entry_lang(path, n, t, deflang, &lang);
+                                         if (r < 0)
+                                                 return r;
+@@ -354,6 +353,7 @@ int catalog_import_file(OrderedHashmap *h, const char *path) {
+                 if (!GREEDY_REALLOC(payload, payload_size + (empty_line ? 1 : 0) + line_len + 1 + 1))
+                         return log_oom();
+ 
++                /* no risk: line still valid until function exit */
+                 if (empty_line)
+                         payload[payload_size++] = '\n';
+                 memcpy(payload + payload_size, line, line_len);

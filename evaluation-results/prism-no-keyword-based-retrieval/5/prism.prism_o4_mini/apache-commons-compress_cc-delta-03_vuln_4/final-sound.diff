@@ -1,0 +1,24 @@
+--- a/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java
++++ b/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java
+@@ -219,8 +219,8 @@
+      * </p>
+      */
+     private static final Pattern PAX_EXTENDED_HEADER_FILE_TIMES_PATTERN =
+-            Pattern.compile("-?\\d{1,19}(?:\\.\\d*)?");
+-
++            // 1-19 integer digits, optional "." plus up to 9 fractional digits (nanosecond precision)
++            Pattern.compile("-?\\d{1,19}(?:\\.\\d{0,9})?");
+     private static FileTime fileTimeFromOptionalSeconds(final long seconds) {
+         return seconds <= 0 ? null : FileTimes.fromUnixTime(seconds);
+     }
+@@ -273,6 +273,10 @@
+         }
+ 
+         final BigDecimal epochSeconds = new BigDecimal(value);
++        // Reject overly precise inputs that pass the regex but still have >9 fractional digits
++        if (epochSeconds.scale() > 9) {
++            throw new IOException("Corrupted PAX header. Too many fractional digits in time field '" + value + "'");
++        }
+         final long seconds = epochSeconds.longValue();
+         final long nanos = epochSeconds.remainder(BigDecimal.ONE).movePointRight(9).longValue();
+         try {

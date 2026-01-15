@@ -1,0 +1,119 @@
+--- a/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/BaseParser.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/BaseParser.java
+@@ -66,6 +66,9 @@
+ 
+     private static final Charset ALTERNATIVE_CHARSET;
+ 
++    private static final int MAX_SKIP_CHARS = 10000;
++    private static final int MAX_LINE_CHARS = 10000;
++    private static final int MAX_TOKEN_LENGTH = 10000;
+     private final Map<Long, COSObjectKey> keyCache = new HashMap<>();
+ 
+     static
+@@ -1134,20 +1137,30 @@
+         }
+         if (c != -1)
+         {
+-            source.rewind(1);
++    protected String readLine() throws IOException
++    {
++        StringBuilder buffer = new StringBuilder();
++        int c = source.read();
++        int length = 0;
++        while (c != -1 && c != '\r' && c != '\n')
++        {
++            buffer.append((char)c);
++            if (++length > MAX_LINE_CHARS)
++            {
++                throw new IOException("Exceeded readLine limit of " + MAX_LINE_CHARS
++                        + " at offset " + source.getPosition());
++            }
++            c = source.read();
++        }
++        if (c == '\r')
++        {
++            int next = source.peek();
++            if (next == '\n')
++            {
++                source.read();
++            }
+         }
+         return buffer.toString();
+-    }
+-
+-    /**
+-     * This will tell if the next character is a closing brace( close of PDF array ).
+-     *
+-     * @param c The character to check against end of line
+-     * @return true if the next byte is ']', false otherwise.
+-     */
+-    protected static boolean isClosing(int c)
+-    {
+-        return c == ']';
+     }
+ 
+     /**
+@@ -1318,23 +1331,34 @@
+      */
+     protected void skipSpaces() throws IOException
+     {
++        int skipped = 0;
+         int c = source.read();
+         // 37 is the % character, a comment
+-        while( isWhitespace(c) || c == 37)
+-        {
+-            if ( c == 37 )
++        while (isWhitespace(c) || c == 37)
++        {
++            if (c == 37)
+             {
+                 // skip past the comment section
+                 c = source.read();
+-                while(!isEOL(c) && c != -1)
++                while (!isEOL(c) && c != -1)
+                 {
++                    if (++skipped > MAX_SKIP_CHARS)
++                    {
++                        throw new IOException("Exceeded skipSpaces limit of " + MAX_SKIP_CHARS
++                                + " at offset " + source.getPosition());
++                    }
+                     c = source.read();
+                 }
+             }
+             else
+             {
+-                c = source.read();
+-            }
++                if (++skipped > MAX_SKIP_CHARS)
++                {
++                    throw new IOException("Exceeded skipSpaces limit of " + MAX_SKIP_CHARS
++                            + " at offset " + source.getPosition());
++                }
++            }
++            c = source.read();
+         }
+         if (c != -1)
+         {
+
+--- a/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/XrefParser.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/XrefParser.java
+@@ -45,6 +45,7 @@
+     private static final char[] XREF_TABLE = { 'x', 'r', 'e', 'f' };
+     private static final char[] STARTXREF = { 's', 't', 'a', 'r', 't', 'x', 'r', 'e', 'f' };
+ 
++    private static final int MAX_XREF_ENTRIES = 10000;
+     /** 
+      * Collects all Xref/trailer objects and resolves them into single
+      * object using startxref reference. 
+@@ -630,6 +631,11 @@
+                 LOG.warn("XRefTable: invalid number of objects: {}", currentLine);
+                 return false;
+             }
++            if (count < 0 || count > MAX_XREF_ENTRIES)
++            {
++                throw new IOException("XRef section count out of bounds: " + count
++                        + " at offset " + parser.source.getPosition());
++            }
+             
+             parser.skipSpaces();
+             for(int i = 0; i < count; i++)

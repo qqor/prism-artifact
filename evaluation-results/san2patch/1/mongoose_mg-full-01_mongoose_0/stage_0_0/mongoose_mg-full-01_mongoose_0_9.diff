@@ -1,0 +1,41 @@
+diff --git a/src/json.c b/src/json.c
+index cf6bc57b..df4daf45 100644
+--- a/src/json.c
++++ b/src/json.c
+@@ -16,10 +16,11 @@ static char json_esc(int c, int esc) {
+ 
+ static int mg_pass_string(const char *s, int len) {
+   int i;
+-  for (i = 0; i < len; i++) {
+-    if (s[i] == '\\' && i + 1 < len && json_esc(s[i + 1], 1)) {
++  /* Rationale: switch to unsigned to prevent negative wrap and check bounds */
++  for ((unsigned)i = 0; (int)i < len; i++) {
++    if (s[i] == '\\' && (int)i + 1 < len && json_esc(s[i + 1], 1)) {
+       i++;
+-    } else if (s[i] == '\0') {
++    } else if ((unsigned char)s[i] == '\0') {
+       return MG_JSON_INVALID;
+     } else if (s[i] == '"') {
+       return i;
+@@ -173,7 +174,9 @@ int mg_json_get(struct mg_str json, const char *path, int *toklen) {
+           expecting = S_KEY;
+           break;
+         } else if (c == '[') {
+-          if (depth > MG_JSON_MAX_NESTING) return MG_JSON_TOO_DEEP;
++          /* Calculate next depth and validate */
++          int next_depth = depth + 1;
++          if (next_depth > MG_JSON_MAX_NESTING) return MG_JSON_TOO_DEEP;
+           if (depth == ed && path[pos] == '[' && ei == ci) {
+             ed++, pos++, ci = 0;
+             for (ei = 0; path[pos] != ']' && path[pos] != '\0'; pos++) {
+@@ -182,7 +185,9 @@ int mg_json_get(struct mg_str json, const char *path, int *toklen) {
+             }
+             if (path[pos] != 0) pos++;
+           }
+-          nesting[depth++] = c;
++          /* Safe write using temporary next_depth */
++          nesting[depth] = c;
++          depth = next_depth;
+           break;
+         } else if (c == ']' && depth > 0) {  // Empty array
+           MG_EOO(']');

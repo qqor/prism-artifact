@@ -1,0 +1,35 @@
+--- a/src/main/java/org/apache/commons/compress/archivers/ArchiveEntry.java
++++ b/src/main/java/org/apache/commons/compress/archivers/ArchiveEntry.java
+@@ -77,14 +77,25 @@
+      */
+     default Path resolveIn(final Path parentPath) throws IOException {
+         final String name = getName();
+-        final Path outputFile = parentPath.resolve(name).normalize();
++        
++        // Step 1: Attempt URL decoding first
++        String decodedName;
++        try {
++            decodedName = URLDecoder.decode(name, StandardCharsets.US_ASCII.name());
++        } catch (IllegalArgumentException | UnsupportedEncodingException e) {
++            // If decoding fails, use the original name
++            decodedName = name;
++        }
++        
++        // Step 2: Resolve and normalize using the decoded name
++        final Path outputFile = parentPath.resolve(decodedName).normalize();
++        
++        // Step 3: Validate the final normalized path
+         if (!outputFile.startsWith(parentPath)) {
+-            throw new IOException(String.format("Zip slip '%s' + '%s' -> '%s'", parentPath, name, outputFile));
++            throw new IOException(String.format("Zip slip '%s' + '%s' -> '%s'", parentPath, decodedName, outputFile));
+         }
+-        try {
+-            return parentPath.resolve(URLDecoder.decode(name, StandardCharsets.US_ASCII.name()));
+-        } catch (IllegalArgumentException | UnsupportedEncodingException e) {
+-            return outputFile;
+-        }
++        
++        // Step 4: Return the validated, normalized path
++        return outputFile;
+     }
+ }

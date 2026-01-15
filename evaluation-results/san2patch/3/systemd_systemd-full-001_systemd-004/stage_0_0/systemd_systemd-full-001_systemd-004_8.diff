@@ -1,0 +1,25 @@
+diff --git a/src/shared/condition.c b/src/shared/condition.c
+index 67894f9319..14bce36621 100644
+--- a/src/shared/condition.c
++++ b/src/shared/condition.c
+@@ -95,12 +95,18 @@ Condition* condition_free(Condition *c) {
+         free(c->parameter);
+         return mfree(c);
+ }
+-
++// FIXME: Crash CWE-416: Use After Free
++ 
+ Condition* condition_free_list_type(Condition *head, ConditionType type) {
+-        LIST_FOREACH(conditions, c, head)
++#define LIST_FOREACH_SAFE(var, head_param, next_param)   \
++        for (var = head_param; var && ((next_param = var->next), 1); var = next_param)
++        Condition *c, *next;
++        LIST_FOREACH_SAFE(c, head, next) {
+                 if (type < 0 || c->type == type) {
+                         condition_free(c);
+                 }
++        }
++#undef LIST_FOREACH_SAFE
+ 
+         assert(type >= 0 || !head);
+         return head;

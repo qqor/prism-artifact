@@ -1,0 +1,87 @@
+--- a/poi/src/main/java/org/apache/poi/poifs/dev/POIFSDump.java
++++ b/poi/src/main/java/org/apache/poi/poifs/dev/POIFSDump.java
+@@ -24,6 +24,7 @@
+ import java.nio.file.Files;
+ import java.nio.file.Paths;
+ import java.util.Iterator;
++import java.util.regex.Pattern;
+ 
+ import org.apache.poi.poifs.common.POIFSConstants;
+ import org.apache.poi.poifs.filesystem.DirectoryEntry;
+@@ -72,7 +73,7 @@
+                 File dumpDir =
+                         Paths.get(filename).getParent()
+                                 .resolve(filenameWithoutPath + "_dump").toFile();
+-                File file = new File(dumpDir, root.getName());
++                File file = validateAndCreateFile(dumpDir.getCanonicalFile(), root.getName());
+                 if (!file.exists() && !file.mkdirs()) {
+                     throw new IOException("Could not create directory " + file);
+                 }
+@@ -105,12 +106,13 @@
+                 try (DocumentInputStream is = new DocumentInputStream(node)) {
+                    bytes = IOUtils.toByteArray(is);
+                 }
+-                try (OutputStream out = Files.newOutputStream(new File(parent, node.getName().trim()).toPath())) {
++                File safeFile = validateAndCreateFile(parent, node.getName().trim());
++                try (OutputStream out = Files.newOutputStream(safeFile.toPath())) {
+                     out.write(bytes);
+                 }
+             } else if (entry instanceof DirectoryEntry){
+                 DirectoryEntry dir = (DirectoryEntry)entry;
+-                File file = new File(parent, entry.getName());
++                File file = validateAndCreateFile(parent, entry.getName());
+                 if(!file.exists() && !file.mkdirs()) {
+                     throw new IOException("Could not create directory " + file);
+                 }
+@@ -121,7 +123,7 @@
+         }
+     }
+     public static void dump(POIFSFileSystem fs, int startBlock, String name, File parent) throws IOException {
+-        File file = new File(parent, name);
++        File file = validateAndCreateFile(parent, name);
+         if (! Files.isDirectory(file.toPath().getParent())) {
+             Files.createDirectories(file.toPath().getParent());
+         }
+@@ -136,4 +138,42 @@
+             }
+         }
+     }
++
++    private static final Pattern PATH_TRAVERSAL_PATTERN = Pattern.compile("\\.\\.[\\\\/]|[\\\\/]\\.\\.|^\\.\\.$");
++
++    /**
++     * Validates and creates a File object, preventing path traversal attacks.
++     * 
++     * @param parent the parent directory
++     * @param childName the name of the child file or directory from POIFS entry
++     * @return a validated File object
++     * @throws IOException if path traversal is detected or validation fails
++     */
++    private static File validateAndCreateFile(File parent, String childName) throws IOException {
++        if (childName == null || childName.isEmpty()) {
++            throw new IOException("Child name cannot be null or empty");
++        }
++
++        String sanitizedName = childName;
++        sanitizedName = sanitizedName.replace("..", "_");
++        sanitizedName = sanitizedName.replace('/', '_');
++        sanitizedName = sanitizedName.replace('\\', '_');
++
++        if (PATH_TRAVERSAL_PATTERN.matcher(childName).find()) {
++            throw new IOException("Path traversal detected in entry name: " + childName);
++        }
++
++        File candidate = new File(parent, sanitizedName);
++
++        String parentCanonical = parent.getCanonicalPath();
++        String candidateCanonical = candidate.getCanonicalPath();
++
++        if (!candidateCanonical.startsWith(parentCanonical + File.separator) && 
++            !candidateCanonical.equals(parentCanonical)) {
++            throw new IOException("Path traversal detected: entry '" + childName + 
++                                "' would create file outside parent directory: " + candidateCanonical);
++        }
++
++        return candidate;
++    }
+ }

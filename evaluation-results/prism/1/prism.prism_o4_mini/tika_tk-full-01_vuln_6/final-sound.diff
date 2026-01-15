@@ -1,0 +1,47 @@
+--- a/tika-app/src/main/java/org/apache/tika/cli/TikaUntar.java
++++ b/tika-app/src/main/java/org/apache/tika/cli/TikaUntar.java
+@@ -18,13 +18,14 @@
+ 
+ import java.io.IOException;
+ import java.io.InputStream;
++import java.io.OutputStream;
+ import java.nio.file.Files;
+ import java.nio.file.Path;
+ import java.nio.file.Paths;
+ 
+ import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
+ import org.apache.commons.compress.archivers.tar.TarArchiveInputStream;
+-
++import org.apache.commons.compress.utils.IOUtils;
+ /**
+  * Super simple utility class to untar a tar file
+  */
+@@ -33,6 +34,7 @@
+     public static void main(String[] args) throws IOException {
+         Path inputFile = Paths.get(args[0]);
+         Path extractDir = Paths.get(args[1]);
++        Path normalizedRoot = extractDir.toAbsolutePath().normalize();
+         try (InputStream is = Files.newInputStream(inputFile);
+                 TarArchiveInputStream tais = new TarArchiveInputStream(is)) {
+ 
+@@ -40,11 +42,18 @@
+ 
+             while (tae != null) {
+                 if (tae.isFile()) {
+-                    Path target = extractDir.resolve(tae.getName()).normalize();
++                    Path target = normalizedRoot.resolve(tae.getName()).normalize();
++                    if (!target.startsWith(normalizedRoot)) {
++                        System.err.println("Skipping tar entry outside target directory: " + tae.getName());
++                        tae = tais.getNextEntry();
++                        continue;
++                    }
+                     if (!Files.isDirectory(target.getParent())) {
+                         Files.createDirectories(target.getParent());
+                     }
+-                    Files.write(target, tais.readAllBytes());
++                    try (OutputStream os = Files.newOutputStream(target)) {
++                        IOUtils.copy(tais, os);
++                    }
+                 }
+                 tae = tais.getNextEntry();
+             }

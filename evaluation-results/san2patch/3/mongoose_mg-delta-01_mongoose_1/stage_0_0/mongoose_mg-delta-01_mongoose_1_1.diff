@@ -1,0 +1,117 @@
+diff --git a/src/fmt.c b/src/fmt.c
+index 8164e1ca..b224b17f 100644
+--- a/src/fmt.c
++++ b/src/fmt.c
+@@ -246,97 +246,28 @@ size_t mg_vxprintf(void (*out)(char, void *), void *param, const char *fmt,
+                    va_list *ap) {
+   size_t i = 0, n = 0;
+   while (fmt[i] != '\0') {
+-    if (fmt[i] == '%') {
+-      size_t j, k, x = 0, is_long = 0, w = 0 /* width */, pr = ~0U /* prec */;
+-      char pad = ' ', minus = 0, c = fmt[++i];
+-      if (c == '#') x++, c = fmt[++i];
+-      if (c == '-') minus++, c = fmt[++i];
+-      if (c == '0') pad = '0', c = fmt[++i];
+-      while (is_digit(c)) w *= 10, w += (size_t) (c - '0'), c = fmt[++i];
+-      if (c == '.') {
+-        c = fmt[++i];
+-        if (c == '*') {
+-          pr = (size_t) va_arg(*ap, int);
+-          c = fmt[++i];
+-        } else {
+-          pr = 0;
+-          while (is_digit(c)) pr *= 10, pr += (size_t) (c - '0'), c = fmt[++i];
+-        }
+-      }
+-      while (c == 'h') c = fmt[++i];  // Treat h and hh as int
+-      if (c == 'l') {
+-        is_long++, c = fmt[++i];
+-        if (c == 'l') is_long++, c = fmt[++i];
+-      }
+-      if (c == 'p') x = 1, is_long = 1;
+-      if (c == 'd' || c == 'u' || c == 'x' || c == 'X' || c == 'p' ||
+-          c == 'g' || c == 'f') {
+-        bool s = (c == 'd'), h = (c == 'x' || c == 'X' || c == 'p');
+-        char tmp[40];
+-        size_t xl = x ? 2 : 0;
+-        if (c == 'g' || c == 'f') {
+-          double v = va_arg(*ap, double);
+-          if (pr == ~0U) pr = 6;
+-          k = mg_dtoa(tmp, sizeof(tmp), v, (int) pr, c == 'g');
+-        } else if (is_long == 2) {
+-          int64_t v = va_arg(*ap, int64_t);
+-          k = mg_lld(tmp, v, s, h);
+-        } else if (is_long == 1) {
+-          long v = va_arg(*ap, long);
+-          k = mg_lld(tmp, s ? (int64_t) v : (int64_t) (unsigned long) v, s, h);
+-        } else {
+-          int v = va_arg(*ap, int);
+-          k = mg_lld(tmp, s ? (int64_t) v : (int64_t) (unsigned) v, s, h);
+-        }
+-        for (j = 0; j < xl && w > 0; j++) w--;
+-        for (j = 0; pad == ' ' && !minus && k < w && j + k < w; j++)
+-          n += scpy(out, param, &pad, 1);
+-        n += scpy(out, param, (char *) "0x", xl);
+-        for (j = 0; pad == '0' && k < w && j + k < w; j++)
+-          n += scpy(out, param, &pad, 1);
+-        n += scpy(out, param, tmp, k);
+-        for (j = 0; pad == ' ' && minus && k < w && j + k < w; j++)
+-          n += scpy(out, param, &pad, 1);
+-      } else if (c == 'm' || c == 'M') {
+-        mg_pm_t f = va_arg(*ap, mg_pm_t);
+-        if (c == 'm') out('"', param);
+-        n += f(out, param, ap);
+-        if (c == 'm') n += 2, out('"', param);
+-      } else if (c == 'c') {
+-        int ch = va_arg(*ap, int);
+-        out((char) ch, param);
+-        n++;
+-      } else if (c == 's') {
+-        char *p = va_arg(*ap, char *);
+-        if (pr == ~0U) pr = p == NULL ? 0 : strlen(p);
+-        for (j = 0; !minus && pr < w && j + pr < w; j++)
+-          n += scpy(out, param, &pad, 1);
+-        n += scpy(out, param, p, pr);
+-        for (j = 0; minus && pr < w && j + pr < w; j++)
+-          n += scpy(out, param, &pad, 1);
+-      } else if (c == 'e' || c == 'E') {
+-		  char tmp[8];
++          } else if (c == 'e' || c == 'E') {
++	      char tmp[8];
+           double d = va_arg(*ap, double);
+           int64_t exponent = (int64_t)log10(my_fabs(d));
+-          double mantissa = d / power(10, exponent);
++// FIXME: Crash CWE-787: Out-of-bounds Write
++           double mantissa = d / power(10, exponent);
+           k = mg_dtoa(tmp, 10, mantissa, 8, c == 'e');
++          {
++            /* compute max payload length once */
++            size_t max_k = sizeof(tmp) - 1;
++            if (k > max_k) k = max_k;
++          }
+           n += scpy(out, param, tmp, k);
+           out(c, param);
+           n++;
+-		  k = mg_lld(tmp, exponent, 1, 0);
++	      k = mg_lld(tmp, exponent, 1, 0);
++          {
++            size_t max_k = sizeof(tmp) - 1;
++            if (k > max_k) k = max_k;
++          }
+           n += scpy(out, param, tmp, k);
+-	  } else if (c == '%') {
+-        out('%', param);
+-        n++;
+-      } else {
+-        out('%', param);
+-        out(c, param);
+-        n += 2;
+-      }
+-      i++;
+-    } else {
+-      out(fmt[i], param), n++, i++;
+-    }
++      } else if (c == '%') {
+   }
+   return n;
+ }

@@ -1,0 +1,62 @@
+diff --git a/src/cmsps2.c b/src/cmsps2.c
+index cb2db85..fdb2c39 100644
+--- a/src/cmsps2.c
++++ b/src/cmsps2.c
+@@ -1576,6 +1576,7 @@ cmsUInt32Number CMSEXPORT cmsGetPostScriptCRD(cmsContext ContextID,
+ 
+ 
+ // Does create a Color Space Array on XYZ colorspace for PostScript usage
++/* Rationale: Pre-scan both AToB0 and BToA0 pipelines to avoid NULL Stage deref in cmsStageType */
+ cmsUInt32Number CMSEXPORT cmsGetPostScriptCSA(cmsContext ContextID,
+                                               cmsHPROFILE hProfile,
+                                               cmsUInt32Number Intent,
+@@ -1586,12 +1587,48 @@ cmsUInt32Number CMSEXPORT cmsGetPostScriptCSA(cmsContext ContextID,
+     cmsIOHANDLER* mem;
+     cmsUInt32Number dwBytesUsed;
+ 
++    /* Ensure profile is not NULL */
++    if (hProfile == NULL) {
++        cmsSignalError(ContextID, cmsERROR_NULL_POINTER, "cmsGetPostScriptCSA: received NULL profile pointer");
++        return 0;
++    }
++
++    /* Validate AToB0 pipeline stages */
++    {
++        cmsPipeline* lutA = (cmsPipeline*) cmsReadTag(ContextID, hProfile, icSigAToB0Tag);
++        if (lutA) {
++            cmsUInt32Number nA = cmsPipelineStageCount(lutA);
++            for (cmsUInt32Number i = 0; i < nA; i++) {
++                if (cmsPipelineGetPtr(lutA, i) == NULL) {
++                    cmsSignalError(ContextID, cmsERROR_NULL_POINTER,
++                                   "cmsGetPostScriptCSA: NULL stage in AToB0 pipeline");
++                    return 0;
++                }
++            }
++        }
++    }
++    /* Validate BToA0 pipeline stages */
++    {
++        cmsPipeline* lutB = (cmsPipeline*) cmsReadTag(ContextID, hProfile, icSigBToA0Tag);
++        if (lutB) {
++            cmsUInt32Number nB = cmsPipelineStageCount(lutB);
++            for (cmsUInt32Number i = 0; i < nB; i++) {
++                if (cmsPipelineGetPtr(lutB, i) == NULL) {
++                    cmsSignalError(ContextID, cmsERROR_NULL_POINTER,
++                                   "cmsGetPostScriptCSA: NULL stage in BToA0 pipeline");
++                    return 0;
++                }
++            }
++        }
++    }
++
+     if (Buffer == NULL)
+         mem = cmsOpenIOhandlerFromNULL(ContextID);
+     else
+         mem = cmsOpenIOhandlerFromMem(ContextID, Buffer, dwBufferLen, "w");
+ 
+-    if (!mem) return 0;
++// FIXME: Crash CWE-476: NULL Pointer Dereference
++     if (!mem) return 0;
+ 
+     dwBytesUsed =  cmsGetPostScriptColorResource(ContextID, cmsPS_RESOURCE_CSA, hProfile, Intent, dwFlags, mem);
+ 

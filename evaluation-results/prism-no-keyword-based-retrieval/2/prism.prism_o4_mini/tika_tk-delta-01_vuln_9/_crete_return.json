@@ -1,0 +1,14 @@
+{
+  "project_name": "tika",
+  "vulnerability_identifier": "tika_tk-delta-01_vuln_9",
+  "source_directory": "/home/qqor/crete/.cache/official-afc-tika",
+  "llm_usage": {
+    "total_cost": 0.7194011,
+    "prompt_tokens": 371601,
+    "completion_tokens": 70600
+  },
+  "variant": "sound",
+  "diff": "--- a/tika-core/src/main/java/org/apache/tika/parser/external/ExternalParser.java\n+++ b/tika-core/src/main/java/org/apache/tika/parser/external/ExternalParser.java\n@@ -36,6 +36,9 @@\n import java.util.regex.Matcher;\n import java.util.regex.Pattern;\n \n+import java.nio.file.Files;\n+import java.nio.file.Path;\n+import java.nio.file.Paths;\n import org.apache.commons.io.IOUtils;\n import org.apache.commons.io.output.NullOutputStream;\n import org.slf4j.Logger;\n@@ -137,6 +140,27 @@\n             }\n         }\n         return t;\n+    }\n+\n+    /**\n+     * Validates command array before execution to prevent OS command injection.\n+     * @param cmd the command and arguments\n+     * @throws TikaException if validation fails\n+     */\n+    private static void validateCommand(String[] cmd) throws TikaException {\n+        Path exePath = Paths.get(cmd[0]);\n+        if (!Files.isRegularFile(exePath) || !Files.isExecutable(exePath)) {\n+            throw new TikaException(\"External executable not found or not executable: \" + cmd[0]);\n+        }\n+        for (String arg : cmd) {\n+            String raw = arg;\n+            if (raw.startsWith(\"\\\"\") && raw.endsWith(\"\\\"\") && raw.length() > 1) {\n+                raw = raw.substring(1, raw.length() - 1);\n+            }\n+            if (!raw.matches(\"[A-Za-z0-9_\\\\-./\\\\\\\\ ]+\")) {\n+                throw new TikaException(\"Invalid characters in command argument: \" + arg);\n+            }\n+        }\n     }\n \n     /**\n@@ -305,16 +329,22 @@\n             }\n         }\n \n-        // Execute\n-        Process process = null;\n-        try {\n-            if (cmd.length == 1) {\n-                process = Runtime.getRuntime().exec(cmd[0]);\n-            } else {\n-                process = Runtime.getRuntime().exec(cmd);\n-            }\n-        } catch (Exception e) {\n-            LOG.warn(\"problem with process exec\", e);\n+        // Validate command array before execution to prevent injection\n+        try {\n+            validateCommand(cmd);\n+        } catch (TikaException te) {\n+            LOG.warn(\"Unsafe external command, skipping parser: {}\", te.getMessage());\n+            return;\n+        }\n+        // Execute safely without shell interpretation\n+        Process process;\n+        try {\n+            process = new ProcessBuilder(cmd)\n+                    .redirectErrorStream(false)\n+                    .start();\n+        } catch (IOException e) {\n+            LOG.warn(\"problem starting external process\", e);\n+            return;\n         }\n \n         try {\n",
+  "stdout": "",
+  "stderr": ""
+}

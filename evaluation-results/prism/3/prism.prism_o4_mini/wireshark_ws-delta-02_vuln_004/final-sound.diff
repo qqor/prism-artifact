@@ -1,0 +1,39 @@
+--- a/epan/dissectors/packet-icmp.c
++++ b/epan/dissectors/packet-icmp.c
+@@ -924,13 +924,29 @@
+ 	switch(c_type) {
+ 		case ICMP_EXT_ECHO_IDENT_NAME:
+ 			/* Identification Name must be printable*/
+-			tvb_memcpy(tvb, ident_name, offset, obj_length - 4);
+-
+-			for (unsigned i = 0; i < obj_length - 4; i++)
+-				if (!g_ascii_isprint(ident_name[i]))
+-					break;
+-
+-			proto_tree_add_item(ext_object_tree, hf_icmp_int_ident_name_string, tvb, offset, obj_length - 4, ENC_ASCII);
++			{
++				/* Compute lengths as signed integers to match proto_tree API */
++				gint raw_len = (obj_length > 4) ? (obj_length - 4) : 0;
++				gint rem_len = tvb_reported_length_remaining(tvb, offset);
++				if (rem_len < 0)
++					rem_len = 0;
++				/* Clamp to available data */
++				gint name_len = (raw_len < rem_len) ? raw_len : rem_len;
++				/* Clamp to local buffer capacity */
++				if (name_len > ICMP_MAX_IDENT_NAME_LENGTH)
++					name_len = ICMP_MAX_IDENT_NAME_LENGTH;
++				/* Safely copy only up to name_len bytes */
++				tvb_memcpy(tvb, ident_name, offset, name_len);
++				/* Truncate at first non-printable character */
++				gint i;
++				for (i = 0; i < name_len; i++)
++					if (!g_ascii_isprint(ident_name[i]))
++						break;
++				name_len = i;
++				proto_tree_add_item(ext_object_tree,
++				    hf_icmp_int_ident_name_string,
++				    tvb, offset, name_len, ENC_ASCII);
++			}
+ 			break;
+ 		case ICMP_EXT_ECHO_IDENT_INDEX:
+ 			proto_tree_add_item(ext_object_tree, hf_icmp_int_ident_index, tvb, offset, 4, ENC_NA);

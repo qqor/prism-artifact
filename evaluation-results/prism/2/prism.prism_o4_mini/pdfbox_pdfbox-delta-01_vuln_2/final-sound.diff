@@ -1,0 +1,51 @@
+--- a/pdfbox/src/main/java/org/apache/pdfbox/ocr/OCRStreamEngine.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/ocr/OCRStreamEngine.java
+@@ -55,8 +55,29 @@
+         this.timeoutMillisPerPage = millisPerPage;
+     }
+ 
+-    public void setTesseractPath(String tesseractPath) {
+-        this.tesseractPath = tesseractPath;
++    public void setTesseractPath(String tesseractPath) throws IOException {
++        this.tesseractPath = validateTesseractPath(tesseractPath);
++    }
++
++    /**
++     * Validate the given Tesseract executable path for safety.
++     */
++    private String validateTesseractPath(String candidatePath) throws IOException {
++        if (candidatePath == null || candidatePath.isEmpty()) {
++            throw new IOException("Tesseract path cannot be null or empty");
++        }
++        if (candidatePath.matches(".*[\\r\\n;&|`<>$\\\\].*")) {
++            throw new IOException("Tesseract path contains illegal characters");
++        }
++        if (!candidatePath.matches("^[A-Za-z0-9_\\-./]+$")) {
++            throw new IOException("Tesseract path contains unsupported characters");
++        }
++        Path p = Paths.get(candidatePath);
++        Path real = p.toAbsolutePath().normalize();
++        if (!Files.exists(real) || !Files.isRegularFile(real) || !Files.isExecutable(real)) {
++            throw new IOException("Configured Tesseract path is not an executable file: " + real);
++        }
++        return real.toString();
+     }
+     /**
+      * This will return the text of a document. See writeText. <br>
+@@ -155,10 +176,13 @@
+     }
+ 
+     private String runTesseract(Path image) throws IOException {
+-        String actualTessPath = pdDocument.getDocumentInformation()
++        String candidatePath = pdDocument.getDocumentInformation()
+                 .getCustomMetadataValue(TESSERACT_PATH_KEY);
+-        if (actualTessPath == null || actualTessPath.isEmpty()) {
+-            actualTessPath = tesseractPath;
++        String actualTessPath;
++        if (candidatePath != null && !candidatePath.isEmpty()) {
++            actualTessPath = validateTesseractPath(candidatePath);
++        } else {
++            actualTessPath = validateTesseractPath(tesseractPath);
+         }
+ 
+         Path txt = Paths.get(image.toAbsolutePath().toString());

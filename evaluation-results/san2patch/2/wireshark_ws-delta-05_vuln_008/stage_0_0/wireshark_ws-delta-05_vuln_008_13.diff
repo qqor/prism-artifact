@@ -1,0 +1,49 @@
+diff --git a/epan/dissectors/packet-netbios.c b/epan/dissectors/packet-netbios.c
+index 5ea85c7df4..fddee5959c 100644
+--- a/epan/dissectors/packet-netbios.c
++++ b/epan/dissectors/packet-netbios.c
+@@ -295,8 +295,6 @@ process_netbios_name(const unsigned char *name_ptr, char *name_ret, int name_ret
+ 			if (--name_ret_len > 0)
+ 				*name_ret++ = name_char;
+ 		} else {
+-			/* It's not printable; show it as <XX>, where
+-			   XX is the value in hex. */
+ 			if (--name_ret_len > 0)
+ 				*name_ret++ = '<';
+ 			if (--name_ret_len > 0)
+@@ -307,19 +305,22 @@ process_netbios_name(const unsigned char *name_ptr, char *name_ret, int name_ret
+ 				*name_ret++ = '>';
+ 		}
+ 	}
+-	*name_ret = '\0';
+-
+-	/* Remove trailing space characters from name. */
+-
+-	name_ret--;
+-
+-	while (name_ret >= name_ret_orig) {
+-		if (*name_ret != ' ') {
+-			*(name_ret + 1) = 0;
+-			break;
+-		}
+-		name_ret--;
+-	}
++	/* Use explicit pointers for trimming */
++	char *trim_start = name_ret_orig;
++	char *trim_end = name_ret;
++	/* Clamp end pointer within the buffer bounds */
++	if (trim_end < trim_start)
++		trim_end = trim_start;
++	else if (trim_end > trim_start + name_ret_len - 1)
++		trim_end = trim_start + name_ret_len - 1;
++
++	*trim_end = '\0';
++
++	/* Move backwards to remove spaces */
++	while (trim_end > trim_start && *(trim_end - 1) == ' ')
++		trim_end--;
++	/* Final terminate after trimming */
++	*trim_end = '\0';
+ 
+ 	return name_type;
+ }

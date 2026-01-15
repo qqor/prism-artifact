@@ -1,0 +1,133 @@
+--- a/core/src/main/java/org/apache/logging/log4j/core/lookup/JndiLookup.java
++++ b/core/src/main/java/org/apache/logging/log4j/core/lookup/JndiLookup.java
+@@ -19,8 +19,11 @@
+ import javax.naming.InitialContext;
+ import javax.naming.NamingException;
+ 
++import org.apache.logging.log4j.Logger;
+ import org.apache.logging.log4j.core.LogEvent;
+ import org.apache.logging.log4j.core.config.plugins.Plugin;
++import org.apache.logging.log4j.status.StatusLogger;
++import org.apache.logging.log4j.util.PropertiesUtil;
+ 
+ /**
+  * Looks up keys from JNDI resources.
+@@ -28,7 +31,15 @@
+ @Plugin(name = "jndi", category = "Lookup")
+ public class JndiLookup implements StrLookup {
+ 
+-    private static boolean ENABLE_JNDI = true;
++    private static final Logger LOGGER = StatusLogger.getLogger();
++    private static boolean ENABLE_JNDI;
++
++    static {
++        ENABLE_JNDI = PropertiesUtil.getProperties().getBooleanProperty("log4j2.enableJndiLookup", false);
++        if (ENABLE_JNDI) {
++            LOGGER.warn("JNDI lookup is enabled. This can pose a security risk. Set log4j2.enableJndiLookup=false to disable.");
++        }
++    }
+ 
+     /** JNDI resourcce path prefix used in a J2EE container */
+     static final String CONTAINER_JNDI_RESOURCE_PATH_PREFIX = "java:comp/env/";
+@@ -55,12 +66,49 @@
+             return null;
+         }
+ 
++        if (!isAllowedJndiProtocol(key)) {
++            LOGGER.warn("Rejected JNDI lookup with potentially unsafe protocol: {}", key);
++            return null;
++        }
++
+         try {
+             InitialContext ctx = new InitialContext();
+             return (String) ctx.lookup(convertJndiName(key));
+         } catch (NamingException e) {
+             return null;
+         }
++    }
++
++    /**
++     * Validates that the JNDI name uses only allowed protocols (local java: scheme).
++     * Rejects remote protocols like ldap://, ldaps://, rmi://, dns://, iiop://, corba://.
++     * 
++     * @param jndiName The JNDI name to validate
++     * @return true if the protocol is allowed, false otherwise
++     */
++    private boolean isAllowedJndiProtocol(final String jndiName) {
++        if (jndiName == null) {
++            return false;
++        }
++
++        final String lowerName = jndiName.toLowerCase();
++        
++        if (lowerName.contains("://")) {
++            final int protoIndex = lowerName.indexOf("://");
++            final String protocol = lowerName.substring(0, protoIndex);
++            
++            if (!protocol.equals("java")) {
++                return false;
++            }
++        }
++        
++        if (lowerName.startsWith("ldap:") || lowerName.startsWith("ldaps:") ||
++            lowerName.startsWith("rmi:") || lowerName.startsWith("dns:") ||
++            lowerName.startsWith("iiop:") || lowerName.startsWith("corba:")) {
++            return false;
++        }
++
++        return true;
+     }
+ 
+     /**
+
+--- a/core/src/main/java/org/apache/logging/log4j/core/pattern/MessagePatternConverter.java
++++ b/core/src/main/java/org/apache/logging/log4j/core/pattern/MessagePatternConverter.java
+@@ -21,6 +21,7 @@
+ import org.apache.logging.log4j.core.config.plugins.Plugin;
+ import org.apache.logging.log4j.message.Message;
+ import org.apache.logging.log4j.message.MultiformatMessage;
++import org.apache.logging.log4j.util.PropertiesUtil;
+ 
+ /**
+  * Returns the event's rendered message in a StringBuilder.
+@@ -29,8 +30,10 @@
+ @ConverterKeys({"m", "msg", "message" })
+ public final class MessagePatternConverter extends LogEventPatternConverter {
+ 
++    private static final boolean FORMAT_MESSAGES_NO_LOOKUPS = 
++        PropertiesUtil.getProperties().getBooleanProperty("log4j2.formatMsgNoLookups", false);
++
+     private final String[] formats;
+-
+     private final Configuration config;
+ 
+     /**
+@@ -68,7 +71,7 @@
+                 result = msg.getFormattedMessage();
+             }
+             if (result != null) {
+-                toAppendTo.append(config != null && result.contains("${") ?
++                toAppendTo.append(config != null && !FORMAT_MESSAGES_NO_LOOKUPS && result.contains("${") ?
+                     config.getSubst().replace(event, result) : result);
+             } else {
+                 toAppendTo.append("null");
+
+--- a/core/src/main/java/org/apache/logging/log4j/core/helpers/Constants.java
++++ b/core/src/main/java/org/apache/logging/log4j/core/helpers/Constants.java
+@@ -41,6 +41,16 @@
+     public static final String JNDI_CONTEXT_NAME = "java:comp/env/log4j/context-name";
+ 
+     /**
++     * System property to disable JNDI lookups for security.
++     */
++    public static final String LOG4J_ENABLE_JNDI_LOOKUP = "log4j2.enableJndiLookup";
++
++    /**
++     * System property to disable message pattern lookups for security.
++     */
++    public static final String LOG4J_FORMAT_MSG_NO_LOOKUPS = "log4j2.formatMsgNoLookups";
++
++    /**
+      * Line separator.
+      */
+     public static final String LINE_SEP = PropertiesUtil.getProperties().getStringProperty("line.separator", "\n");

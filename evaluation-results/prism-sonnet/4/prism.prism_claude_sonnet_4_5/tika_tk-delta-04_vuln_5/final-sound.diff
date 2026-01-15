@@ -1,0 +1,161 @@
+--- a/tika-pipes/tika-emitters/tika-emitter-fs/src/main/java/org/apache/tika/pipes/emitter/fs/FileSystemEmitter.java
++++ b/tika-pipes/tika-emitters/tika-emitter-fs/src/main/java/org/apache/tika/pipes/emitter/fs/FileSystemEmitter.java
+@@ -26,8 +26,16 @@
+ import java.nio.file.Paths;
+ import java.nio.file.StandardCopyOption;
+ import java.util.List;
++import java.util.Map;
++
++import org.slf4j.Logger;
++import org.slf4j.LoggerFactory;
+ 
+ import org.apache.tika.config.Field;
++import org.apache.tika.config.Initializable;
++import org.apache.tika.config.InitializableProblemHandler;
++import org.apache.tika.config.Param;
++import org.apache.tika.exception.TikaConfigException;
+ import org.apache.tika.metadata.Metadata;
+ import org.apache.tika.metadata.TikaCoreProperties;
+ import org.apache.tika.parser.ParseContext;
+@@ -65,7 +73,9 @@
+  *      &lt;/emitters&gt;
+  *  &lt;/properties&gt;</pre>
+  */
+-public class FileSystemEmitter extends AbstractEmitter implements StreamEmitter {
++public class FileSystemEmitter extends AbstractEmitter implements Initializable, StreamEmitter {
++
++    private static final Logger LOG = LoggerFactory.getLogger(FileSystemEmitter.class);
+ 
+     private Path basePath = null;
+     private String fileExtension = "json";
+@@ -85,6 +95,11 @@
+         }
+         if (basePath != null) {
+             output = basePath.resolve(emitKey);
++            // Validate that the resolved path stays within basePath to prevent path traversal
++            if (!isDescendant(basePath, output)) {
++                throw new TikaEmitterException(
++                        "emitKey must resolve to be a descendant of the 'basePath': " + emitKey);
++            }
+         } else {
+             output = Paths.get(emitKey);
+         }
+@@ -146,6 +161,12 @@
+     public void emit(String path, InputStream inputStream, Metadata userMetadata, ParseContext parseContext) throws IOException, TikaEmitterException {
+         Path target = basePath.resolve(path);
+ 
++        // Validate that the resolved path stays within basePath to prevent path traversal
++        if (!isDescendant(basePath, target)) {
++            throw new IOException(
++                    "path must resolve to be a descendant of the 'basePath': " + path);
++        }
++
+         if (!Files.isDirectory(target.getParent())) {
+             Files.createDirectories(target.getParent());
+         }
+@@ -164,6 +185,49 @@
+         }
+     }
+ 
++    /**
++     * Validates that the descendant path is within the root path.
++     * This prevents path traversal attacks.
++     *
++     * @param root the root path
++     * @param descendant the path to validate
++     * @return true if descendant is within root, false otherwise
++     */
++    private static boolean isDescendant(Path root, Path descendant) {
++        try {
++            // Use toRealPath to resolve symbolic links and normalize paths
++            return descendant.toRealPath().startsWith(root.toRealPath());
++        } catch (IOException e) {
++            // If toRealPath fails (e.g., file doesn't exist yet), fall back to normalize
++            return descendant.toAbsolutePath().normalize()
++                    .startsWith(root.toAbsolutePath().normalize());
++        }
++    }
++
++    @Override
++    public void initialize(Map<String, Param> params) throws TikaConfigException {
++        // no-op - parameters are set via setters before initialization
++    }
++
++    @Override
++    public void checkInitialization(InitializableProblemHandler problemHandler)
++            throws TikaConfigException {
++        if (basePath == null || basePath.toString().isBlank()) {
++            LOG.warn("'basePath' has not been set. " +
++                    "This means that client code or clients can write to any location that this " +
++                    "process has permissions to write. If you are running tika-server, make " +
++                    "absolutely certain that you've locked down " +
++                    "access to tika-server and file-permissions for the tika-server process.");
++            return;
++        }
++
++        if (basePath.toString().contains("\u0000")) {
++            throw new TikaConfigException(
++                    "basePath must not contain \\u0000. " +
++                    "Seriously, what were you thinking?");
++        }
++    }
++
+     enum ON_EXISTS {
+         SKIP, EXCEPTION, REPLACE
+     }
+
+--- a/tika-core/src/main/java/org/apache/tika/extractor/AbstractEmbeddedDocumentBytesHandler.java
++++ b/tika-core/src/main/java/org/apache/tika/extractor/AbstractEmbeddedDocumentBytesHandler.java
+@@ -75,6 +75,10 @@
+                                 EmbeddedDocumentBytesConfig embeddedDocumentBytesConfig,
+                                 Metadata metadata) {
+         String embeddedPath = metadata.get(TikaCoreProperties.RESOURCE_NAME_KEY);
++        // Sanitize the embedded path to prevent path traversal
++        if (embeddedPath != null) {
++            embeddedPath = sanitizeEmbeddedPath(embeddedPath);
++        }
+         StringBuilder emitKey = new StringBuilder(containerEmitKey);
+         emitKey.append("/");
+         String dirPath = addSubDirs(embeddedPath);
+@@ -115,6 +119,41 @@
+         return sb.toString();
+     }
+ 
++    /**
++     * Sanitizes an embedded path to prevent path traversal attacks.
++     * Removes all ".", "..", and empty path components.
++     *
++     * @param path the embedded path to sanitize
++     * @return sanitized path with only safe components
++     */
++    private String sanitizeEmbeddedPath(String path) {
++        if (path == null || path.isEmpty()) {
++            return "";
++        }
++
++        // Split by both forward and backward slashes
++        String[] parts = path.split("[/\\\\]+");
++        StringBuilder sanitized = new StringBuilder();
++
++        for (String part : parts) {
++            // Skip empty parts, ".", and ".." to prevent traversal
++            if (part.isEmpty() || part.equals(".") || part.equals("..")) {
++                continue;
++            }
++
++            // Use FilenameUtils.normalize to sanitize reserved characters
++            String normalizedPart = FilenameUtils.normalize(part);
++            if (!normalizedPart.isEmpty()) {
++                if (sanitized.length() > 0) {
++                    sanitized.append("/");
++                }
++                sanitized.append(normalizedPart);
++            }
++        }
++
++        return sanitized.toString();
++    }
++
+     private boolean containsAlphaNumeric(String part) {
+         for (char c : part.toCharArray()) {
+             if (Character.isAlphabetic(c) || Character.isDigit(c)) {

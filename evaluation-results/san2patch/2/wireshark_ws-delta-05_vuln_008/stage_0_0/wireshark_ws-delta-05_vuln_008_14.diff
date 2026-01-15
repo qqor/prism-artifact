@@ -1,0 +1,38 @@
+diff --git a/epan/dissectors/packet-netbios.c b/epan/dissectors/packet-netbios.c
+index 5ea85c7df4..a564d52fb5 100644
+--- a/epan/dissectors/packet-netbios.c
++++ b/epan/dissectors/packet-netbios.c
+@@ -295,8 +295,6 @@ process_netbios_name(const unsigned char *name_ptr, char *name_ret, int name_ret
+ 			if (--name_ret_len > 0)
+ 				*name_ret++ = name_char;
+ 		} else {
+-			/* It's not printable; show it as <XX>, where
+-			   XX is the value in hex. */
+ 			if (--name_ret_len > 0)
+ 				*name_ret++ = '<';
+ 			if (--name_ret_len > 0)
+@@ -309,13 +307,21 @@ process_netbios_name(const unsigned char *name_ptr, char *name_ret, int name_ret
+ 	}
+ 	*name_ret = '\0';
+ 
+-	/* Remove trailing space characters from name. */
++	/* Fast abort if pointer is out-of-bounds relative to buffer */
++	if (name_ret < name_ret_orig || name_ret > name_ret_orig + name_ret_len) {
++		/* Nothing safe to trim */
++		return name_type;
++	}
+ 
++	/* Safe trimming: move one back then remove spaces */
+ 	name_ret--;
+-
+ 	while (name_ret >= name_ret_orig) {
+ 		if (*name_ret != ' ') {
+-			*(name_ret + 1) = 0;
++			*(name_ret + 1) = '\0';
++			break;
++		}
++		if (name_ret == name_ret_orig) {
++			*name_ret = '\0';
+ 			break;
+ 		}
+ 		name_ret--;

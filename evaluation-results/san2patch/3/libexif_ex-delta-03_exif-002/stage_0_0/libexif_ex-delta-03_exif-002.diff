@@ -1,0 +1,90 @@
+diff --git a/libexif/exif-data.c b/libexif/exif-data.c
+index f3f6dbc..b84893c 100644
+--- a/libexif/exif-data.c
++++ b/libexif/exif-data.c
+@@ -162,8 +162,8 @@ exif_data_new_from_data (const unsigned char *data, unsigned int size)
+ 
+ static int
+ exif_data_load_data_entry (ExifData *data, ExifEntry *entry,
+-			   const unsigned char *d,
+-			   unsigned int size, unsigned int offset)
++		   const unsigned char *d,
++		   unsigned int size, unsigned int offset)
+ {
+ 	unsigned int s, doff;
+ 
+@@ -171,39 +171,39 @@ exif_data_load_data_entry (ExifData *data, ExifEntry *entry,
+ 	entry->format     = exif_get_short (d + offset + 2, data->priv->order);
+ 	entry->components = exif_get_long  (d + offset + 4, data->priv->order);
+ 
+-	/* FIXME: should use exif_tag_get_name_in_ifd here but entry->parent 
+-	 * has not been set yet
+-	 */
++	/* FIXME: should use exif_tag_get_name_in_ifd here but entry->parent */
+ 	exif_log (data->priv->log, EXIF_LOG_CODE_DEBUG, "ExifData",
+ 		  "Loading entry 0x%x ('%s')...", entry->tag,
+ 		  exif_tag_get_name (entry->tag));
+ 
+-	/* {0,1,2,4,8} x { 0x00000000 .. 0xffffffff } 
+-	 *   -> { 0x000000000 .. 0x7fffffff8 } */
++	/* compute total data size */
+ 	s = exif_format_get_size(entry->format) * entry->components;
+ 	if ((s < entry->components) || (s == 0)){
+ 		return 0;
+ 	}
+ 
+-	/*
+-	 * Size? If bigger than 4 bytes, the actual data is not
+-	 * in the entry but somewhere else (offset).
+-	 */
++	/* determine offset of actual data */
+ 	if (s > 4)
+ 		doff = exif_get_long (d + offset + 8, data->priv->order);
+ 	else
+ 		doff = offset + 8;
+ 
+-	/* Sanity checks */
++	/* Sanity checks against EXIF segment */
+ 	if (doff >= size) {
+ 		exif_log (data->priv->log, EXIF_LOG_CODE_DEBUG, "ExifData",
+-				  "Tag starts past end of buffer (%u > %u)", doff, size);
++			  "Tag starts past end of buffer (%u > %u)", doff, size);
+ 		return 0;
+ 	}
+ 
+ 	if (s > size - doff) {
+ 		exif_log (data->priv->log, EXIF_LOG_CODE_DEBUG, "ExifData",
+-				  "Tag data goes past end of buffer (%u > %u)", doff+s, size);
++			  "Tag data goes past end of buffer (%u > %u)", doff + s, size);
++		return 0;
++	}
++
++	/* Prevent OOB read against actual EXIF data buffer */
++	if (doff > data->size || s > data->size - doff) {
++		EXIF_LOG_NO_MEMORY(data->priv->log, "ExifData", s);
+ 		return 0;
+ 	}
+ 
+@@ -220,15 +220,15 @@ exif_data_load_data_entry (ExifData *data, ExifEntry *entry,
+ 	if (entry->tag == EXIF_TAG_MAKER_NOTE) {
+ 		if (!entry->data) {
+ 			exif_log (data->priv->log, EXIF_LOG_CODE_DEBUG, "ExifData",
+-					  "MakerNote found with empty data");	
++			  "MakerNote found with empty data");	
+ 		} else if (entry->size > 6) {
+ 			exif_log (data->priv->log,
+-					       EXIF_LOG_CODE_DEBUG, "ExifData",
+-					       "MakerNote found (%02x %02x %02x %02x "
+-					       "%02x %02x %02x...).",
+-					       entry->data[0], entry->data[1], entry->data[2],
+-					       entry->data[3], entry->data[4], entry->data[5],
+-					       entry->data[6]);
++			       EXIF_LOG_CODE_DEBUG, "ExifData",
++			       "MakerNote found (%02x %02x %02x %02x "
++			       "%02x %02x %02x...).",
++			       entry->data[0], entry->data[1], entry->data[2],
++			       entry->data[3], entry->data[4], entry->data[5],
++			       entry->data[6]);
+ 		}
+ 		data->priv->offset_mnote = doff;
+ 	}

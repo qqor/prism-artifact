@@ -1,0 +1,49 @@
+--- a/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-microsoft-module/src/main/java/org/apache/tika/parser/microsoft/rtf/RTFEmbObjHandler.java
++++ b/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-microsoft-module/src/main/java/org/apache/tika/parser/microsoft/rtf/RTFEmbObjHandler.java
+@@ -211,17 +211,18 @@
+             extractObj(bytes, handler, metadata);
+ 
+         } else if (state == EMB_STATE.JAVA_OBJDATA) {
+-            try {
+-                Object obj = new ObjectInputStream(
+-                        UnsynchronizedByteArrayInputStream.builder().setByteArray(bytes)
+-                                .get()).readObject();
+-                metadata.set(RTFMetadata.EMB_CLASS, obj.getClass().getName());
+-                metadata.set(TikaCoreProperties.CONTENT_TYPE_PARSER_OVERRIDE,
+-                        MediaType.text("plain").toString());
+-                extractObj(obj.toString().getBytes(StandardCharsets.UTF_8), handler, metadata);
+-            } catch (ClassNotFoundException e) {
+-                throw new TikaException("Not found", e);
+-            }
++            // SECURITY FIX: disable unsafe Java deserialization.
++            // Treat the serialized-object data as an opaque binary blob.
++            metadata.set(RTFMetadata.EMB_CLASS, "javaobjdata-raw");
++            metadata.set(
++                    TikaCoreProperties.CONTENT_TYPE_PARSER_OVERRIDE,
++                    MediaType.application("octet-stream").toString());
++            // Record that deserialization was skipped for security.
++            EmbeddedDocumentUtil.recordException(
++                    new TikaException("Java-serialized-object deserialization is disabled"),
++                    metadata);
++            // Pass the raw bytes through for embedding as binary.
++            extractObj(bytes, handler, metadata);
+         } else if (state == EMB_STATE.NADA) {
+             //swallow...no start for pict or embed?!
+         }
+
+--- a/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-microsoft-module/pom.xml
++++ b/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-microsoft-module/pom.xml
+@@ -117,6 +117,13 @@
+       <scope>test</scope>
+     </dependency>
+   </dependencies>
++  <pluginRepositories>
++    <pluginRepository>
++      <id>apache-maven-shared</id>
++      <url>https://repository.apache.org/content/groups/public/</url>
++    </pluginRepository>
++  </pluginRepositories>
++
+   <build>
+     <plugins>
+       <plugin>

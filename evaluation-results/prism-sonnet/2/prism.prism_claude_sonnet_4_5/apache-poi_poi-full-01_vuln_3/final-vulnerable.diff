@@ -1,0 +1,173 @@
+--- a/poi/src/main/java/org/apache/poi/hssf/record/MulBlankRecord.java
++++ b/poi/src/main/java/org/apache/poi/hssf/record/MulBlankRecord.java
+@@ -22,6 +22,7 @@
+ 
+ import org.apache.poi.util.GenericRecordUtil;
+ import org.apache.poi.util.LittleEndianOutput;
++import org.apache.poi.util.RecordFormatException;
+ 
+ /**
+  * Represents a set of columns in a row with no value but with styling.
+@@ -89,13 +90,51 @@
+         _firstCol = in.readShort();
+         _xfs       = parseXFs(in);
+         _lastCol  = in.readShort();
++        
++        if (_firstCol < 0 || _firstCol > 255) {
++            throw new RecordFormatException("Invalid first column index: " + _firstCol + 
++                    ", must be between 0 and 255");
++        }
++        if (_lastCol < 0 || _lastCol > 255) {
++            throw new RecordFormatException("Invalid last column index: " + _lastCol + 
++                    ", must be between 0 and 255");
++        }
++        
++        if (_lastCol < _firstCol) {
++            throw new RecordFormatException("Invalid column range: last column (" + _lastCol + 
++                    ") is less than first column (" + _firstCol + ")");
++        }
++        
++        int expectedColumns = _lastCol - _firstCol + 1;
++        if (expectedColumns != _xfs.length) {
++            throw new RecordFormatException("Column count mismatch in MulBlankRecord: " +
++                    "expected " + expectedColumns + " columns (from first=" + _firstCol + 
++                    ", last=" + _lastCol + ") but parsed " + _xfs.length + 
++                    " XF records from input stream");
++        }
+     }
+ 
+     private static short [] parseXFs(RecordInputStream in) {
+-        short[] retval = new short[(in.remaining() - 2) / 2];
+-
+-        for (int idx = 0; idx < retval.length;idx++) {
+-          retval[idx] = in.readShort();
++        int remaining = in.remaining();
++        
++        if (remaining < 2) {
++            throw new RecordFormatException("Not enough data to parse MulBlankRecord: " +
++                    "need at least 2 bytes for lastCol, but only " + remaining + " bytes remaining");
++        }
++        
++        int arraySize = (remaining - 2) / 2;
++        
++        if (arraySize < 0) {
++            throw new RecordFormatException("Invalid array size calculated: " + arraySize);
++        }
++        if (arraySize > 256) {
++            throw new RecordFormatException("Array size " + arraySize + 
++                    " exceeds Excel97 maximum column count of 256");
++        }
++        
++        short[] retval = new short[arraySize];
++        for (int idx = 0; idx < retval.length; idx++) {
++            retval[idx] = in.readShort();
+         }
+         return retval;
+     }
+
+--- a/poi/src/main/java/org/apache/poi/hssf/record/MulRKRecord.java
++++ b/poi/src/main/java/org/apache/poi/hssf/record/MulRKRecord.java
+@@ -98,6 +98,28 @@
+         field_2_first_col = in.readShort();
+         field_3_rks = RkRec.parseRKs(in);
+         field_4_last_col = in.readShort();
++        
++        if (field_2_first_col < 0 || field_2_first_col > 255) {
++            throw new RecordFormatException("Invalid first column index: " + field_2_first_col + 
++                    ", must be between 0 and 255");
++        }
++        if (field_4_last_col < 0 || field_4_last_col > 255) {
++            throw new RecordFormatException("Invalid last column index: " + field_4_last_col + 
++                    ", must be between 0 and 255");
++        }
++        
++        if (field_4_last_col < field_2_first_col) {
++            throw new RecordFormatException("Invalid column range: last column (" + field_4_last_col + 
++                    ") is less than first column (" + field_2_first_col + ")");
++        }
++        
++        int expectedColumns = field_4_last_col - field_2_first_col + 1;
++        if (expectedColumns != field_3_rks.length) {
++            throw new RecordFormatException("Column count mismatch in MulRKRecord: " +
++                    "expected " + expectedColumns + " columns (from first=" + field_2_first_col + 
++                    ", last=" + field_4_last_col + ") but parsed " + field_3_rks.length + 
++                    " RK records from input stream");
++        }
+     }
+ 
+     @Override
+@@ -126,9 +148,25 @@
+         }
+ 
+         public static RkRec[] parseRKs(RecordInputStream in) {
+-            int nItems = (in.remaining()-2) / ENCODED_SIZE;
++            int remaining = in.remaining();
++            
++            if (remaining < 2) {
++                throw new RecordFormatException("Not enough data to parse MulRKRecord: " +
++                        "need at least 2 bytes for lastCol, but only " + remaining + " bytes remaining");
++            }
++            
++            int nItems = (remaining - 2) / ENCODED_SIZE;
++            
++            if (nItems < 0) {
++                throw new RecordFormatException("Invalid RK item count calculated: " + nItems);
++            }
++            if (nItems > 256) {
++                throw new RecordFormatException("RK item count " + nItems + 
++                        " exceeds Excel97 maximum column count of 256");
++            }
++            
+             RkRec[] retval = new RkRec[nItems];
+-            for (int i=0; i<nItems; i++) {
++            for (int i = 0; i < nItems; i++) {
+                 retval[i] = new RkRec(in);
+             }
+             return retval;
+
+--- a/poi/src/main/java/org/apache/poi/hssf/record/RecordFactory.java
++++ b/poi/src/main/java/org/apache/poi/hssf/record/RecordFactory.java
+@@ -123,7 +123,7 @@
+         if (numColumns < 0) {
+             throw new RecordFormatException("Cannot create RKRecords with negative number of columns: " + numColumns);
+         }
+-
++        
+         NumberRecord[] mulRecs = new NumberRecord[numColumns];
+         for (int k = 0; k < numColumns; k++) {
+             NumberRecord nr = new NumberRecord();
+@@ -144,7 +144,12 @@
+      * @return the equivalent array of {@link BlankRecord BlankRecords}
+      */
+     public static BlankRecord[] convertBlankRecords(MulBlankRecord mbk) {
+-        BlankRecord[] mulRecs = new BlankRecord[mbk.getNumColumns()];
++        int numColumns = mbk.getNumColumns();
++        if (numColumns < 0) {
++            throw new RecordFormatException("Cannot create BlankRecords with negative number of columns: " + numColumns);
++        }
++        
++        BlankRecord[] mulRecs = new BlankRecord[numColumns];
+         for (int k = 0; k < mbk.getNumColumns(); k++) {
+             BlankRecord br = new BlankRecord();
+ 
+
+--- a/poi/src/main/java/org/apache/poi/hssf/record/RecordInputStream.java
++++ b/poi/src/main/java/org/apache/poi/hssf/record/RecordInputStream.java
+@@ -214,10 +214,16 @@
+         _currentSid = _nextSid;
+         _currentDataOffset = 0;
+         _currentDataLength = _bhi.readDataSize();
++        
++        if (_currentDataLength < 0) {
++            throw new RecordFormatException("Invalid negative record data length: " + _currentDataLength + 
++                    " for record with sid: 0x" + Integer.toHexString(_currentSid).toUpperCase(Locale.ROOT));
++        }
++        
+         if (_currentDataLength > MAX_RECORD_DATA_SIZE) {
+             throw new RecordFormatException("The content of an excel record cannot exceed "
+                     + MAX_RECORD_DATA_SIZE + " bytes, but had: " + _currentDataLength +
+-                    " for record with sid: " + _currentSid);
++                    " for record with sid: 0x" + Integer.toHexString(_currentSid).toUpperCase(Locale.ROOT));
+         }
+     }
+ 

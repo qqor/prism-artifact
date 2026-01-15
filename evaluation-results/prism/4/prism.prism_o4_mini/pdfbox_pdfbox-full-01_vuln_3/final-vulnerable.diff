@@ -1,0 +1,56 @@
+--- a/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/BruteForceParser.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/BruteForceParser.java
+@@ -49,6 +49,11 @@
+ 
+     private static final long MINIMUM_SEARCH_OFFSET = 6;
+ 
++    /**
++     * Maximum number of bytes to scan in a brute-force search before giving up.
++     * Prevents unbounded loops in malformed or adversarial PDFs.
++     */
++    private static final long MAX_BRUTE_FORCE_SEARCH = 10L * 1024 * 1024; // 10 MB
+     /**
+      * EOF-marker.
+      */
+@@ -569,10 +574,11 @@
+     {
+         HashMap<Long, COSObjectKey> bfSearchObjStreamsOffsets = new HashMap<>();
+         source.seek(MINIMUM_SEARCH_OFFSET);
++        long objStreamSearchStart = source.getPosition();
+         char[] string = " obj".toCharArray();
+         // search for object stream marker
+         long positionObjStream = findString(OBJ_STREAM);
+-        while (positionObjStream != -1)
++        while (positionObjStream != -1 && source.getPosition() - objStreamSearchStart <= MAX_BRUTE_FORCE_SEARCH)
+         {
+             // search backwards for the beginning of the object
+             long newOffset = -1;
+@@ -643,9 +649,10 @@
+         List<Long> bfSearchXRefTablesOffsets = new ArrayList<>();
+         // a pdf may contain more than one xref entry
+         source.seek(MINIMUM_SEARCH_OFFSET);
++        long xrefSearchStart = source.getPosition();
+         // search for xref tables
+         long newOffset = findString(XREF_TABLE);
+-        while (newOffset != -1)
++        while (newOffset != -1 && source.getPosition() - xrefSearchStart <= MAX_BRUTE_FORCE_SEARCH)
+         {
+             source.seek(newOffset - 1);
+             // ensure that we don't read "startxref" instead of "xref"
+@@ -780,11 +787,16 @@
+     private long findString(char[] string) throws IOException
+     {
+         long position = -1L;
++        long searchStart = source.getPosition();
+         int stringLength = string.length;
+         int counter = 0;
+         int readChar = source.read();
+         while (readChar != -1)
+         {
++            if (source.getPosition() - searchStart > MAX_BRUTE_FORCE_SEARCH)
++            {
++                return -1L;
++            }
+             if (readChar == string[counter])
+             {
+                 if (counter == 0)

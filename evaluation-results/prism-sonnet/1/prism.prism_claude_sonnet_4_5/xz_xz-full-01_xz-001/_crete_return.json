@@ -1,0 +1,14 @@
+{
+  "project_name": "xz",
+  "vulnerability_identifier": "xz_xz-full-01_xz-001",
+  "source_directory": "/home/qqor/crete/.cache/official-afc-xz",
+  "llm_usage": {
+    "total_cost": 2.0493240000000004,
+    "prompt_tokens": 578768,
+    "completion_tokens": 20868
+  },
+  "variant": "sound",
+  "diff": "--- a/src/liblzma/check/treeck.h\n+++ b/src/liblzma/check/treeck.h\n@@ -14,6 +14,7 @@\n #define STATE_CLEAR   0\n #define STATE_VISITED 1\n #define STATE_HASHED  2\n+#define STATE_FREED   3\n \n #define MAX_BLOCK_WIDTH  0x7fffffffull\n #define MAX_BLOCK_HEIGHT 0x7fffffffull\n\n--- a/src/liblzma/check/treeck.c\n+++ b/src/liblzma/check/treeck.c\n@@ -85,11 +85,31 @@\n     node->state = STATE_HASHED;\n   }\n \n-  // Free the node and edges\n+  return sum;\n+}\n+\n+// Free the tree nodes in post-order traversal\n+static void free_tree_node(TreeNode *node)\n+{\n+  // Skip if already freed or NULL\n+  if (!node || node->state == STATE_FREED) {\n+    return;\n+  }\n+\n+  // Mark as freed to prevent double-free in cyclic structures\n+  node->state = STATE_FREED;\n+\n+  // Free all child nodes first\n+  for (size_t i = 0; i < node->edge_count; ++i) {\n+    TreeNode *child = node->edges[i];\n+    if (child) {\n+      free_tree_node(child);\n+    }\n+  }\n+\n+  // Free the edges array and the node itself\n   free(node->edges);\n   free(node);\n-\n-  return sum;\n }\n \n extern LZMA_API(uint32_t)\n@@ -97,7 +117,12 @@\n {\n   unsigned long seed = hash_data(buf, size);\n   TreeNode *root = create_tree(buf, size, 0, 16, seed, NULL);\n-  checksum ^= compute_tree_checksum(root, 0);\n+  \n+  if (root != NULL) {\n+    checksum ^= compute_tree_checksum(root, 0);\n+    free_tree_node(root);\n+  }\n+  \n   return checksum;\n }\n \n",
+  "stdout": "",
+  "stderr": ""
+}

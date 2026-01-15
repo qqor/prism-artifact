@@ -1,0 +1,76 @@
+diff --git a/HTMLparser.c b/HTMLparser.c
+index 9c34e9e8..d34dd962 100644
+--- a/HTMLparser.c
++++ b/HTMLparser.c
+@@ -2612,20 +2612,30 @@ htmlParseData(htmlParserCtxtPtr ctxt, htmlAsciiMask mask,
+     used = 0;
+     buffer_size = ctxt->spaceMax;
+     buffer = (xmlChar *) ctxt->spaceTab;
+-    if (buffer == NULL) {
+-        buffer_size = 500;
+-        buffer = xmlMalloc(buffer_size + 1);
++// Fixed CWE-787: enforce maxLength cap and safe allocation
++     if (buffer == NULL) {
++        size_t len = xmlStrlen(value);
++        /* Cap comment length to maxLength if specified */
++        if (maxLength > 0 && len > (size_t)maxLength)
++            len = (size_t)maxLength;
++        /* Check for overflow on len + 1 */
++        if (len > (SIZE_MAX / sizeof(xmlChar) - 1)) {
++            htmlErrMemory(ctxt);
++            return(NULL);
++        }
++        size_t needed = (len + 1) * sizeof(xmlChar);
++        buffer = (xmlChar *) xmlMalloc(needed);
+         if (buffer == NULL) {
+             htmlErrMemory(ctxt);
+             return(NULL);
+         }
++        /* Only copy up to len characters plus NUL later via memcpy */
+     }
+ 
+     line = input->line;
+     col = input->col;
+ 
+-    while (!PARSER_STOPPED(ctxt)) {
+-        const xmlChar *chunk, *in, *repl;
++    while (!PARSER_STOPPED(ctxt)) {        const xmlChar *chunk, *in, *repl;
+         size_t avail, chunkSize, extraSize;
+         int replSize;
+         int skip = 0;
+@@ -3330,20 +3340,30 @@ htmlSecureComment(htmlParserCtxtPtr ctxt, htmlAsciiMask mask,
+     used = 0;
+     buffer_size = ctxt->spaceMax;
+     buffer = (xmlChar *) ctxt->spaceTab;
+-    if (buffer == NULL) {
+-        buffer_size = 500;
+-        buffer = xmlMalloc(buffer_size + 1);
++// Fixed CWE-787: enforce maxLength cap and safe allocation
++     if (buffer == NULL) {
++        size_t len = xmlStrlen(value);
++        /* Cap comment length to maxLength if specified */
++        if (maxLength > 0 && len > (size_t)maxLength)
++            len = (size_t)maxLength;
++        /* Check for overflow on len + 1 */
++        if (len > (SIZE_MAX / sizeof(xmlChar) - 1)) {
++            htmlErrMemory(ctxt);
++            return(NULL);
++        }
++        size_t needed = (len + 1) * sizeof(xmlChar);
++        buffer = (xmlChar *) xmlMalloc(needed);
+         if (buffer == NULL) {
+             htmlErrMemory(ctxt);
+             return(NULL);
+         }
++        /* Only copy up to len characters plus NUL later via memcpy */
+     }
+ 
+     line = input->line;
+     col = input->col;
+ 
+-    while (!PARSER_STOPPED(ctxt)) {
+-        const xmlChar *chunk, *in, *repl;
++    while (!PARSER_STOPPED(ctxt)) {        const xmlChar *chunk, *in, *repl;
+         size_t avail, chunkSize, extraSize;
+         int replSize;
+         int skip = 0;

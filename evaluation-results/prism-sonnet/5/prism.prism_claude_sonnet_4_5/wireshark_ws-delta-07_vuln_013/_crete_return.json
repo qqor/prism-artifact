@@ -1,0 +1,14 @@
+{
+  "project_name": "wireshark",
+  "vulnerability_identifier": "wireshark_ws-delta-07_vuln_013",
+  "source_directory": "/home/qqor/crete/.cache/official-afc-wireshark",
+  "llm_usage": {
+    "total_cost": 2.296284,
+    "prompt_tokens": 696698,
+    "completion_tokens": 13746
+  },
+  "variant": "sound",
+  "diff": "--- a/epan/dissectors/packet-gvcp.c\n+++ b/epan/dissectors/packet-gvcp.c\n@@ -947,8 +947,14 @@\n void process_register_writes(proto_tree *tree, tvbuff_t *tvb, int offset)\n {\n     uint64_t total = 0;\n-\n-    for (uint32_t i = 0; i < gvcp_register_count; i++) {\n+    uint32_t safe_count = gvcp_register_count;\n+\n+    /* Defensive check to prevent reading beyond array bounds */\n+    if (safe_count > GVCP_MAX_REGISTER_COUNT) {\n+        safe_count = GVCP_MAX_REGISTER_COUNT;\n+    }\n+\n+    for (uint32_t i = 0; i < safe_count; i++) {\n         uint32_t addr = gvcp_register_number[i];\n         uint32_t val = gvcp_register_value[i];\n         total += val;\n@@ -965,9 +971,9 @@\n \t\t\t\n     }\n \n-    proto_item *summary = proto_tree_add_item(tree, -1, tvb, offset, gvcp_register_count * 8, ENC_NA);\n+    proto_item *summary = proto_tree_add_item(tree, -1, tvb, offset, safe_count * 8, ENC_NA);\n     proto_item_set_text(summary, \"Summary: %d writes, total written value: 0x%016lX\",\n-\t\tgvcp_register_count, total);\n+\t\tsafe_count, total);\n \n \treturn;\n }\n@@ -979,6 +985,12 @@\n static int dissect_register(uint32_t addr, proto_tree *branch, tvbuff_t *tvb, int offset, int length)\n {\n \tuint32_t value = 0;\n+\t\n+\t/* Check bounds before array access */\n+\tif (gvcp_register_count >= GVCP_MAX_REGISTER_COUNT) {\n+\t\t/* Register count exceeded, skip this register but continue parsing */\n+\t\treturn offset + 4;\n+\t}\n \t\n \tvalue = tvb_get_letohl(tvb, offset);\n \tgvcp_register_number[gvcp_register_count] = addr;\n@@ -1495,6 +1507,12 @@\n {\n \tuint32_t value = 0;\n \t\n+\t/* Check bounds before array access */\n+\tif (gvcp_register_count >= GVCP_MAX_REGISTER_COUNT) {\n+\t\t/* Register count exceeded, skip this register but continue parsing */\n+\t\treturn offset + 4;\n+\t}\n+\t\n \tvalue = tvb_get_letohl(tvb, offset);\n \tgvcp_register_number[gvcp_register_count] = addr;\n \tgvcp_register_value[gvcp_register_count++] = value;\n@@ -2538,7 +2556,10 @@\n \t\treturn 0;\n \t}\n \n-\t/* check for valid key/ack code */\n+\t/* Reset register counter for new packet */\n+\tgvcp_register_count = 0;\n+\n+\t/* extract flag and command */\n \tkey_code = (char) tvb_get_uint8(tvb, offset);\n \tack_code = tvb_get_ntohs(tvb, offset+2);\n \tack_string = try_val_to_str(ack_code, acknowledgenames);\n",
+  "stdout": "",
+  "stderr": ""
+}

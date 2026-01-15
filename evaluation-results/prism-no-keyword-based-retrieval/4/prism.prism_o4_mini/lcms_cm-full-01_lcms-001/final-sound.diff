@@ -1,0 +1,62 @@
+--- a/include/lcms2.h
++++ b/include/lcms2.h
+@@ -553,8 +553,8 @@
+     cmsSigFloatPCS2Lab                  = 0x6C326420,  // 'l2d '
+     cmsSigXYZ2FloatPCS                  = 0x64327820,  // 'd2x '
+     cmsSigFloatPCS2XYZ                  = 0x78326420,  // 'x2d '  
+-    cmsSigClipNegativesElemType         = 0x636c7020   // 'clp '
+-
++    cmsSigClipNegativesElemType         = 0x636c7020,  // 'clp '
++    cmsSigUnknownStageElemType          = 0x00000000,  // unknown stage element type
+ } cmsStageSignature;
+ 
+ // Types of CurveElements
+
+--- a/src/cmslut.c
++++ b/src/cmslut.c
+@@ -1227,6 +1227,9 @@
+ 
+ cmsStageSignature CMSEXPORT cmsStageType(const cmsStage* mpe)
+ {
++    if (mpe == NULL) {
++        return cmsSigUnknownStageElemType;
++    }
+     return mpe -> Type;
+ }
+ 
+
+--- a/src/cmsps2.c
++++ b/src/cmsps2.c
+@@ -753,11 +753,15 @@
+ static
+ int EmitCIEBasedDEF(cmsIOHANDLER* m, cmsPipeline* Pipeline, cmsUInt32Number Intent, cmsCIEXYZ* BlackPoint)
+ {
++    // Guard against empty pipeline to prevent null dereference
++    if (Pipeline->Elements == NULL) {
++        return 0;
++    }
+     const char* PreMaj;
+     const char* PostMaj;
+     const char* PreMin, *PostMin;
+     cmsStage* mpe;
+-        
++    
+     mpe = Pipeline->Elements;
+ 
+     switch (cmsStageInputChannels(mpe)) {
+@@ -902,6 +906,15 @@
+ 
+             dwFlags |= cmsFLAGS_FORCE_CLUT;
+             _cmsOptimizePipeline(m->ContextID, &DeviceLink, Intent, &InputFormat, &OutFrm, &dwFlags);
++
++            // After optimization, ensure we have at least one stage
++            if (DeviceLink->Elements == NULL) {
++                cmsSignalError(m->ContextID, cmsERROR_COLORSPACE_CHECK,
++                               "Empty pipeline after optimization in WriteInputLUT");
++                cmsPipelineFree(DeviceLink);
++                cmsDeleteTransform(xform);
++                return FALSE;
++            }
+ 
+             rc = EmitCIEBasedDEF(m, DeviceLink, Intent, &BlackPointAdaptedToD50);
+             cmsPipelineFree(DeviceLink);            

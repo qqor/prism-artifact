@@ -1,0 +1,26 @@
+--- a/epan/dissectors/packet-gvcp.c
++++ b/epan/dissectors/packet-gvcp.c
+@@ -980,6 +980,11 @@
+ {
+ 	uint32_t value = 0;
+ 	
++	/* Prevent overflow: skip storing if at capacity */
++	if (gvcp_register_count >= GVCP_MAX_REGISTER_COUNT) {
++		return length;
++	}
++
+ 	value = tvb_get_letohl(tvb, offset);
+ 	gvcp_register_number[gvcp_register_count] = addr;
+ 	gvcp_register_value[gvcp_register_count++] = value;
+@@ -1781,6 +1786,11 @@
+ 	const char *address_string = NULL;
+ 	bool is_custom_register = false;
+ 	int num_registers = length / 8; /* divide by 8 because we are counting register-value pairs */
++	if (num_registers > GVCP_MAX_REGISTER_COUNT) {
++		/* Too many register/value pairs – cap to prevent OOB */
++		num_registers = GVCP_MAX_REGISTER_COUNT;
++	}
++	gvcp_register_count = 0;
+ 	proto_tree *subtree = NULL;
+ 
+ 	if (gvcp_trans)

@@ -1,0 +1,45 @@
+diff --git a/libfreerdp/core/gcc.c b/libfreerdp/core/gcc.c
+index d135d8353..f1233b4ca 100644
+--- a/libfreerdp/core/gcc.c
++++ b/libfreerdp/core/gcc.c
+@@ -1865,16 +1865,32 @@ BOOL gcc_read_client_network_data(wStream* s, rdpMcs* mcs)
+ 	/* channelDefArray */
+ 	for (UINT32 i = 0; i < mcs->channelCount; i++)
+ 	{
+-		/**
+-		 * CHANNEL_DEF
+-		 * - name: an 8-byte array containing a null-terminated collection
+-		 *   of seven ANSI characters that uniquely identify the channel.
+-		 * - options: a 32-bit, unsigned integer. Channel option flags
+-		 */
++		/* Rationale: Read name length and validate against buffer size to prevent OOB. */
+ 		rdpMcsChannel* channel = &mcs->channels[i];
+-		Stream_Read(s, channel->Name, CHANNEL_NAME_LEN + 1); /* name (8 bytes) */
++		UINT8 nameLength;
++		/* Read length field */
++		if (Stream_GetRemainingLength(s) < 1)
++		{
++			WLog_ERR(TAG, "protocol violation: insufficient data for name length");
++			return FALSE;
++		}
++		Stream_Read_UINT8(s, nameLength);
++		if (nameLength > CHANNEL_NAME_LEN)
++		{
++			WLog_ERR(TAG, "protocol violation: channel name length (%" PRIu8 ") exceeds limit (%d)", nameLength, CHANNEL_NAME_LEN);
++			return FALSE;
++		}
++		/* Read name with null terminator */
++		if (Stream_GetRemainingLength(s) < nameLength + 1)
++		{
++			WLog_ERR(TAG, "protocol violation: insufficient data for channel name");
++			return FALSE;
++		}
++		Stream_Read(s, channel->Name, nameLength + 1);
++		/* Ensure null-termination */
++		channel->Name[nameLength] = '\0';
+ 
+-		if (!memchr(channel->Name, 0, CHANNEL_NAME_LEN + 1))
++		if (!memchr(channel->Name, 0, nameLength + 1))
+ 		{
+ 			WLog_ERR(
+ 			    TAG,

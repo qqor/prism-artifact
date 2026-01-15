@@ -1,0 +1,41 @@
+--- a/epan/dissectors/packet-icmp.c
++++ b/epan/dissectors/packet-icmp.c
+@@ -924,13 +924,31 @@
+ 	switch(c_type) {
+ 		case ICMP_EXT_ECHO_IDENT_NAME:
+ 			/* Identification Name must be printable*/
+-			tvb_memcpy(tvb, ident_name, offset, obj_length - 4);
+-
+-			for (unsigned i = 0; i < obj_length - 4; i++)
+-				if (!g_ascii_isprint(ident_name[i]))
+-					break;
+-
+-			proto_tree_add_item(ext_object_tree, hf_icmp_int_ident_name_string, tvb, offset, obj_length - 4, ENC_ASCII);
++			{
++				/* Calculate safe truncated length based on available data in TVB */
++				uint16_t obj_trunc_length = MIN(obj_length, tvb_reported_length_remaining(tvb, offset));
++				
++				/* Calculate safe copy length considering both source and destination limits */
++				uint16_t copy_length;
++				if (obj_trunc_length <= 4) {
++					/* Handle edge case where object is too small (header only or malformed) */
++					copy_length = 0;
++				} else {
++					/* Limit to minimum of: (obj_trunc_length - 4) and buffer size */
++					copy_length = MIN(obj_trunc_length - 4, ICMP_MAX_IDENT_NAME_LENGTH);
++				}
++				
++				if (copy_length > 0) {
++					tvb_memcpy(tvb, ident_name, offset, copy_length);
++					
++					/* Check printability with safe length */
++					for (unsigned i = 0; i < copy_length; i++)
++						if (!g_ascii_isprint(ident_name[i]))
++							break;
++					
++					proto_tree_add_item(ext_object_tree, hf_icmp_int_ident_name_string, tvb, offset, copy_length, ENC_ASCII);
++				}
++			}
+ 			break;
+ 		case ICMP_EXT_ECHO_IDENT_INDEX:
+ 			proto_tree_add_item(ext_object_tree, hf_icmp_int_ident_index, tvb, offset, 4, ENC_NA);

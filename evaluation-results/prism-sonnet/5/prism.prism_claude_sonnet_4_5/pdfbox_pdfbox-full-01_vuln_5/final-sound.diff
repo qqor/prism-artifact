@@ -1,0 +1,82 @@
+--- a/fontbox/src/main/java/org/apache/fontbox/type1/Type1Lexer.java
++++ b/fontbox/src/main/java/org/apache/fontbox/type1/Type1Lexer.java
+@@ -48,6 +48,14 @@
+      * Log instance.
+      */
+     private static final Logger LOG = LogManager.getLogger(Type1Lexer.class);
++    
++    /**
++     * Maximum allowed length for a single CharString to prevent OutOfMemoryError.
++     * Legitimate CharStrings are typically very small (a few bytes to a few KB).
++     * This generous 10MB limit prevents resource exhaustion attacks while supporting
++     * any reasonable legitimate font.
++     */
++    private static final int MAX_CHARSTRING_LENGTH = 10_000_000;
+     
+     private final ByteBuffer buffer;
+     private Token aheadToken;
+@@ -501,6 +509,13 @@
+      */
+     private Token readCharString(int length) throws IOException
+     {
++        // Validate length before allocation to prevent OutOfMemoryError from malicious fonts
++        if (length < 0 || length > MAX_CHARSTRING_LENGTH)
++        {
++            throw new DamagedFontException("CharString length " + length + 
++                " is invalid or exceeds maximum allowed length of " + MAX_CHARSTRING_LENGTH);
++        }
++        
+         try
+         {
+             buffer.get(); // space
+
+--- a/fontbox/src/main/java/org/apache/fontbox/type1/Type1Parser.java
++++ b/fontbox/src/main/java/org/apache/fontbox/type1/Type1Parser.java
+@@ -43,6 +43,17 @@
+     // constants for encryption
+     private static final int EEXEC_KEY = 55665;
+     private static final int CHARSTRING_KEY = 4330;
++    
++    /**
++     * Maximum number of subroutines to prevent resource exhaustion.
++     * Legitimate Type1 fonts rarely have more than a few thousand subrs.
++     */
++    private static final int MAX_SUBRS_COUNT = 65536;
++    
++    /**
++     * Maximum number of character strings to prevent resource exhaustion.
++     */
++    private static final int MAX_CHARSTRINGS_COUNT = 65536;
+ 
+     // state
+     private Type1Lexer lexer;
+@@ -707,6 +718,14 @@
+     {
+         // allocate size (array indexes may not be in-order)
+         int length = read(Token.INTEGER).intValue();
++        
++        // Validate subrs count to prevent resource exhaustion
++        if (length < 0 || length > MAX_SUBRS_COUNT)
++        {
++            throw new IOException("Subrs count " + length + 
++                " is invalid or exceeds maximum allowed count of " + MAX_SUBRS_COUNT);
++        }
++        
+         for (int i = 0; i < length; i++)
+         {
+             font.subrs.add(null);
+@@ -777,6 +796,14 @@
+     private void readCharStrings(int lenIV) throws IOException
+     {
+         int length = read(Token.INTEGER).intValue();
++        
++        // Validate charstrings count to prevent excessive iteration
++        if (length < 0 || length > MAX_CHARSTRINGS_COUNT)
++        {
++            throw new IOException("CharStrings count " + length + 
++                " is invalid or exceeds maximum allowed count of " + MAX_CHARSTRINGS_COUNT);
++        }
++        
+         read(Token.NAME, "dict");
+         // could actually be a sequence ending in "CharStrings begin", too
+         // instead of the "dup begin"

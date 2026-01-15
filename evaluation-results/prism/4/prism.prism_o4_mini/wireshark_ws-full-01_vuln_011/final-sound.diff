@@ -1,0 +1,41 @@
+--- a/epan/dissectors/packet-aim.c
++++ b/epan/dissectors/packet-aim.c
+@@ -582,13 +582,33 @@
+ aim_get_buddyname(wmem_allocator_t *pool, uint8_t **name, tvbuff_t *tvb, int offset)
+ {
+ 	uint16_t buddyname_length;
+-
+-	*name = wmem_alloc(pool, 256);
+-
++	guint remain;
++
++	/* Read 2-byte length */
+ 	buddyname_length = tvb_get_ntohs(tvb, offset);
+ 
+-	if (pool)
+-		memcpy(*name, tvb_get_ptr(tvb,offset,1), buddyname_length);
++	/* How many bytes are actually available past the length field? */
++	remain = tvb_reported_length_remaining(tvb, offset + 2);
++
++	/* Clamp to available data */
++	if (buddyname_length > remain)
++		buddyname_length = remain;
++
++	/* Limit to a safe maximum (allow room for null terminator) */
++#define AIM_BUDDYNAME_MAX_LEN 255
++	if (buddyname_length > AIM_BUDDYNAME_MAX_LEN)
++		buddyname_length = AIM_BUDDYNAME_MAX_LEN;
++
++	/* Allocate exact size + 1 for '\0' */
++	*name = wmem_alloc(pool, buddyname_length + 1);
++
++	/* Copy from the correct data offset (skip the 2-byte length) */
++	if (pool && buddyname_length > 0) {
++		const guint8 *src = tvb_get_ptr(tvb, offset + 2, buddyname_length);
++		memcpy(*name, src, buddyname_length);
++	}
++	/* Null-terminate for safety */
++	(*name)[buddyname_length] = '\0';
+ 
+ 	return buddyname_length;
+ }

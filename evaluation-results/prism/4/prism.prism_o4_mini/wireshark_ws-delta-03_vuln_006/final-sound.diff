@@ -1,0 +1,81 @@
+--- a/epan/dissectors/packet-irc.c
++++ b/epan/dissectors/packet-irc.c
+@@ -534,37 +534,47 @@
+      if (tvb_get_uint8(tvb, offset) != '#')
+          return;
+      
+-     channel_name = malloc(CHANNELLEN+1);
+- 
+-     if (channel_name == NULL ) {
+-         return;
+-     }
+- 
+-     start_offset = offset;
+- 
+-     tree = proto_item_add_subtree(item, ett_irc_request_command_names);
+- 
+-     while(tvb_offset_exists(tvb, start_offset) ) {
+-         length = tvb_captured_length_remaining(tvb, start_offset);
+-         end_offset = tvb_find_uint8(tvb, start_offset, length, ',');
+- 
+-         if ( end_offset == -1 ) {
+-             proto_tree_add_item(tree, hf_irc_request_command_names_channel, tvb, start_offset, length, ENC_ASCII);
+-             
+-             memset(channel_name, 0, CHANNELLEN+1);
+-             tvb_memcpy(tvb, channel_name, start_offset, (length < CHANNELLEN) ? length : CHANNELLEN);
+-             proto_item_append_text(tree, "Channel: %s", channel_name);
+- 
+-             free(channel_name);
+-             return;
+-         }
+- 
+-         memset(channel_name, 0, CHANNELLEN+1);
+-         tvb_memcpy(tvb, channel_name, start_offset, length);
+-         proto_item_append_text(tree, "Channel: %s", channel_name);
+- 
+-         proto_tree_add_item(tree, hf_irc_request_command_names_channel, tvb, start_offset, end_offset-start_offset, ENC_ASCII);
+-         start_offset = end_offset + 1;
++    channel_name = malloc(CHANNELLEN+1);
++
++    if (channel_name == NULL ) {
++        return;
++    }
++
++    start_offset = offset;
++
++    tree = proto_item_add_subtree(item, ett_irc_request_command_names);
++
++    /* Compute segment lengths for safe copy */
++    gint raw_len, seg_len;
++
++    while(tvb_offset_exists(tvb, start_offset) ) {
++        length = tvb_captured_length_remaining(tvb, start_offset);
++        end_offset = tvb_find_uint8(tvb, start_offset, length, ',');
++
++        /* Determine actual segment length and clamp to CHANNELLEN */
++        if (end_offset != -1)
++            raw_len = end_offset - start_offset;
++        else
++            raw_len = length;
++        seg_len = (raw_len < CHANNELLEN) ? raw_len : CHANNELLEN;
++
++        if ( end_offset == -1 ) {
++            proto_tree_add_item(tree, hf_irc_request_command_names_channel, tvb, start_offset, length, ENC_ASCII);
++
++            memset(channel_name, 0, CHANNELLEN+1);
++            tvb_memcpy(tvb, channel_name, start_offset, seg_len);
++            proto_item_append_text(tree, "Channel: %s", channel_name);
++
++            free(channel_name);
++            return;
++        }
++
++        memset(channel_name, 0, CHANNELLEN+1);
++        tvb_memcpy(tvb, channel_name, start_offset, seg_len);
++        proto_item_append_text(tree, "Channel: %s", channel_name);
++
++        proto_tree_add_item(tree, hf_irc_request_command_names_channel, tvb, start_offset, end_offset-start_offset, ENC_ASCII);
++        start_offset = end_offset + 1;
+      }
+  
+      free(channel_name);

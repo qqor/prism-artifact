@@ -1,0 +1,281 @@
+--- a/poi-ooxml/src/main/java/org/apache/poi/openxml4j/opc/OPCPackage.java
++++ b/poi-ooxml/src/main/java/org/apache/poi/openxml4j/opc/OPCPackage.java
+@@ -73,6 +73,18 @@
+      * Logger.
+      */
+     private static final Logger LOG = PoiLogManager.getLogger(OPCPackage.class);
++    
++    /**
++     * Maximum pattern length allowed for regex matching in getPartsByName.
++     * Default is 1000 characters.
++     */
++    private static int MAX_PATTERN_LENGTH = 1000;
++    
++    /**
++     * Maximum pattern complexity score allowed.
++     * Complexity is calculated based on quantifiers and nesting depth.
++     */
++    private static int MAX_PATTERN_COMPLEXITY = 100;
+ 
+     /**
+      * Default package access.
+@@ -849,6 +861,50 @@
+         }
+         return retArr;
+     }
++    
++    /**
++     * Set the maximum pattern length for regex patterns used in getPartsByName.
++     * 
++     * @param maxLength the maximum pattern length (must be > 0)
++     * @throws IllegalArgumentException if maxLength <= 0
++     */
++    public static void setMaxPatternLength(int maxLength) {
++        if (maxLength <= 0) {
++            throw new IllegalArgumentException("Max pattern length must be greater than zero");
++        }
++        MAX_PATTERN_LENGTH = maxLength;
++    }
++    
++    /**
++     * Get the current maximum pattern length.
++     * 
++     * @return the maximum pattern length
++     */
++    public static int getMaxPatternLength() {
++        return MAX_PATTERN_LENGTH;
++    }
++    
++    /**
++     * Set the maximum pattern complexity score for regex patterns used in getPartsByName.
++     * 
++     * @param maxComplexity the maximum complexity score (must be > 0)
++     * @throws IllegalArgumentException if maxComplexity <= 0
++     */
++    public static void setMaxPatternComplexity(int maxComplexity) {
++        if (maxComplexity <= 0) {
++            throw new IllegalArgumentException("Max pattern complexity must be greater than zero");
++        }
++        MAX_PATTERN_COMPLEXITY = maxComplexity;
++    }
++    
++    /**
++     * Get the current maximum pattern complexity.
++     * 
++     * @return the maximum pattern complexity score
++     */
++    public static int getMaxPatternComplexity() {
++        return MAX_PATTERN_COMPLEXITY;
++    }
+ 
+     /**
+      * Retrieve parts by relationship type.
+@@ -888,15 +944,204 @@
+         if (namePattern == null) {
+             throw new IllegalArgumentException("name pattern must not be null");
+         }
++        
++        // Validate pattern safety before use
++        validatePatternSafety(namePattern);
++        
+         Matcher matcher = namePattern.matcher("");
+         ArrayList<PackagePart> result = new ArrayList<>();
++        
+         for (PackagePart part : partList.sortedValues()) {
+             PackagePartName partName = part.getPartName();
+-            if (matcher.reset(partName.getName()).matches()) {
+-                result.add(part);
+-            }
+-        }
++            try {
++                // Wrap matching in try-catch to handle stack overflow
++                if (matcher.reset(partName.getName()).matches()) {
++                    result.add(part);
++                }
++            } catch (StackOverflowError e) {
++                // Convert StackOverflowError to a more informative exception
++                LOG.error("Pattern caused stack overflow: {}", namePattern.pattern(), e);
++                throw new IllegalArgumentException(
++                    "Pattern caused stack overflow during matching. " +
++                    "The pattern '" + namePattern.pattern() + "' is too complex and may contain " +
++                    "nested quantifiers that cause catastrophic backtracking. " +
++                    "Pattern matched against: '" + partName.getName() + "'", e);
++            }
++        }
++        
+         return result;
++    }
++    
++    /**
++     * Validates that a regex pattern is safe to use and won't cause stack overflow
++     * due to catastrophic backtracking from nested quantifiers or excessive complexity.
++     * This validation is purely syntactic and does not execute the pattern.
++     * 
++     * @param pattern The pattern to validate
++     * @throws IllegalArgumentException if the pattern is potentially unsafe
++     */
++    private static void validatePatternSafety(Pattern pattern) {
++        String patternStr = pattern.pattern();
++        
++        // Check 1: Pattern length limit
++        if (patternStr.length() > MAX_PATTERN_LENGTH) {
++            throw new IllegalArgumentException(
++                "Pattern too long (" + patternStr.length() + " characters). " +
++                "Maximum allowed is " + MAX_PATTERN_LENGTH + " characters to prevent stack overflow. " +
++                "You can adjust this limit via OPCPackage.setMaxPatternLength() if needed.");
++        }
++        
++        // Check 2: Calculate pattern complexity score
++        int complexityScore = calculatePatternComplexity(patternStr);
++        if (complexityScore > MAX_PATTERN_COMPLEXITY) {
++            throw new IllegalArgumentException(
++                "Pattern complexity score (" + complexityScore + ") exceeds maximum allowed (" + 
++                MAX_PATTERN_COMPLEXITY + "). " +
++                "The pattern may contain too many quantifiers or deep nesting. " +
++                "You can adjust this limit via OPCPackage.setMaxPatternComplexity() if needed.");
++        }
++        
++        // Check 3: Detect dangerous nested quantifiers
++        // This regex detects common problematic patterns
++        Pattern dangerousPattern = Pattern.compile(
++            "[*+?}][*+?]|" +  // consecutive quantifiers like *+, +*, ++, **, *?, +?
++            "\\{[0-9,]+\\}\\s*[*+?]|" +  // {n,m} followed by quantifier
++            "\\([^)]*[*+?][^)]*\\)\\s*[*+?]|" +  // group with quantifier followed by quantifier
++            "\\)\\s*[*+?]\\s*[*+?]"  // closing paren followed by multiple quantifiers
++        );
++        
++        if (dangerousPattern.matcher(patternStr).find()) {
++            throw new IllegalArgumentException(
++                "Pattern contains consecutive or nested quantifiers which may cause stack overflow. " +
++                "Problematic constructs include: *+, ++, (a+)+, (.*)*, etc. " +
++                "Please simplify the pattern to avoid nested quantifiers.");
++        }
++        
++        // Check 4: Detect deeply nested groups that could be problematic
++        int maxNestingDepth = calculateMaxNestingDepth(patternStr);
++        if (maxNestingDepth > 10) {
++            throw new IllegalArgumentException(
++                "Pattern has too many nested groups (depth: " + maxNestingDepth + "). " +
++                "Maximum allowed nesting depth is 10 to prevent stack overflow. " +
++                "Please simplify the pattern structure.");
++        }
++    }
++    
++    /**
++     * Calculates a complexity score for a regex pattern based on:
++     * - Number of quantifiers
++     * - Depth of nested groups
++     * - Presence of alternation in quantified groups
++     * 
++     * @param patternStr The pattern string
++     * @return Complexity score (higher = more complex)
++     */
++    private static int calculatePatternComplexity(String patternStr) {
++        int score = 0;
++        int depth = 0;
++        int maxDepth = 0;
++        int quantifierCount = 0;
++        boolean inCharClass = false;
++        
++        for (int i = 0; i < patternStr.length(); i++) {
++            char c = patternStr.charAt(i);
++            
++            // Skip escaped characters
++            if (c == '\\' && i + 1 < patternStr.length()) {
++                i++;
++                continue;
++            }
++            
++            // Track character class to avoid counting brackets inside them
++            if (c == '[') {
++                inCharClass = true;
++                continue;
++            } else if (c == ']' && inCharClass) {
++                inCharClass = false;
++                continue;
++            }
++            
++            // Skip if inside character class
++            if (inCharClass) {
++                continue;
++            }
++            
++            // Track group nesting depth
++            if (c == '(') {
++                depth++;
++                maxDepth = Math.max(maxDepth, depth);
++            } else if (c == ')') {
++                depth = Math.max(0, depth - 1);
++            }
++            
++            // Count quantifiers
++            if (c == '*' || c == '+' || c == '?') {
++                quantifierCount++;
++                score += (depth + 1) * 5;
++            } else if (c == '{') {
++                quantifierCount++;
++                score += (depth + 1) * 5;
++            }
++            
++            // Alternation in groups increases complexity
++            if (c == '|' && depth > 0) {
++                score += depth * 3;
++            }
++        }
++        
++        // Add complexity for deep nesting
++        score += maxDepth * 10;
++        
++        // Add complexity for high quantifier count
++        score += quantifierCount * 2;
++        
++        return score;
++    }
++    
++    /**
++     * Calculates the maximum nesting depth of groups in a regex pattern.
++     * 
++     * @param patternStr The pattern string
++     * @return Maximum nesting depth
++     */
++    private static int calculateMaxNestingDepth(String patternStr) {
++        int depth = 0;
++        int maxDepth = 0;
++        boolean inCharClass = false;
++        
++        for (int i = 0; i < patternStr.length(); i++) {
++            char c = patternStr.charAt(i);
++            
++            // Skip escaped characters
++            if (c == '\\' && i + 1 < patternStr.length()) {
++                i++;
++                continue;
++            }
++            
++            // Track character class
++            if (c == '[') {
++                inCharClass = true;
++                continue;
++            } else if (c == ']' && inCharClass) {
++                inCharClass = false;
++                continue;
++            }
++            
++            // Skip if inside character class
++            if (inCharClass) {
++                continue;
++            }
++            
++            // Track group nesting depth
++            if (c == '(') {
++                depth++;
++                maxDepth = Math.max(maxDepth, depth);
++            } else if (c == ')') {
++                depth = Math.max(0, depth - 1);
++            }
++        }
++        
++        return maxDepth;
+     }
+ 
+     /**

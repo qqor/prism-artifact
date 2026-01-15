@@ -1,0 +1,35 @@
+--- a/lib/doh.c
++++ b/lib/doh.c
+@@ -1406,6 +1406,8 @@
+     struct Curl_easy *probe_data;
+     curl_off_t mid;
+     size_t slot;
++    /* Temporarily NULL the pointer to prevent nested cleanup from freeing it */
++    data->req.doh = NULL;
+     for(slot = 0; slot < DOH_SLOT_COUNT; slot++) {
+       mid = doh->probe[slot].easy_mid;
+       if(mid < 0)
+@@ -1422,9 +1424,13 @@
+         continue;
+       }
+       /* data->multi might already be reset at this time */
+-      curl_multi_remove_handle(data->multi, probe_data);
++      if(data->multi)
++        curl_multi_remove_handle(data->multi, probe_data);
+       Curl_close(&probe_data);
+     }
++    /* Restore the pointer if it's still NULL (not cleaned up by nested call) */
++    if(!data->req.doh)
++      data->req.doh = doh;
+   }
+ }
+ 
+@@ -1434,7 +1440,7 @@
+   if(doh) {
+     Curl_doh_close(data);
+     curl_slist_free_all(doh->req_hds);
+-    data->req.doh->req_hds = NULL;
++    doh->req_hds = NULL;
+     Curl_safefree(data->req.doh);
+   }
+ }

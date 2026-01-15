@@ -1,0 +1,53 @@
+--- a/HTMLparser.c
++++ b/HTMLparser.c
+@@ -3574,10 +3574,17 @@
+         chunkSize = in - chunk;
+         extraSize = chunkSize + replSize;
+ 
+-        if (extraSize > buffer_size) {
++        /* Enforce overall comment length limit before any memcpy */
++        if ((size_t)used + extraSize > (size_t)maxLength) {
++            htmlParseErr(ctxt, XML_ERR_RESOURCE_LIMIT,
++                         "comment too long\n", NULL, NULL);
++            goto error;
++        }
++
++        /* Ensure there is enough buffer space for the new data */
++        if (used + extraSize > buffer_size) {
+             size_t newSize = (used + extraSize) * 2;
+             xmlChar *tmp = (xmlChar *) xmlRealloc(buffer, newSize + 1);
+-
+             if (tmp == NULL) {
+                 htmlErrMemory(ctxt);
+                 goto error;
+@@ -3598,7 +3605,29 @@
+             used += replSize;
+         }
+ 
+-        SHRINK;
++        /* Append chunk and replacement with bounds and length checks */
++        if ((size_t)used + chunkSize + replSize > (size_t)maxLength) {
++            htmlParseErr(ctxt, XML_ERR_RESOURCE_LIMIT,
++                         "comment too long\n", NULL, NULL);
++            goto error;
++        }
++        if (used + chunkSize + replSize > buffer_size) {
++            size_t newSize = (used + chunkSize + replSize) * 2;
++            xmlChar *tmp = (xmlChar *) xmlRealloc(buffer, newSize + 1);
++            if (tmp == NULL) {
++                htmlErrMemory(ctxt);
++                goto error;
++            }
++            buffer = tmp;
++            buffer_size = newSize;
++        }
++        memcpy(buffer + used, chunk, chunkSize);
++        used += chunkSize;
++        if (replSize > 0) {
++            memcpy(buffer + used, repl, replSize);
++            used += replSize;
++        }
++        buffer[used] = 0;
+ 
+         if (termSkip >= 0)
+             break;

@@ -1,0 +1,65 @@
+diff --git a/libexif/exif-data.c b/libexif/exif-data.c
+index 70f5c01..db6179c 100644
+--- a/libexif/exif-data.c
++++ b/libexif/exif-data.c
+@@ -971,13 +971,17 @@ exif_data_load_data (ExifData *data, const unsigned char *d_orig,
+ 
+ 	/* IFD 0 offset */
+ 	offset = exif_get_long (d + 10, data->priv->order);
+-	exif_log (data->priv->log, EXIF_LOG_CODE_DEBUG, "ExifData", 
++	exif_log (data->priv->log, EXIF_LOG_CODE_DEBUG, "ExifData",
+ 		  "IFD 0 at %i.", (int) offset);
+ 
+ 	/* ds is restricted to 16 bit above, so offset is restricted too, and offset+8 should not overflow. */
+ 	if (offset > ds || offset + 6 + 2 > ds)
+ 		return;
+-
++	/* Added length check to avoid out-of-bounds read: ensure space for identifier */
++	if (ds - 6 < strlen(APPLE_IDENTIFIER))
++		return;
++// FIXME: Crash CWE-125: Out-of-bounds Read
++ 
+ 	/* Parse the actual exif data (usually offset 14 from start) */
+ 	exif_data_load_data_content (data, EXIF_IFD_0, d + 6, ds - 6, offset, 0);
+ 
+@@ -986,11 +990,9 @@ exif_data_load_data (ExifData *data, const unsigned char *d_orig,
+ 	/* offset < 2<<16, n is 16 bit at most, so this op will not overflow */
+ 	if (offset + 6 + 2 + 12 * n + 4 > ds)
+ 		return;
+-
+ 	offset = exif_get_long (d + 6 + offset + 2 + 12 * n, data->priv->order);
+ 	if (offset) {
+-		exif_log (data->priv->log, EXIF_LOG_CODE_DEBUG, "ExifData",
+-			  "IFD 1 at %i.", (int) offset);
++		exif_log (data->priv->log, EXIF_LOG_CODE_DEBUG, "ExifData",			  "IFD 1 at %i.", (int) offset);
+ 
+ 		/* Sanity check. ds is ensured to be above 6 above, offset is 16bit */
+ 		if (offset > ds - 6) {
+@@ -1005,20 +1007,18 @@ exif_data_load_data (ExifData *data, const unsigned char *d_orig,
+ 	 * If we got an EXIF_TAG_MAKER_NOTE, try to interpret it. Some
+ 	 * cameras use pointers in the maker note tag that point to the
+ 	 * space between IFDs. Here is the only place where we have access
+-	 * to that data.
++// FIXME: Crash CWE-125: Out-of-bounds Read
++ 	 * to that data.
+ 	 */
+-	interpret_maker_note(data, d, fullds);
++	/* Rationale: Only interpret when the buffer can contain the full Apple identifier, avoiding out-of-bounds reads. */
++	if (fullds >= (unsigned int)strlen(APPLE_IDENTIFIER)) {
++		interpret_maker_note(data, d, fullds);
++	}
+ 
+ 	/* Fixup tags if requested */
+ 	if (data->priv->options & EXIF_DATA_OPTION_FOLLOW_SPECIFICATION)
+ 		exif_data_fix (data);
+-}
+-
+-void
+-exif_data_save_data (ExifData *data, unsigned char **d, unsigned int *ds)
+-{
+-	if (ds)
+-		*ds = 0;	/* This means something went wrong */
++}		*ds = 0;	/* This means something went wrong */
+ 
+ 	if (!data || !d || !ds)
+ 		return;

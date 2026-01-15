@@ -1,0 +1,152 @@
+--- a/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/COSParser.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/COSParser.java
+@@ -140,6 +140,8 @@
+ 
+     private static final Logger LOG = LogManager.getLogger(COSParser.class);
+ 
++    // Maximum number of bytes to read in a compressed stream to avoid endless loops.
++    private long maxCompressedStreamLength = Long.MAX_VALUE;
+     /**
+      * Default constructor.
+      *
+@@ -792,95 +794,53 @@
+      */
+     private long readUntilEndStream(final EndstreamFilterStream out) throws IOException
+     {
+-        int bufSize;
+-        int charMatchCount = 0;
+-        byte[] keyw = ENDSTREAM;
+-        
+-        // last character position of shortest keyword ('endobj')
+-        final int quickTestOffset = 5;
+-        
+-        // read next chunk into buffer; already matched chars are added to beginning of buffer
+-        while ( ( bufSize = source.read( strmBuf, charMatchCount, STRMBUFLEN - charMatchCount ) ) > 0 ) 
+-        {
+-            bufSize += charMatchCount;
+-            
+-            int bIdx = charMatchCount;
+-            int quickTestIdx;
+-        
+-            // iterate over buffer, trying to find keyword match
+-            for ( int maxQuicktestIdx = bufSize - quickTestOffset; bIdx < bufSize; bIdx++ ) 
+-            {
+-                // reduce compare operations by first test last character we would have to
+-                // match if current one matches; if it is not a character from keywords
+-                // we can move behind the test character; this shortcut is inspired by the 
+-                // Boyer-Moore string search algorithm and can reduce parsing time by approx. 20%
+-                quickTestIdx = bIdx + quickTestOffset;
+-                if (charMatchCount == 0 && quickTestIdx < maxQuicktestIdx)
+-                {                    
+-                    final byte ch = strmBuf[quickTestIdx];
+-                    if ( ( ch > 't' ) || ( ch < 'a' ) ) 
+-                    {
+-                        // last character we would have to match if current character would match
+-                        // is not a character from keywords -> jump behind and start over
+-                        bIdx = quickTestIdx;
+-                        continue;
+-                    }
++        byte[] endStream = ENDSTREAM;
++        byte[] endObj = ENDOBJ;
++        int matchStream = 0;
++        int matchObj = 0;
++        long count = 0;
++        int b;
++        // read byte-by-byte, filter content, detect endstream or endobj
++        while ((b = source.read()) != -1)
++        {
++            byte bb = (byte) b;
++            // write byte to output
++            out.filter(new byte[]{bb}, 0, 1);
++            count++;
++            // enforce maximum stream length
++            if (count > maxCompressedStreamLength)
++            {
++                throw new IOException("Actual stream length exceeds maximum allowed during readUntilEndStream: " + count);
++            }
++            // update endstream match
++            if (bb == endStream[matchStream])
++            {
++                matchStream++;
++                if (matchStream == endStream.length)
++                {
++                    source.rewind(endStream.length);
++                    break;
+                 }
+-                
+-                // could be negative - but we only compare to ASCII
+-                final byte ch = strmBuf[bIdx];
+-            
+-                if ( ch == keyw[ charMatchCount ] ) 
++            }
++            else
++            {
++                matchStream = (bb == endStream[0]) ? 1 : 0;
++            }
++            // update endobj match
++            if (bb == endObj[matchObj])
++            {
++                matchObj++;
++                if (matchObj == endObj.length)
+                 {
+-                    if ( ++charMatchCount == keyw.length ) 
+-                    {
+-                        // match found
+-                        bIdx++;
+-                        break;
+-                    }
+-                } 
+-                else 
+-                {
+-                    if ( ( charMatchCount == 3 ) && ( ch == ENDOBJ[ charMatchCount ] ) ) 
+-                    {
+-                        // maybe ENDSTREAM is missing but we could have ENDOBJ
+-                        keyw = ENDOBJ;
+-                        charMatchCount++;
+-                    } 
+-                    else 
+-                    {
+-                        // no match; incrementing match start by 1 would be dumb since we already know 
+-                        // matched chars depending on current char read we may already have beginning 
+-                        // of a new match: 'e': first char matched; 'n': if we are at match position 
+-                        // idx 7 we already read 'e' thus 2 chars matched for each other char we have 
+-                        // to start matching first keyword char beginning with next read position
+-                        charMatchCount = ( ch == E ) ? 1 : ( ( ch == N ) && ( charMatchCount == 7 ) ) ? 2 : 0;
+-                        // search again for 'endstream'
+-                        keyw = ENDSTREAM;
+-                    }
+-                } 
+-            }
+-            
+-            int contentBytes = Math.max( 0, bIdx - charMatchCount );
+-            
+-            // write buffer content until first matched char to output stream
+-            if ( contentBytes > 0 )
+-            {
+-                out.filter(strmBuf, 0, contentBytes);
+-            }
+-            if ( charMatchCount == keyw.length ) 
+-            {
+-                // keyword matched; unread matched keyword (endstream/endobj) and following buffered content
+-                source.rewind( bufSize - contentBytes );
+-                break;
+-            } 
+-            else 
+-            {
+-                // copy matched chars at start of buffer
+-                System.arraycopy( keyw, 0, strmBuf, 0, charMatchCount );
+-            }            
+-        }
+-        // this writes a lonely CR or drops trailing CR LF and LF
++                    source.rewind(endObj.length);
++                    break;
++                }
++            }
++            else
++            {
++                matchObj = (bb == endObj[0]) ? 1 : 0;
++            }
++        }
+         return out.calculateLength();
+     }
+ 

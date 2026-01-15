@@ -1,0 +1,37 @@
+diff --git a/src/libsystemd/sd-journal/catalog.c b/src/libsystemd/sd-journal/catalog.c
+index a8d65ea4bf..83710a7bee 100644
+--- a/src/libsystemd/sd-journal/catalog.c
++++ b/src/libsystemd/sd-journal/catalog.c
+@@ -351,6 +351,13 @@ int catalog_import_file(OrderedHashmap *h, const char *path) {
+                                                path, n);
+ 
+                 line_len = strlen(line);
++
++                // Truncate if it would exceed maximum catalog size
++                if (payload_size + (empty_line ? 1 : 0) + line_len + 2 > MAX_CATALOG_LINE) {
++                        size_t remain = MAX_CATALOG_LINE - payload_size - (empty_line ? 1 : 0) - 2;
++                        line_len = remain;
++                }
++
+                 if (!GREEDY_REALLOC(payload, payload_size + (empty_line ? 1 : 0) + line_len + 1 + 1))
+                         return log_oom();
+ 
+@@ -387,6 +394,10 @@ static int64_t write_catalog(
+         _cleanup_(unlink_and_freep) char *p = NULL;
+         _cleanup_fclose_ FILE *w = NULL;
+         int r;
++        /* Rationale: Truncate overly long catalog strings to safe maximum */
++        if (sb->len > 16 * 1024) {
++                sb->len = 16 * 1024;
++        }
+ 
+         r = mkdir_parents(database, 0755);
+         if (r < 0)
+@@ -415,6 +426,7 @@ static int64_t write_catalog(
+         r = fflush_and_check(w);
+         if (r < 0)
+                 return log_error_errno(r, "%s: failed to write database: %m", p);
++// FIXME: Crash CWE-787: Out-of-bounds Write
+ 
+         (void) fchmod(fileno(w), 0644);
+ 

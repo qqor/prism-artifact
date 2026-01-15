@@ -1,0 +1,103 @@
+diff --git a/epan/dissectors/packet-netbios.c b/epan/dissectors/packet-netbios.c
+index 9d55d615db..3f14030693 100644
+--- a/epan/dissectors/packet-netbios.c
++++ b/epan/dissectors/packet-netbios.c
+@@ -1230,6 +1230,22 @@ dissect_netbios(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data
+ 			dissect_netbios_payload(next_tvb, pinfo, tree);
+ 			break;
+ 
++		case NB_TERMINATE_TRACE:
++			/*
++			 * Handle Terminate Trace safely using g_strndup (auto null-terminated).
++			 */
++			trace_len = tvb_reported_length_remaining(tvb, offset);
++			if (!tvb_bytes_exist(tvb, offset, trace_len))
++				break;
++			{
++				const guint8 *ptr = tvb_get_ptr(tvb, offset, trace_len);
++				/* allocate and null-terminate */
++				gchar *data = g_strndup((const gchar *)ptr, trace_len);
++				dissect_netb_terminate_trace(data, trace_len, pinfo, tree);
++				g_free(data);
++			}
++			break;
++
+ 		case NB_DATA_FIRST_MIDDLE:
+ 		case NB_DATA_ONLY_LAST:
+ 			/*
+@@ -1243,42 +1259,39 @@ dissect_netbios(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data
+ 				    pinfo, session_id, NULL,
+ 				    len, command == NB_DATA_FIRST_MIDDLE);
+ 				if (fd_head != NULL) {
+-					if (fd_head->next != NULL) {
+-						next_tvb = tvb_new_chain(tvb, fd_head->tvb_data);
++				if (fd_head->next != NULL) {
++					next_tvb = tvb_new_chain(tvb, fd_head->tvb_data);
++					/* Safely copy the reassembled NetBIOS data and ensure null-termination */
++					{
++						guint32 reasm_len = tvb_captured_length(fd_head->tvb_data);
++						const guint8 *reasm_ptr = tvb_get_ptr(fd_head->tvb_data, 0, reasm_len);
++						gchar *reasm_data = g_strndup((const gchar *)reasm_ptr, reasm_len);
+ 						add_new_data_source(pinfo,
+-						    next_tvb,
+-						    "Reassembled NetBIOS");
+-						/* Show all fragments. */
+-						if (tree) {
+-							proto_item *frag_tree_item;
+-
+-							show_fragment_seq_tree(fd_head,
+-							    &netbios_frag_items,
+-							    netb_tree, pinfo,
+-							    next_tvb, &frag_tree_item);
+-						}
+-					} else {
+-						next_tvb = tvb_new_subset_remaining(tvb,
+-						    offset);
++							   next_tvb,
++							   reasm_data);
++						g_free(reasm_data);
++					}
++					/* Show all fragments. */
++					if (tree) {
++						proto_item *frag_tree_item;
++
++						show_fragment_seq_tree(fd_head,
++						    &netbios_frag_items,
++						    netb_tree, pinfo,
++						    next_tvb, &frag_tree_item);
+ 					}
+ 				} else {
+-					next_tvb = NULL;
++					next_tvb = tvb_new_subset_remaining(tvb,
++					    offset);
+ 				}
++			} else {
++				next_tvb = NULL;
++			}
+ 			} else {
+ 				/*
+ 				 * Dissect this, regardless of whether
+ 				 * it's NB_DATA_FIRST_MIDDLE or
+ 				 * NB_DATA_ONLY_LAST.
+-				 *
+-				 * XXX - it'd be nice to show
+-				 * NB_DATA_FIRST_MIDDLE as a fragment
+-				 * if it's not the first fragment (i.e.,
+-				 * MIDDLE rather than FIRST), and show
+-				 * NB_DATA_ONLY_LAST as a fragment if
+-				 * it's part of a fragmented datagram
+-				 * (i.e, LAST rather than ONLY), but
+-				 * we'd have to do reassembly to
+-				 * be able to determine that.
+ 				 */
+ 				next_tvb = tvb_new_subset_remaining(tvb, offset);
+ 			}
+@@ -1289,7 +1302,7 @@ dissect_netbios(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data
+ 				call_data_dissector(next_tvb, pinfo, tree);
+ 			}
+ 			break;
+-		}
++}
+ 		pinfo->fragmented = save_fragmented;
+ 	}
+ 	return tvb_captured_length(tvb);

@@ -1,0 +1,36 @@
+diff --git a/epan/dissectors/packet-telnet.c b/epan/dissectors/packet-telnet.c
+index 9f003e3e61..1e94fe3b3e 100644
+--- a/epan/dissectors/packet-telnet.c
++++ b/epan/dissectors/packet-telnet.c
+@@ -2095,6 +2095,11 @@ telnet_sub_option(packet_info *pinfo, proto_tree *option_tree, proto_item *optio
+         /* Data is escaped, we have to unescape it. */
+         unescaped_tvb = unescape_and_tvbuffify_telnet_option(pinfo, tvb, start_offset, subneg_len);
+         (*opt->dissect)(pinfo, opt->name, unescaped_tvb, 0, subneg_len - iac_data, option_tree, option_item);
++        /* Rationale: only free the NAWS buffer after telnet_add_text has run */
++        if (opt->name && strcmp(opt->name, "NAWS") != 0) {
++          g_free(unescaped_tvb);
++          unescaped_tvb = NULL;
++        }
+       } else {
+         (*opt->dissect)(pinfo, opt->name, tvb, start_offset, subneg_len, option_tree, option_item);
+       }
+@@ -2206,10 +2211,15 @@ telnet_add_text(proto_tree *tree, tvbuff_t *tvb, int offset, int len)
+        If this subopt is set then a method for storing the data in a given window
+        is necessary.
+     */
+-   if ( hf_telnet_naws_subopt_set ) {
+-    int start_offset = hf_telnet_width * hf_telnet_line;
+-    tvb_get_raw_bytes_as_stringz(tvb, offset, (linelen < hf_telnet_width) ? linelen : hf_telnet_width, hf_naws_data + start_offset);
+-    hf_telnet_line = (hf_telnet_line + 1) % hf_telnet_height;
++   if (hf_telnet_naws_subopt_set && hf_naws_data != NULL) {
++     int start_offset = hf_telnet_width * hf_telnet_line;
++     /* delay freeing until after display: decrement refcount but don't free */
++     tvb_get_raw_bytes_as_stringz(tvb, offset,
++         (linelen < hf_telnet_width) ? linelen : hf_telnet_width,
++         hf_naws_data + start_offset);
++     hf_naws_data_refcount--;
++     /* actual free moved out of loop to cleanup function */
++     hf_telnet_line = (hf_telnet_line + 1) % hf_telnet_height;
+   }
+ 
+     /*

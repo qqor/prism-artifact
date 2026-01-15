@@ -1,0 +1,64 @@
+--- a/lib/doh.c
++++ b/lib/doh.c
+@@ -1287,13 +1287,14 @@
+   else
+     infof(data, "HTTPS RR: no ipv6hints");
+   return;
+-}
+-# endif
+-#endif
+-
+-CURLcode Curl_doh_is_resolved(struct Curl_easy *data,
+-                              struct Curl_dns_entry **dnsp)
+-{
++  /* allocate and zero-initialize probes struct to ensure NULL pointers */
++  struct doh_probes *dohp = calloc(1, sizeof *dohp);
++  if(!dohp)
++    return CURLE_OUT_OF_MEMORY;
++
++  /* initialize CURL handle */
++  dohp->curl    = curl_easy_init();
++  data->req.doh = dohp;
+   CURLcode result;
+   struct doh_probes *dohp = data->req.doh;
+   *dnsp = NULL; /* defaults to no response */
+@@ -1431,12 +1432,23 @@
+ void Curl_doh_cleanup(struct Curl_easy *data)
+ {
+   struct doh_probes *doh = data->req.doh;
+-  if(doh) {
++  if(!doh)
++    return;
++
++  /* Only invoke close logic if fully initialized */
++  if(doh->curl) {
+     Curl_doh_close(data);
++  }
++
++  /* Free any header list if it exists */
++  if(doh->req_hds) {
+     curl_slist_free_all(doh->req_hds);
+-    data->req.doh->req_hds = NULL;
+-    Curl_safefree(data->req.doh);
+-  }
++    doh->req_hds = NULL;
++  }
++
++  /* Free the probes struct and clear the pointer */
++  Curl_safefree(doh);
++  data->req.doh = NULL;
+ }
+ 
+ #endif /* CURL_DISABLE_DOH */
+
+--- a/lib/request.c
++++ b/lib/request.c
+@@ -105,7 +105,7 @@
+     (void)req_flush(data);
+   Curl_client_reset(data);
+ #ifndef CURL_DISABLE_DOH
+-  Curl_doh_close(data);
++  Curl_doh_cleanup(data);
+ #endif
+   return CURLE_OK;
+ }

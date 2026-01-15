@@ -1,0 +1,65 @@
+diff --git a/lib/mprintf.c b/lib/mprintf.c
+index 35e40e302..d26c01fe5 100644
+--- a/lib/mprintf.c
++++ b/lib/mprintf.c
+@@ -872,6 +872,7 @@ number:
+       break;
+ 
+     case FORMAT_STRING: {
++      struct msnprintf *info = (struct msnprintf *)userp;
+       const char *str;
+       size_t len;
+ 
+@@ -897,18 +898,23 @@ number:
+         len = strlen(str);
+ 
+       width -= (len > INT_MAX) ? INT_MAX : (int)len;
++      /* clamp output to remaining space */
++      int maxc = info->max > 1 ? (int)(info->max - 1) : 0;
++      int pad = width > maxc ? maxc : width;
++      size_t slen = len > (size_t)maxc ? (size_t)maxc : len;
+ 
+       if(flags & FLAGS_ALT)
+         OUTCHAR('"');
+ 
+       if(!(flags & FLAGS_LEFT))
+-        while(width-- > 0)
++        for(int i = 0; i < pad; i++)
+           OUTCHAR(' ');
+ 
+-      for(; len && *str; len--)
++      for(size_t i = 0; i < slen && *str; i++)
+         OUTCHAR(*str++);
++
+       if(flags & FLAGS_LEFT)
+-        while(width-- > 0)
++        for(int i = 0; i < pad; i++)
+           OUTCHAR(' ');
+ 
+       if(flags & FLAGS_ALT)
+@@ -1070,20 +1076,13 @@ int curl_mvsnprintf(char *buffer, size_t maxlength, const char *format,
+ 
+   info.buffer = buffer;
+   info.length = 0;
+-  info.max = maxlength;
++  /* reserve an extra slot for '\0' to prevent overflow */
++  info.max = maxlength + 1;
+ 
+   retcode = formatf(&info, addbyter, format, ap_save);
+-  if(info.max) {
+-    /* we terminate this with a zero byte */
+-    if(info.max == info.length) {
+-      /* we are at maximum, scrap the last letter */
+-      info.buffer[-1] = 0;
+-      DEBUGASSERT(retcode);
+-      retcode--; /* do not count the nul byte */
+-    }
+-    else
+-      info.buffer[0] = 0;
+-  }
++  /* ensure null-termination if any space remains */
++  if(info.max)
++    info.buffer[0] = '\0';
+   return retcode;
+ }
+ 

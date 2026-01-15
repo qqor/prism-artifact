@@ -1,0 +1,78 @@
+--- a/epan/dissectors/packet-netbios.c
++++ b/epan/dissectors/packet-netbios.c
+@@ -688,9 +688,9 @@
+ 	uint8_t flag;
+ 	static const char hex_digits[16] = {'0','1','2','3','4','5','6','7','8','9','a','b','c','d','e','f'};
+ 	uint8_t *signature;
+-	uint8_t byte;
+-	int i = 0;
+-	int index = 0;
++    uint8_t byte;
++    int i;
++    int idx = 0;
+ 
+     if (!tree)
+         return 0;
+@@ -700,17 +700,17 @@
+ 
+     proto_tree_add_item(ttree, hf_netb_trace_flags, tvb, offset + NB_DATA1, 1, ENC_NA);
+ 
+-	flag = tvb_get_uint8(tvb, offset + NB_DATA1);
+-
+-	/* Allocate buffer for signature field */
+-	if (flag & 0x80) {
+-		signature = g_malloc( NB_SIZE_HMAC + 1);
+-	} else {
+-		signature = g_malloc( NB_SIZE_TMAC + 1);
+-	}
+-
+-	if (signature == NULL)
+-		return 0;
++    flag = tvb_get_uint8(tvb, offset + NB_DATA1);
++
++    /* Determine buffer sizes for signature field */
++    const int ascii_len = (flag & 0x80) ? NB_SIZE_HMAC : NB_SIZE_TMAC;
++    const int raw_len   = ascii_len / 2;
++    const int available = tvb_reported_length_remaining(tvb, offset + NB_SIGNATURE);
++    const int count     = available < raw_len ? available : raw_len;
++
++    signature = g_malloc(ascii_len + 1);
++    if (!signature)
++        return 0;
+ 
+     proto_tree_add_item(ttree, hf_netb_trace_id, tvb, offset + NB_DATA2, 2, ENC_BIG_ENDIAN);
+     proto_tree_add_item(ttree, hf_netb_trace_timestamp, tvb, offset + NB_XMIT_CORL, 4, ENC_BIG_ENDIAN);
+@@ -718,20 +718,19 @@
+     proto_tree_add_item(ttree, hf_netb_trace_initiator, tvb, offset + NB_INIT_NAME, 16, ENC_ASCII | ENC_NA);
+     proto_tree_add_item(ttree, hf_netb_trace_signature, tvb, offset + NB_SIGNATURE, 8, ENC_NA);
+ 
+-	/* Convert signature field to a string */
+-	while ( tvb_offset_exists(tvb, offset + NB_SIGNATURE + i) ) {
+-		byte = tvb_get_uint8(tvb, offset + NB_SIGNATURE + i);
+-
+-		signature[index++] = hex_digits[byte >> 4];
+-		signature[index++] = hex_digits[byte & 0x0F];
+-
+-		i++;
+-	}
+-
+-	signature[index] = '\0';
+-	
+-	proto_tree_add_string(ttree, hf_netb_trace_signature, tvb, offset + NB_SIGNATURE, i - 1, signature);
+-
++    /* Convert signature field to a string */
++    /* Process up to 'count' raw bytes and convert to hex */
++    for (i = 0; i < count; i++) {
++        byte = tvb_get_uint8(tvb, offset + NB_SIGNATURE + i);
++        signature[idx++] = hex_digits[byte >> 4];
++        signature[idx++] = hex_digits[byte & 0x0F];
++    }
++
++    /* Null-terminate within allocated buffer */
++    signature[idx] = '\0';
++
++    /* Display converted signature string */
++    proto_tree_add_string(ttree, hf_netb_trace_signature, tvb, offset + NB_SIGNATURE, count, signature);
+ 	free(signature);
+ 
+ 	return 0;

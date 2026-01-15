@@ -1,0 +1,59 @@
+--- a/tika-core/src/main/java/org/apache/tika/detect/ShellCodeDetector.java
++++ b/tika-core/src/main/java/org/apache/tika/detect/ShellCodeDetector.java
+@@ -36,9 +36,9 @@
+ import org.apache.tika.metadata.Property;
+ import org.apache.tika.metadata.TikaCoreProperties;
+ import org.apache.tika.mime.MediaType;
+-import org.apache.tika.utils.FileProcessResult;
+-import org.apache.tika.utils.ProcessUtils;
+-import org.apache.tika.utils.StringUtils;
++import org.apache.tika.detect.FileCommandDetector;
++import java.io.BufferedReader;
++
+ 
+ /**
+  * Simple detector to determine if a shell script is no-arg shell script.
+@@ -81,7 +81,7 @@
+             return MediaType.OCTET_STREAM;
+         }
+         String fileName = metadata.get(TikaCoreProperties.RESOURCE_NAME_KEY);
+-        if (StringUtils.isBlank(fileName)) {
++        if (fileName == null || fileName.trim().isEmpty()) {
+             return isShell(isShell);
+         }
+         //now test for no-arg shell script
+@@ -97,11 +97,30 @@
+         Path tmpDir = Files.createTempDirectory(cwd, "tika-shell-detect-");
+         Path tmpFile = tmpDir.resolve(fileName);
+         Files.copy(tis.getPath(), tmpFile, StandardCopyOption.REPLACE_EXISTING);
+-        ProcessBuilder pb = new ProcessBuilder(fileName);
+-        pb.directory(tmpDir.toFile());
++        // Safe shell script detection: use file command and fallback shebang
+         try {
+-            FileProcessResult result = ProcessUtils.execute(pb, 20000, 100000, 100000);
+-            if (result.getExitValue() == 0) {
++            boolean isNoArgShell = false;
++            // Primary: 'file' command detection
++            if (FileCommandDetector.checkHasFile()) {
++                FileCommandDetector fcd = new FileCommandDetector();
++                MediaType mt = fcd.detect(Files.newInputStream(tmpFile), metadata);
++                String mtString = mt.toString().toLowerCase(Locale.ROOT);
++                if (mtString.contains("shell") || mtString.contains("x-sh") || mtString.contains("script")) {
++                    isNoArgShell = true;
++                }
++            }
++            // Fallback: shebang inspection
++            if (!isNoArgShell) {
++                try (BufferedReader reader = Files.newBufferedReader(tmpFile, StandardCharsets.UTF_8)) {
++                    String firstLine = reader.readLine();
++                    if (firstLine != null && firstLine.startsWith("#!")) {
++                        isNoArgShell = true;
++                    }
++                } catch (IOException e) {
++                    // ignore—fail closed
++                }
++            }
++            if (isNoArgShell) {
+                 metadata.set(SHELL_NO_ARGS, true);
+             }
+         } finally {

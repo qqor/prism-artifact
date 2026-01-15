@@ -1,0 +1,141 @@
+diff --git a/epan/dissectors/packet-telnet.c b/epan/dissectors/packet-telnet.c
+index 9f003e3e61..ea22109446 100644
+--- a/epan/dissectors/packet-telnet.c
++++ b/epan/dissectors/packet-telnet.c
+@@ -2094,9 +2094,21 @@ telnet_sub_option(packet_info *pinfo, proto_tree *option_tree, proto_item *optio
+       if (iac_data > 0) {
+         /* Data is escaped, we have to unescape it. */
+         unescaped_tvb = unescape_and_tvbuffify_telnet_option(pinfo, tvb, start_offset, subneg_len);
+-        (*opt->dissect)(pinfo, opt->name, unescaped_tvb, 0, subneg_len - iac_data, option_tree, option_item);
++        /* UAF fix: allocate a buffer and copy out data */
++        int payload_len = subneg_len - iac_data;
++        guint8 *dup_data = g_memdup(tvb_get_ptr(unescaped_tvb, 0, payload_len), payload_len);
++        tvbuff_t *dup_tvb = tvb_new_real_data(dup_data, payload_len, payload_len);
++        (*opt->dissect)(pinfo, opt->name, dup_tvb, 0, payload_len, option_tree, option_item);
++        g_free(dup_data);
++        tvb_free(dup_tvb);
+       } else {
+-        (*opt->dissect)(pinfo, opt->name, tvb, start_offset, subneg_len, option_tree, option_item);
++        /* UAF fix: allocate a buffer and copy out data */
++        int payload_len = subneg_len;
++        guint8 *dup_data = g_memdup(tvb_get_ptr(tvb, start_offset, payload_len), payload_len);
++        tvbuff_t *dup_tvb = tvb_new_real_data(dup_data, payload_len, payload_len);
++        (*opt->dissect)(pinfo, opt->name, dup_tvb, 0, payload_len, option_tree, option_item);
++        g_free(dup_data);
++        tvb_free(dup_tvb);
+       }
+     } else {
+       /* We don't have a dissector for them; just show them as data. */
+@@ -2134,57 +2146,61 @@ telnet_suboption_name(proto_tree *tree, packet_info *pinfo, tvbuff_t *tvb, int*
+ static int
+ telnet_command(packet_info *pinfo, proto_tree *telnet_tree, tvbuff_t *tvb, int start_offset, unsigned *num_info_items)
+ {
+-  int    offset = start_offset;
+-  unsigned char optcode;
+-  const char* optname;
+-  proto_item *cmd_item, *subopt_item = NULL;
+-  proto_tree *cmd_tree, *subopt_tree = NULL;
+-
+-  offset += 1;  /* skip IAC */
+-  optcode = tvb_get_uint8(tvb, offset);
+-
+-  cmd_tree = proto_tree_add_subtree(telnet_tree, tvb, start_offset, 2, ett_telnet_cmd, &cmd_item, "Command header");
+-  proto_tree_add_item(cmd_tree, hf_telnet_cmd, tvb, offset, 1, ENC_BIG_ENDIAN);
+-  offset++;
+-
+-  switch(optcode) {
+-  case TN_WILL:
+-    telnet_suboption_name(cmd_tree, pinfo, tvb, &offset, &optname, &subopt_tree, &subopt_item, "Will");
+-    break;
+-
+-  case TN_WONT:
+-    telnet_suboption_name(cmd_tree, pinfo, tvb, &offset, &optname, &subopt_tree, &subopt_item, "Won't");
+-    break;
+-
+-  case TN_DO:
+-    telnet_suboption_name(cmd_tree, pinfo, tvb, &offset, &optname, &subopt_tree, &subopt_item, "Do");
+-    break;
+-
+-  case TN_DONT:
+-    telnet_suboption_name(cmd_tree, pinfo, tvb, &offset, &optname, &subopt_tree, &subopt_item, "Don't");
+-    break;
+-
+-  case TN_SB:
+-    telnet_suboption_name(cmd_tree, pinfo, tvb, &offset, &optname, &subopt_tree, &subopt_item, "Suboption");
+-    break;
+-
+-  default:
+-    optname = val_to_str_const(optcode, cmd_vals, "<unknown option>");
+-    break;
+-  }
+-
+-  proto_item_set_text(cmd_item, "%s", optname);
+-  if (optcode != TN_SE) {
+-    add_telnet_info_str(pinfo, num_info_items, optname);
+-  }
+-
+-  if (optcode == TN_SB) {
+-    offset = telnet_sub_option(pinfo, subopt_tree, subopt_item, tvb, start_offset);
+-  }
+-
+-  proto_item_set_len(cmd_item, offset-start_offset);
+-
+-  return offset;
++	int    offset = start_offset;
++	unsigned char optcode;
++	const char* optname;
++	proto_item *cmd_item, *subopt_item = NULL;
++	proto_tree *cmd_tree, *subopt_tree = NULL;
++
++	offset += 1;  /* skip IAC */
++	optcode = tvb_get_uint8(tvb, offset);
++
++	cmd_tree = proto_tree_add_subtree(telnet_tree, tvb, start_offset, 2, ett_telnet_cmd, &cmd_item, "Command header");
++	proto_tree_add_item(cmd_tree, hf_telnet_cmd, tvb, offset, 1, ENC_BIG_ENDIAN);
++	offset++;
++
++	switch(optcode) {
++	case TN_WILL:
++		telnet_suboption_name(cmd_tree, pinfo, tvb, &offset, &optname, &subopt_tree, &subopt_item, "Will");
++		break;
++
++	case TN_WONT:
++		telnet_suboption_name(cmd_tree, pinfo, tvb, &offset, &optname, &subopt_tree, &subopt_item, "Won't");
++		break;
++
++	case TN_DO:
++		telnet_suboption_name(cmd_tree, pinfo, tvb, &offset, &optname, &subopt_tree, &subopt_item, "Do");
++		break;
++
++	case TN_DONT:
++		telnet_suboption_name(cmd_tree, pinfo, tvb, &offset, &optname, &subopt_tree, &subopt_item, "Don't");
++		break;
++
++	case TN_SB:
++		telnet_suboption_name(cmd_tree, pinfo, tvb, &offset, &optname, &subopt_tree, &subopt_item, "Suboption");
++		break;
++
++	default:
++		optname = val_to_str_const(optcode, cmd_vals, "<unknown option>");
++		break;
++	}
++
++	proto_item_set_text(cmd_item, "%s", optname);
++	if (optcode != TN_SE) {
++		add_telnet_info_str(pinfo, num_info_items, optname);
++	}
++// FIXME: Crash CWE-416: Use After Free
++ 
++	if (optcode == TN_SB) {
++		/* Clone the entire TVB to avoid modifying/freeing the original */
++		tvbuff_t *dup_tvb = tvb_new_clone(tvb);
++		offset = telnet_sub_option(pinfo, subopt_tree, subopt_item, dup_tvb, start_offset);
++		tvb_free(dup_tvb);
++	}
++
++	proto_item_set_len(cmd_item, offset-start_offset);
++
++	return offset;
+ }
+ 
+ static void

@@ -1,0 +1,50 @@
+--- a/pdfbox/src/main/java/org/apache/pdfbox/ocr/OCRStreamEngine.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/ocr/OCRStreamEngine.java
+@@ -33,7 +33,6 @@
+  */
+ public class OCRStreamEngine {
+ 
+-    private static final String TESSERACT_PATH_KEY = "tesseract-path";
+     private PDFRenderer pdfRenderer = null;
+     private String tesseractPath = "tesseract";
+     private int pageIndex = 0;
+@@ -155,11 +154,7 @@
+     }
+ 
+     private String runTesseract(Path image) throws IOException {
+-        String actualTessPath = pdDocument.getDocumentInformation()
+-                .getCustomMetadataValue(TESSERACT_PATH_KEY);
+-        if (actualTessPath == null || actualTessPath.isEmpty()) {
+-            actualTessPath = tesseractPath;
+-        }
++        String actualTessPath = tesseractPath;
+ 
+         Path txt = Paths.get(image.toAbsolutePath().toString());
+         doOCR(actualTessPath, image, txt);
+
+--- a/pdfbox/src/test/java/org/apache/pdfbox/ocr/TestOCR.java
++++ b/pdfbox/src/test/java/org/apache/pdfbox/ocr/TestOCR.java
+@@ -50,17 +50,19 @@
+     }
+ 
+     @Test
+-    public void testOverride() throws Exception
++    public void testMetadataIsIgnored() throws Exception
+     {
+-        if (!Files.isExecutable(Paths.get("/usr/my-bin/tesseract")))
++        if (TESSERACT_PATH == null)
+         {
+             return;
+         }
+-        Path p = Paths.get(TestOCR.class.getResource("testOCRCustomPath.pdf").toURI());
++        Path p = Paths.get(TestOCR.class.getResource("testOCR.pdf").toURI());
+         PDDocument pdDocument = Loader.loadPDF(p.toFile());
++        pdDocument.getDocumentInformation().setCustomMetadataValue("tesseract-path", "/malicious/path");
+         OCRStreamEngine ocrStreamEngine = new OCRStreamEngine(pdDocument);
+-        ocrStreamEngine.setTesseractPath("some-other-path");
++        ocrStreamEngine.setTesseractPath(TESSERACT_PATH);
+         String txt = ocrStreamEngine.getText(1, 1);
+         assertTrue(txt.contains("Happy New Year"));
++        pdDocument.close();
+     }
+ }

@@ -1,0 +1,63 @@
+diff --git a/libfreerdp/crypto/certificate.c b/libfreerdp/crypto/certificate.c
+index 2568bab9f..d7fa0b10c 100644
+--- a/libfreerdp/crypto/certificate.c
++++ b/libfreerdp/crypto/certificate.c
+@@ -1338,6 +1338,31 @@ rdpCertificate* freerdp_certificate_new_from_x509(const X509* xcert, const STACK
+ 	if (!cert->x509)
+ 		goto fail;
+ 
++	/* Use ASN1_STRING_to_UTF8 for safe allocation and bounds checking */
++	{
++		STACK_OF(GENERAL_NAME)* san_ext = X509_get_ext_d2i(cert->x509, NID_subject_alt_name, NULL, NULL);
++		if (san_ext)
++		{
++			for (int i = 0; i < sk_GENERAL_NAME_num(san_ext); ++i)
++			{
++				GENERAL_NAME* san = sk_GENERAL_NAME_value(san_ext, i);
++				if (san->type == GEN_DNS)
++				{
++					unsigned char* utf8 = NULL;
++					int outLen = ASN1_STRING_to_UTF8(&utf8, san->d.dNSName);
++					if (outLen < 0 || (size_t)outLen > OPENSSL_malloc_usable_size(utf8) - 1)
++					{
++						OPENSSL_free(utf8);
++						sk_GENERAL_NAME_pop_free(san_ext, GENERAL_NAME_free);
++						goto fail;
++					}
++					OPENSSL_free(utf8);
++				}
++			}
++			sk_GENERAL_NAME_pop_free(san_ext, GENERAL_NAME_free);
++		}
++	}
++
+ 	if (!freerdp_rsa_from_x509(cert))
+ 		goto fail;
+ 
+@@ -1355,18 +1380,17 @@ static rdpCertificate* freerdp_certificate_new_from(const char* file, BOOL isFil
+ 	X509* x509 = x509_utils_from_pem(file, strlen(file), isFile);
+ 	if (!x509)
+ 		return NULL;
++	/* Candidate 3: Strip all SAN extensions to avoid unsafe memcpy later */
++	{
++		int idx = X509_get_ext_by_NID(x509, NID_subject_alt_name, -1);
++		if (idx >= 0)
++			X509_delete_ext(x509, idx);
++	}
++
+ 	rdpCertificate* cert = freerdp_certificate_new_from_x509(x509, NULL);
+ 	X509_free(x509);
+ 	return cert;
+-}
+-
+-rdpCertificate* freerdp_certificate_new_from_file(const char* file)
+-{
+-	return freerdp_certificate_new_from(file, TRUE);
+-}
+-
+-rdpCertificate* freerdp_certificate_new_from_pem(const char* pem)
+-{
++}{
+ 	return freerdp_certificate_new_from(pem, FALSE);
+ }
+ 

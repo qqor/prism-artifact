@@ -1,0 +1,56 @@
+--- a/epan/dissectors/packet-netbios.c
++++ b/epan/dissectors/packet-netbios.c
+@@ -685,7 +685,7 @@
+ {/* Handle the TERMINATE TRACE command. See RFC 1002 5.2.3 */
+ 	proto_tree *ttree;
+     proto_item *tf;
+-	uint8_t flag;
++/* removed unused flag */
+ 	static const char hex_digits[16] = {'0','1','2','3','4','5','6','7','8','9','a','b','c','d','e','f'};
+ 	uint8_t *signature;
+ 	uint8_t byte;
+@@ -700,16 +700,11 @@
+ 
+     proto_tree_add_item(ttree, hf_netb_trace_flags, tvb, offset + NB_DATA1, 1, ENC_NA);
+ 
+-	flag = tvb_get_uint8(tvb, offset + NB_DATA1);
+-
+-	/* Allocate buffer for signature field */
+-	if (flag & 0x80) {
+-		signature = g_malloc( NB_SIZE_HMAC + 1);
+-	} else {
+-		signature = g_malloc( NB_SIZE_TMAC + 1);
+-	}
+-
+-	if (signature == NULL)
++	/* Allocate buffer for signature field: 8 raw bytes -> 2 hex chars each + null */
++	const int sig_len = 8;
++	const int buf_size = (sig_len * 2) + 1;
++	signature = g_malloc(buf_size);
++	if (!signature)
+ 		return 0;
+ 
+     proto_tree_add_item(ttree, hf_netb_trace_id, tvb, offset + NB_DATA2, 2, ENC_BIG_ENDIAN);
+@@ -718,19 +713,14 @@
+     proto_tree_add_item(ttree, hf_netb_trace_initiator, tvb, offset + NB_INIT_NAME, 16, ENC_ASCII | ENC_NA);
+     proto_tree_add_item(ttree, hf_netb_trace_signature, tvb, offset + NB_SIGNATURE, 8, ENC_NA);
+ 
+-	/* Convert signature field to a string */
+-	while ( tvb_offset_exists(tvb, offset + NB_SIGNATURE + i) ) {
++	for (i = 0, index = 0; i < sig_len && tvb_offset_exists(tvb, offset + NB_SIGNATURE + i); i++) {
+ 		byte = tvb_get_uint8(tvb, offset + NB_SIGNATURE + i);
+-
+ 		signature[index++] = hex_digits[byte >> 4];
+ 		signature[index++] = hex_digits[byte & 0x0F];
+-
+-		i++;
+ 	}
+-
+ 	signature[index] = '\0';
+-	
+-	proto_tree_add_string(ttree, hf_netb_trace_signature, tvb, offset + NB_SIGNATURE, i - 1, signature);
++
++	proto_tree_add_string(ttree, hf_netb_trace_signature, tvb, offset + NB_SIGNATURE, i, signature);
+ 
+ 	free(signature);
+ 

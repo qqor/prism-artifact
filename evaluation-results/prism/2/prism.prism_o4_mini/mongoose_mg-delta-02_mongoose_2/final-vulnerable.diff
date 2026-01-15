@@ -1,0 +1,82 @@
+--- a/src/net_builtin.c
++++ b/src/net_builtin.c
+@@ -380,6 +380,10 @@
+ }
+ 
+ static void rx_icmp(struct mg_tcpip_if *ifp, struct pkt *pkt) {
++  char *raw_start = pkt->raw.buf;
++  char *raw_end = raw_start + pkt->raw.len;
++  char *hdr = (char *) pkt->icmp;
++  if (hdr < raw_start || hdr + sizeof(struct icmp) > raw_end) return;
+   // MG_DEBUG(("ICMP %d", (int) len));
+   if (pkt->icmp->type == 8 && pkt->ip != NULL && pkt->ip->dst == ifp->ip) {
+     size_t hlen = sizeof(struct eth) + sizeof(struct ip) + sizeof(struct icmp);
+@@ -799,10 +803,8 @@
+     struct mg_connection *c = getpeer(ifp->mgr, pkt, false);
+     if (c) mg_error(c, "Received fragmented packet");
+   } else if (pkt->ip->proto == 1) {
+-    pkt->icmp = (struct icmp *) (pkt->ip + 1);
+-    if (pkt->pay.len < sizeof(*pkt->icmp)) return;
+-    mkpay(pkt, pkt->icmp + 1);
+-    rx_icmp(ifp, pkt);
++    // ICMP handled in IPv4 branch of mg_tcpip_rx; drop here
++    return;
+   } else if (pkt->ip->proto == 17) {
+     pkt->udp = (struct udp *) (pkt->ip + 1);
+     if (pkt->pay.len < sizeof(*pkt->udp)) return;
+@@ -838,6 +840,12 @@
+ static void rx_ip6(struct mg_tcpip_if *ifp, struct pkt *pkt) {
+   // MG_DEBUG(("IP %d", (int) len));
+   if (pkt->ip6->proto == 1 || pkt->ip6->proto == 58) {
++    /* IPv6 ICMP must fit entire header inside raw buffer */
++    {
++      char *raw_start = pkt->raw.buf, *raw_end = raw_start + pkt->raw.len;
++      char *hdr6 = (char *) pkt->ip6 + sizeof(struct ip6);
++      if (hdr6 + sizeof(struct icmp) > raw_end) return;
++    }
+     pkt->icmp = (struct icmp *) (pkt->ip6 + 1);
+     if (pkt->pay.len < sizeof(*pkt->icmp)) return;
+     mkpay(pkt, pkt->icmp + 1);
+@@ -881,18 +889,34 @@
+     rx_ip6(ifp, &pkt);
+   } else if (pkt.eth->type == mg_htons(0x800)) {
+     pkt.ip = (struct ip *) (pkt.eth + 1);
+-    if (pkt.raw.len < sizeof(*pkt.eth) + sizeof(*pkt.ip)) return;  // Truncated
++    // Basic length check: Ethernet + minimal IP header
++    if (pkt.raw.len < sizeof(*pkt.eth) + sizeof(*pkt.ip)) return;
+     // Truncate frame to what IP header tells us
+     if ((size_t) mg_ntohs(pkt.ip->len) + sizeof(struct eth) < pkt.raw.len) {
+       pkt.raw.len = (size_t) mg_ntohs(pkt.ip->len) + sizeof(struct eth);
+     }
+-    if (pkt.raw.len < sizeof(*pkt.eth) + sizeof(*pkt.ip)) return;  // Truncated
+-    if ((pkt.ip->ver >> 4) != 4) return;                           // Not IP
+-    if ((pkt.ip->ver & 0xF) > 5)                                   // Handle IPv4 options
+-        mkpay(&pkt, (char *)(pkt.ip) + ((pkt.ip->ver & 0xF)*4));
+-    else
+-        mkpay(&pkt, pkt.ip + 1);
+-
++    // Validate IPv4 version
++    if ((pkt.ip->ver >> 4) != 4) return;
++    // Compute IHL (Internet Header Length) in bytes
++    size_t ihl = (pkt.ip->ver & 0xF) * 4;
++    // Validate IHL and ensure header fits
++    if (ihl < sizeof(struct ip) || pkt.raw.len < sizeof(*pkt.eth) + ihl) return;
++    // Set payload start after IP header
++    mkpay(&pkt, (char *) pkt.ip + ihl);
++    // Handle ICMP directly
++    if (pkt.ip->proto == 1) {
++      char *raw_start = pkt.raw.buf;
++      char *raw_end = raw_start + pkt.raw.len;
++      char *hdr = (char *) pkt.ip + ihl;
++      // Ensure full ICMP header is within buffer
++      if (hdr + sizeof(struct icmp) <= raw_end) {
++        pkt.icmp = (struct icmp *) hdr;
++        mkpay(&pkt, hdr + sizeof(struct icmp));
++        rx_icmp(ifp, &pkt);
++      }
++      return;
++    }
++    // Non-ICMP fallback
+     rx_ip(ifp, &pkt);
+   } else {
+     MG_DEBUG(("Unknown eth type %x", mg_htons(pkt.eth->type)));

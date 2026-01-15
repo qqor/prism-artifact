@@ -1,0 +1,34 @@
+diff --git a/src/cmsps2.c b/src/cmsps2.c
+index cb2db85..b4edc0b 100644
+--- a/src/cmsps2.c
++++ b/src/cmsps2.c
+@@ -1576,6 +1576,7 @@ cmsUInt32Number CMSEXPORT cmsGetPostScriptCRD(cmsContext ContextID,
+ 
+ 
+ // Does create a Color Space Array on XYZ colorspace for PostScript usage
++/* Rationale: Disallow NULL Buffer to avoid creating an IO handler with no backing store */
+ cmsUInt32Number CMSEXPORT cmsGetPostScriptCSA(cmsContext ContextID,
+                                               cmsHPROFILE hProfile,
+                                               cmsUInt32Number Intent,
+@@ -1586,12 +1587,16 @@ cmsUInt32Number CMSEXPORT cmsGetPostScriptCSA(cmsContext ContextID,
+     cmsIOHANDLER* mem;
+     cmsUInt32Number dwBytesUsed;
+ 
+-    if (Buffer == NULL)
+-        mem = cmsOpenIOhandlerFromNULL(ContextID);
+-    else
+-        mem = cmsOpenIOhandlerFromMem(ContextID, Buffer, dwBufferLen, "w");
++    /* Buffer must be provided */
++    if (Buffer == NULL) {
++        cmsSignalError(ContextID, cmsERROR_NULL_POINTER, "cmsGetPostScriptCSA: received NULL Buffer");
++        return 0;
++    }
+ 
+-    if (!mem) return 0;
++    mem = cmsOpenIOhandlerFromMem(ContextID, Buffer, dwBufferLen, "w");
++
++// FIXME: Crash CWE-476: NULL Pointer Dereference
++     if (!mem) return 0;
+ 
+     dwBytesUsed =  cmsGetPostScriptColorResource(ContextID, cmsPS_RESOURCE_CSA, hProfile, Intent, dwFlags, mem);
+ 

@@ -1,0 +1,49 @@
+--- a/src/main/java/org/apache/commons/compress/archivers/examples/Expander.java
++++ b/src/main/java/org/apache/commons/compress/archivers/examples/Expander.java
+@@ -506,21 +506,37 @@
+     }
+ 
+     private static Path createParentDirectory(Path root, Path target) throws IOException {
+-        Path relative =
+-                root.relativize(target.getParent());
+-        Path current = root.toAbsolutePath();
+-
++        Path rootNormalized = root.toAbsolutePath().normalize();
++        Path targetParent = target.getParent().toAbsolutePath().normalize();
++        if (!targetParent.startsWith(rootNormalized)) {
++            throw new IOException("Path traversal outside target directory: " + targetParent);
++        }
++        Path relative = rootNormalized.relativize(targetParent);
++        Path current = rootNormalized;
++    
+         for (Path p : relative) {
+-            current = current.resolve(p);
++            current = current.resolve(p).toAbsolutePath().normalize();
++            if (!current.startsWith(rootNormalized)) {
++                throw new IOException("Path traversal attempt: " + current);
++            }
+             if (Files.isSymbolicLink(current)) {
+-                current = Files.readSymbolicLink(current);
+-            }
+-            if (! Files.isDirectory(current)) {
++                Path linkTarget = Files.readSymbolicLink(current);
++                Path resolvedLink;
++                if (linkTarget.isAbsolute()) {
++                    resolvedLink = linkTarget.toAbsolutePath().normalize();
++                } else {
++                    resolvedLink = current.getParent().resolve(linkTarget).toAbsolutePath().normalize();
++                }
++                if (!resolvedLink.startsWith(rootNormalized)) {
++                    throw new IOException("Symlink leads outside target directory: " + resolvedLink);
++                }
++                current = resolvedLink;
++            }
++            if (!Files.isDirectory(current)) {
+                 Files.createDirectory(current);
+             }
+         }
+         return current;
+-
+     }
+ 
+ 

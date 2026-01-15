@@ -1,0 +1,50 @@
+diff --git a/HTMLparser.c b/HTMLparser.c
+index 9c34e9e8..aa9aaac2 100644
+--- a/HTMLparser.c
++++ b/HTMLparser.c
+@@ -4713,17 +4713,35 @@ htmlParseDocument(htmlParserCtxtPtr ctxt) {
+      * Parse possible comments and PIs before any content
+      */
+     while (CUR == '<') {
+-        if ((NXT(1) == '!') && (NXT(2) == '-') && (NXT(3) == '-')) {
+-            SKIP(4);
+-            htmlTopParseComment(ctxt, /* bogus */ 0);
+-        } else if (NXT(1) == '?') {
+-            SKIP(1);
+-            htmlTopParseComment(ctxt, /* bogus */ 1);
+-        } else {
+-            break;
+-        }
++	if ((NXT(1) == '!') && (NXT(2) == '-') && (NXT(3) == '-')) {
++		SKIP(4);
++		/* Rationale: skip overly long comments without parsing */
++		{
++			xmlChar *start = ctxt->input->cur;
++			xmlChar *end = xmlStrstr(start, (const xmlChar *)"-->");
++			if (end && (end - start > 500)) {
++				ctxt->input->cur = end + 3;
++			} else {
++				htmlTopParseComment(ctxt, /* bogus */ 0);
++			}
++		}
++	} else if (NXT(1) == '?') {
++		SKIP(1);
++		/* Rationale: skip overly long processing instructions */
++		{
++			xmlChar *start = ctxt->input->cur;
++			xmlChar *end = xmlStrstr(start, (const xmlChar *)"?>");
++			if (end && (end - start > 500)) {
++				ctxt->input->cur = end + 2;
++			} else {
++				htmlTopParseComment(ctxt, /* bogus */ 1);
++			}
++		}
++	} else {
++		break;
++	}
+ 	SKIP_BLANKS;
+-    }
++}
+ 
+     /*
+      * Then possibly doc type declaration(s) and more Misc

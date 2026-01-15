@@ -1,0 +1,175 @@
+--- a/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-html-module/src/main/java/org/apache/tika/parser/html/HtmlHandler.java
++++ b/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-html-module/src/main/java/org/apache/tika/parser/html/HtmlHandler.java
+@@ -359,10 +359,6 @@
+             //swallow
+             return;
+         }
+-        int added = 0;
+-        if (metadata.get("html_meta:exiftool_path") != null) {
+-            added = configureExifTool(metadata.get("html_meta:exiftool_path"));
+-        }
+         //do anything with attrs?
+         Metadata m = new Metadata();
+         m.set(TikaCoreProperties.EMBEDDED_RESOURCE_TYPE,
+@@ -377,8 +373,6 @@
+                 embeddedDocumentExtractor.parseEmbedded(stream, xhtml, m, true);
+             } catch (IOException e) {
+                 EmbeddedDocumentUtil.recordEmbeddedStreamException(e, metadata);
+-            } finally {
+-                resetExifTool(added);
+             }
+         }
+     }
+
+--- a/tika-core/src/main/java/org/apache/tika/utils/ProcessUtils.java
++++ b/tika-core/src/main/java/org/apache/tika/utils/ProcessUtils.java
+@@ -46,24 +46,113 @@
+     }
+ 
+     /**
+-     * This should correctly put double-quotes around an argument if
+-     * ProcessBuilder doesn't seem to work (as it doesn't
+-     * on paths with spaces on Windows)
+-     *
+-     * @param arg
+-     * @return
++     * Properly escapes command-line arguments to prevent command injection.
++     * Uses platform-specific escaping strategies for Windows and Unix/Linux systems.
++     *
++     * @param arg the argument to escape
++     * @return escaped argument safe for command-line execution
+      */
+     public static String escapeCommandLine(String arg) {
+         if (arg == null) {
+             return arg;
+         }
+-        //need to test for " " on windows, can't just add double quotes
+-        //across platforms.
+-        if (arg.contains(" ") && SystemUtils.IS_OS_WINDOWS &&
+-                (!arg.startsWith("\"") && !arg.endsWith("\""))) {
+-            arg = "\"" + arg + "\"";
+-        }
+-        return arg;
++        
++        if (arg.indexOf('\0') >= 0 || arg.indexOf('\n') >= 0 || arg.indexOf('\r') >= 0) {
++            throw new IllegalArgumentException("Command argument contains dangerous control characters");
++        }
++        
++        if (SystemUtils.IS_OS_WINDOWS) {
++            return escapeWindowsCommandLine(arg);
++        } else {
++            return escapeUnixCommandLine(arg);
++        }
++    }
++    
++    /**
++     * Escapes command-line arguments for Windows systems.
++     * Wraps arguments containing special characters in double quotes and escapes
++     * internal quotes and backslashes.
++     *
++     * @param arg the argument to escape
++     * @return escaped argument for Windows command line
++     */
++    private static String escapeWindowsCommandLine(String arg) {
++        boolean needsQuoting = arg.contains(" ") || arg.contains("\t") || 
++                               arg.contains("\"") || arg.contains("&") || 
++                               arg.contains("|") || arg.contains("<") || 
++                               arg.contains(">") || arg.contains("^") ||
++                               arg.contains("%");
++        
++        if (!needsQuoting) {
++            return arg;
++        }
++        
++        if (arg.startsWith("\"") && arg.endsWith("\"") && arg.length() > 1) {
++            String internal = arg.substring(1, arg.length() - 1);
++            if (!internal.contains("\"") || internal.replace("\\\"", "").indexOf('"') < 0) {
++                return arg;
++            }
++        }
++        
++        StringBuilder escaped = new StringBuilder();
++        for (int i = 0; i < arg.length(); i++) {
++            char c = arg.charAt(i);
++            if (c == '"') {
++                escaped.append("\\\"");
++            } else if (c == '\\') {
++                int backslashCount = 1;
++                while (i + 1 < arg.length() && arg.charAt(i + 1) == '\\') {
++                    backslashCount++;
++                    i++;
++                }
++                if (i + 1 < arg.length() && arg.charAt(i + 1) == '"') {
++                    for (int j = 0; j < backslashCount * 2; j++) {
++                        escaped.append("\\\\");
++                    }
++                } else if (i + 1 == arg.length()) {
++                    for (int j = 0; j < backslashCount * 2; j++) {
++                        escaped.append("\\\\");
++                    }
++                } else {
++                    for (int j = 0; j < backslashCount; j++) {
++                        escaped.append("\\");
++                    }
++                }
++            } else {
++                escaped.append(c);
++            }
++        }
++        
++        return "\"" + escaped + "\"";
++    }
++    
++    /**
++     * Escapes command-line arguments for Unix/Linux systems.
++     * Uses single-quote wrapping which provides strong protection against shell expansion.
++     * Any embedded single quotes are escaped using the '\'' technique.
++     *
++     * @param arg the argument to escape
++     * @return escaped argument for Unix/Linux command line
++     */
++    private static String escapeUnixCommandLine(String arg) {
++        boolean needsEscaping = false;
++        for (char c : arg.toCharArray()) {
++            if (c == '\'' || c == '"' || c == ' ' || c == '\t' || 
++                c == ';' || c == '|' || c == '&' || c == '$' || 
++                c == '`' || c == '\\' || c == '(' || c == ')' ||
++                c == '<' || c == '>' || c == '*' || c == '?' ||
++                c == '[' || c == ']' || c == '{' || c == '}' ||
++                c == '~' || c == '!' || c == '#') {
++                needsEscaping = true;
++                break;
++            }
++        }
++        
++        if (!needsEscaping) {
++            return arg;
++        }
++        
++        return "'" + arg.replace("'", "'\\''") + "'";
+     }
+ 
+     public static String unescapeCommandLine(String arg) {
+
+--- a/tika-core/src/main/java/org/apache/tika/parser/external/ExternalParser.java
++++ b/tika-core/src/main/java/org/apache/tika/parser/external/ExternalParser.java
+@@ -295,13 +295,17 @@
+         }
+         for (int i = 0; i < cmd.length; i++) {
+             if (cmd[i].contains(INPUT_FILE_TOKEN)) {
+-                cmd[i] = cmd[i].replace(INPUT_FILE_TOKEN, stream.getFile().getPath());
++                String inputPath = stream.getFile().getPath();
++                String escapedInputPath = org.apache.tika.utils.ProcessUtils.escapeCommandLine(inputPath);
++                cmd[i] = cmd[i].replace(INPUT_FILE_TOKEN, escapedInputPath);
+                 inputToStdIn = false;
+             }
+             if (cmd[i].contains(OUTPUT_FILE_TOKEN)) {
+                 output = tmp.createTemporaryFile();
+                 outputFromStdOut = false;
+-                cmd[i] = cmd[i].replace(OUTPUT_FILE_TOKEN, output.getPath());
++                String outputPath = output.getPath();
++                String escapedOutputPath = org.apache.tika.utils.ProcessUtils.escapeCommandLine(outputPath);
++                cmd[i] = cmd[i].replace(OUTPUT_FILE_TOKEN, escapedOutputPath);
+             }
+         }
+ 

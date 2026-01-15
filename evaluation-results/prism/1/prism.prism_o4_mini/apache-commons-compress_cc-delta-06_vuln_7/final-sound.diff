@@ -1,0 +1,42 @@
+--- a/src/main/java/org/apache/commons/compress/archivers/examples/Expander.java
++++ b/src/main/java/org/apache/commons/compress/archivers/examples/Expander.java
+@@ -67,10 +67,21 @@
+     private <T extends ArchiveEntry> void expand(final ArchiveEntrySupplier<T> supplier, final ArchiveEntryBiConsumer<T> writer, final Path targetDirectory)
+             throws IOException {
+         final boolean nullTarget = targetDirectory == null;
+-        final Path targetDirPath = nullTarget ? null : targetDirectory.normalize();
++        java.nio.file.Path basePath = nullTarget ? null : targetDirectory.toAbsolutePath().normalize();
++        if (!nullTarget) {
++            java.nio.file.Files.createDirectories(basePath);
++            basePath = basePath.toRealPath(java.nio.file.LinkOption.NOFOLLOW_LINKS);
++        }
++        final Path targetDirPath = nullTarget ? null : basePath;
+         T nextEntry = supplier.get();
+         while (nextEntry != null) {
+-            final Path targetPath = nullTarget ? null : nextEntry.resolveIn(targetDirPath);
++            Path targetPath = nullTarget ? null : nextEntry.resolveIn(targetDirPath);
++            if (!nullTarget) {
++                targetPath = targetPath.toAbsolutePath().normalize();
++                if (!targetPath.startsWith(targetDirPath)) {
++                    throw new IOException("Entry is outside of the target directory: " + nextEntry.getName());
++                }
++            }
+             if (nextEntry.isDirectory()) {
+                 if (!nullTarget && !Files.isDirectory(targetPath) && Files.createDirectories(targetPath) == null) {
+                     throw new IOException("Failed to create directory " + targetPath);
+@@ -475,8 +486,13 @@
+                 || ArchiveStreamFactory.SEVEN_Z.equalsIgnoreCase(format);
+     }
+ 
+-    private Path toPath(final File targetDirectory) {
+-        return targetDirectory != null ? targetDirectory.toPath() : null;
++    private Path toPath(final File targetDirectory) throws IOException {
++        if (targetDirectory == null) {
++            return null;
++        }
++        java.nio.file.Path raw = targetDirectory.toPath().toAbsolutePath().normalize();
++        java.nio.file.Files.createDirectories(raw);
++        return raw.toRealPath(java.nio.file.LinkOption.NOFOLLOW_LINKS);
+     }
+ 
+ }

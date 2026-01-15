@@ -1,0 +1,59 @@
+--- a/tika-core/src/main/java/org/apache/tika/parser/DefaultParser.java
++++ b/tika-core/src/main/java/org/apache/tika/parser/DefaultParser.java
+@@ -101,8 +101,18 @@
+                                                   Renderer renderer,
+                                                   Collection<Class<? extends Parser>>
+                                                           excludeParsers) {
+-        List<Parser> parsers =
++        List<Parser> rawParsers =
+                 loader.loadStaticServiceProviders(Parser.class, excludeParsers);
++        List<Parser> parsers = new java.util.ArrayList<>();
++        for (Parser p : rawParsers) {
++            Package pkg = p.getClass().getPackage();
++            String pkgName = (pkg != null) ? pkg.getName() : "";
++            if (pkgName.startsWith("org.apache.tika.parser.external")) {
++                // skip any external parsers for security
++                continue;
++            }
++            parsers.add(p);
++        }
+ 
+         if (encodingDetector != null) {
+             for (Parser p : parsers) {
+
+--- a/tika-core/src/main/java/org/apache/tika/config/TikaConfig.java
++++ b/tika-core/src/main/java/org/apache/tika/config/TikaConfig.java
+@@ -898,6 +898,13 @@
+         @Override
+         Parser preLoadOne(Class<? extends Parser> loadedClass, String classname,
+                           MimeTypes mimeTypes) throws TikaException {
++            // SECURITY: prevent loading of any external parser implementations
++            Package pkg = loadedClass.getPackage();
++            String pkgName = (pkg != null) ? pkg.getName() : "";
++            if (pkgName.startsWith("org.apache.tika.parser.external")) {
++                LOG.warn("Skipping external parser for security: {}", loadedClass.getName());
++                return null;
++            }
+             // Check for classes which can't be set in config
+             if (AutoDetectParser.class.isAssignableFrom(loadedClass)) {
+                 // https://issues.apache.org/jira/browse/TIKA-866
+
+--- a/tika-parent/pom.xml
++++ b/tika-parent/pom.xml
+@@ -293,7 +293,7 @@
+     <groovy.maven.version>2.1.1</groovy.maven.version>
+     <maven.antrun.version>3.1.0</maven.antrun.version>
+     <maven.assembly.version>3.7.1</maven.assembly.version>
+-    <maven.bundle.version>6.0.0</maven.bundle.version>
++    <maven.bundle.version>7.1.2</maven.bundle.version>
+     <maven.compiler.plugin.version>3.14.0</maven.compiler.plugin.version>
+     <maven.failsafe.version>3.5.3</maven.failsafe.version>
+     <maven.surefire.version>3.5.3</maven.surefire.version>
+@@ -1304,6 +1304,7 @@
+         <groupId>org.apache.felix</groupId>
+         <artifactId>maven-bundle-plugin</artifactId>
+         <version>${maven.bundle.version}</version>
++        <extensions>true</extensions>
+       </plugin>
+       <plugin>
+         <groupId>org.apache.maven.plugins</groupId>

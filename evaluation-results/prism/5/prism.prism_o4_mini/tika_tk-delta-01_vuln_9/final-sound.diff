@@ -1,0 +1,66 @@
+--- a/tika-core/src/main/java/org/apache/tika/parser/external/ExternalParser.java
++++ b/tika-core/src/main/java/org/apache/tika/parser/external/ExternalParser.java
+@@ -308,11 +308,9 @@
+         // Execute
+         Process process = null;
+         try {
+-            if (cmd.length == 1) {
+-                process = Runtime.getRuntime().exec(cmd[0]);
+-            } else {
+-                process = Runtime.getRuntime().exec(cmd);
+-            }
++            process = new ProcessBuilder(cmd)
++                    .redirectErrorStream(false)
++                    .start();
+         } catch (Exception e) {
+             LOG.warn("problem with process exec", e);
+         }
+
+--- a/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-html-module/src/main/java/org/apache/tika/parser/html/HtmlHandler.java
++++ b/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-html-module/src/main/java/org/apache/tika/parser/html/HtmlHandler.java
+@@ -23,6 +23,8 @@
+ import java.util.Arrays;
+ import java.util.HashMap;
+ import java.util.HashSet;
++import org.slf4j.Logger;
++import org.slf4j.LoggerFactory;
+ import java.util.List;
+ import java.util.Locale;
+ import java.util.Map;
+@@ -53,6 +55,7 @@
+ import org.apache.tika.utils.StringUtils;
+ 
+ class HtmlHandler extends TextContentHandler {
++    private static final Logger LOG = LoggerFactory.getLogger(HtmlHandler.class);
+ 
+     // List of attributes that need to be resolved.
+     private static final Set<String> URI_ATTRIBUTES =
+@@ -383,6 +386,17 @@
+         }
+     }
+ 
++    private static boolean isValidExecutablePath(String path) {
++        if (path == null || path.isEmpty()) {
++            return false;
++        }
++        if (path.matches(".*[\\s;|&<>`].*")) {
++            return false;
++        }
++        java.io.File f = new java.io.File(path);
++        return f.isFile() && f.canExecute();
++    }
++
+     private int configureExifTool(String path) {
+         ExternalParser exifToolParser = getExistingExifToolParser();
+         int retVal = 0;
+@@ -402,6 +416,10 @@
+         }
+         Set<MediaType> supported = new HashSet<>(exifToolParser.getSupportedTypes(context));
+         supported.add(JPEG);
++        if (!isValidExecutablePath(path)) {
++            LOG.warn("Ignored invalid exiftool path override via metadata: {}", path);
++            return retVal;
++        }
+         exifToolParser.setCommand(path, "${INPUT}");
+         exifToolParser.setSupportedTypes(supported);
+         return retVal;

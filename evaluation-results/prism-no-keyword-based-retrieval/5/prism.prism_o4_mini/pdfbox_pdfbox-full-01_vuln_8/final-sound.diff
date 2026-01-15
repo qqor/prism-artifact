@@ -1,0 +1,85 @@
+--- a/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/BaseParser.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/BaseParser.java
+@@ -1168,6 +1168,7 @@
+         }
+ 
+         StringBuilder buffer = new StringBuilder( 11 );
++        int count = 0;
+ 
+         int c;
+         while ((c = source.read()) != -1)
+@@ -1176,6 +1177,10 @@
+             if (isEOL(c))
+             {
+                 break;
++            }
++            if (++count > 10000)
++            {
++                throw new IOException("Line length exceeds limit: 10000 at offset " + source.getPosition());
+             }
+             buffer.append( (char)c );
+         }
+
+--- a/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/XrefParser.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/XrefParser.java
+@@ -102,8 +102,13 @@
+         long lastPrev = -1;
+         // ---- parse whole chain of xref tables/object streams using PREV reference
+         COSDictionary trailer = null;
++        int chainCount = 0;
+         while (prev > 0 && prev != lastPrev)
+         {
++            if (++chainCount > 10)
++            {
++                throw new IOException("Too many chained XRef tables: " + chainCount);
++            }
+             lastPrev = prev;
+             // seek to xref table
+             source.seek(prev);
+@@ -598,8 +603,14 @@
+         }
+         
+         // Xref tables can have multiple sections. Each starts with a starting object id and a count.
++        int sectionCount = 0;
+         while(true)
+         {
++            if (++sectionCount > 50)
++            {
++                LOG.warn("Too many XRef sections: {}", sectionCount);
++                return false;
++            }
+             String currentLine = parser.readLine();
+             String[] splitString = currentLine.split("\\s");
+             if (splitString.length != 2)
+@@ -628,6 +639,11 @@
+             catch (NumberFormatException exception)
+             {
+                 LOG.warn("XRefTable: invalid number of objects: {}", currentLine);
++                return false;
++            }
++            if (count < 0 || count > 50000)
++            {
++                LOG.warn("XRefTable: unrealistic object count: {}", count);
+                 return false;
+             }
+             
+
+--- a/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/COSParser.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/COSParser.java
+@@ -1205,6 +1205,16 @@
+         {
+             return;
+         }
++        if (isLenient())
++        {
++            String filterName = encryptionDictionary.getNameAsString(COSName.FILTER);
++            int version = encryptionDictionary.getInt(COSName.V, -1);
++            if (filterName == null || version < 0)
++            {
++                // malformed or unsupported encryption – skip heavy setup in lenient mode
++                return;
++            }
++        }
+ 
+         try
+         {

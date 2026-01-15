@@ -1,0 +1,166 @@
+--- a/fontbox/src/main/java/org/apache/fontbox/type1/Type1Parser.java
++++ b/fontbox/src/main/java/org/apache/fontbox/type1/Type1Parser.java
+@@ -25,6 +25,20 @@
+ import java.util.HashMap;
+ import java.util.List;
+ import java.util.Map;
++
++/**
++ * Maximum limits for Type1 font parsing to prevent DoS attacks.
++ */
++class Type1ParserLimits {
++    static final int MAX_SUBRS = 10000;
++    static final int MAX_CHARSTRINGS = 10000;
++    static final int MAX_ENCODING_ENTRIES = 256;
++    static final int MAX_OTHERSUBRS = 10000;
++    static final int MAX_SEARCH_ITERATIONS = 100000;
++    static final int MAX_STRING_LENGTH = 1000000;
++    static final int MAX_NESTING_DEPTH = 100;
++    static final int MAX_SEGMENT_LENGTH = 50_000_000; // 50 MB
++}
+ 
+ /**
+  * Parses an Adobe Type 1 (.pfb) font. It is used exclusively by Type1Font.
+@@ -57,6 +71,18 @@
+      */
+     public Type1Font parse(byte[] segment1, byte[] segment2) throws IOException
+     {
++        // Validate input sizes to prevent DoS attacks
++        if (segment1.length > Type1ParserLimits.MAX_SEGMENT_LENGTH)
++        {
++            throw new IOException("Type1 font segment1 too large: " + segment1.length + 
++                                 " bytes (max: " + Type1ParserLimits.MAX_SEGMENT_LENGTH + ")");
++        }
++        if (segment2.length > Type1ParserLimits.MAX_SEGMENT_LENGTH)
++        {
++            throw new IOException("Type1 font segment2 too large: " + segment2.length + 
++                                 " bytes (max: " + Type1ParserLimits.MAX_SEGMENT_LENGTH + ")");
++        }
++        
+         font = new Type1Font(segment1, segment2);
+         try
+         {
+@@ -214,18 +240,37 @@
+             // 0 1 255 {1 index exch /.notdef put } for
+             // we have to check "readonly" and "def" too
+             // as some fonts don't provide any dup-values, see PDFBOX-2134
+-            while (!(lexer.peekKind(Token.NAME)
+-                    && (lexer.peekToken().getText().equals("dup")
+-                            || lexer.peekToken().getText().equals("readonly")
+-                            || lexer.peekToken().getText().equals("def"))))
+-            {
++            int encodingSearchIterations = 0;
++            Token currentToken = lexer.peekToken();
++            while (currentToken != null && 
++                   !(lexer.peekKind(Token.NAME) &&
++                     (currentToken.getText().equals("dup") ||
++                      currentToken.getText().equals("readonly") ||
++                      currentToken.getText().equals("def"))))
++            {
++                if (++encodingSearchIterations > Type1ParserLimits.MAX_SEARCH_ITERATIONS)
++                {
++                    throw new IOException("Exceeded maximum iterations while searching for encoding start");
++                }
+                 lexer.nextToken();
++                currentToken = lexer.peekToken();
++            }
++            
++            if (currentToken == null)
++            {
++                throw new IOException("Unexpected end of tokens while searching for encoding start");
+             }
+             
+             Map<Integer, String> codeToName = new HashMap<>();
++            int encodingEntryCount = 0;
+             while (lexer.peekKind(Token.NAME) &&
+                     lexer.peekToken().getText().equals("dup"))
+             {
++                if (++encodingEntryCount > Type1ParserLimits.MAX_ENCODING_ENTRIES)
++                {
++                    throw new IOException("Too many encoding entries: " + encodingEntryCount);
++                }
++                
+                 read(Token.NAME, "dup");
+                 int code = read(Token.INTEGER).intValue();
+                 String name = read(Token.LITERAL).getText();
+@@ -392,8 +437,14 @@
+         if (token.getKind() == Token.START_ARRAY)
+         {
+             int openArray = 1;
++            int iterations = 0;
+             while (true)
+             {
++                if (++iterations > Type1ParserLimits.MAX_SEARCH_ITERATIONS)
++                {
++                    throw new IOException("Exceeded maximum iterations while reading array");
++                }
++                
+                 if (lexer.peekToken() == null)
+                 {
+                     return value;
+@@ -401,6 +452,11 @@
+                 if (lexer.peekKind(Token.START_ARRAY))
+                 {
+                     openArray++;
++                    if (openArray > Type1ParserLimits.MAX_NESTING_DEPTH)
++                    {
++                        throw new IOException("Array nesting depth exceeds maximum: " + 
++                            Type1ParserLimits.MAX_NESTING_DEPTH);
++                    }
+                 }
+ 
+                 token = lexer.nextToken();
+@@ -471,8 +527,14 @@
+         List<Token> value = new ArrayList<>();
+ 
+         int openProc = 1;
++        int iterations = 0;
+         while (true)
+         {
++            if (++iterations > Type1ParserLimits.MAX_SEARCH_ITERATIONS)
++            {
++                throw new IOException("Exceeded maximum iterations while reading procedure");
++            }
++            
+             if (lexer.peekToken() == null)
+             {
+                 throw new IOException("Malformed procedure: missing token");
+@@ -481,6 +543,11 @@
+             if (lexer.peekKind(Token.START_PROC))
+             {
+                 openProc++;
++                if (openProc > Type1ParserLimits.MAX_NESTING_DEPTH)
++                {
++                    throw new IOException("Procedure nesting depth exceeds maximum: " + 
++                        Type1ParserLimits.MAX_NESTING_DEPTH);
++                }
+             }
+ 
+             Token token = lexer.nextToken();
+@@ -510,8 +577,14 @@
+     private void readProcVoid() throws IOException
+     {
+         int openProc = 1;
++        int iterations = 0;
+         while (true)
+         {
++            if (++iterations > Type1ParserLimits.MAX_SEARCH_ITERATIONS)
++            {
++                throw new IOException("Exceeded maximum iterations while reading procedure");
++            }
++            
+             if (lexer.peekToken() == null)
+             {
+                 throw new IOException("Malformed procedure: missing token");
+@@ -519,6 +592,11 @@
+             if (lexer.peekKind(Token.START_PROC))
+             {
+                 openProc++;
++                if (openProc > Type1ParserLimits.MAX_NESTING_DEPTH)
++                {
++                    throw new IOException("Procedure nesting depth exceeds maximum: " + 
++                        Type1ParserLimits.MAX_NESTING_DEPTH);
++                }
+             }
+ 
+             Token token = lexer.nextToken();

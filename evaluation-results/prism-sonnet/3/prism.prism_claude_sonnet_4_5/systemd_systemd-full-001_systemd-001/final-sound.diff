@@ -1,0 +1,42 @@
+--- a/src/udev/udev-rules.c
++++ b/src/udev/udev-rules.c
+@@ -1141,11 +1141,14 @@
+         char *i, *j, *m;
+         bool is_escaped = false, is_case_insensitive = false, is_prefix_match = false;
+         int pos = 0;
++        size_t original_len;
+ 
+         assert(str);
+         assert(ret_value);
+         assert(ret_endpos);
+         assert(ret_is_case_insensitive);
++
++        original_len = strlen(str);
+ 
+         /* check if string is prefixed with:
+          * - "e" for escaped
+@@ -1216,6 +1219,12 @@
+                 * so it could be safely interpreted as nulstr.
+                 */
+                 if (is_prefix_match){
++                        /* Validate buffer space before writing to prevent heap-buffer-overflow.
++                         * We write to positions: pos-1 (memcpy start), up to pos+l+1 (second null).
++                         * The buffer has original_len+1 bytes (indices 0 to original_len). */
++                        if (pos + l + 1 > original_len)
++                                return -EINVAL;
++
+                         /* need more room to make rule glob match */
+                         memcpy(str + pos - 1, unescaped, l + 1);
+                         str[pos + l - 1] = '*';
+@@ -1224,6 +1233,11 @@
+                         m = str + pos - 1;
+ 
+                 } else {
++                        /* Validate buffer space before writing to prevent heap-buffer-overflow.
++                         * We write to positions: m (memcpy start), up to m+l+1 (second null). */
++                        if ((size_t)(m - str) + l + 1 > original_len)
++                                return -EINVAL;
++
+                         memcpy(m, unescaped, l + 1);
+                         m[l] = '\0';
+                         m[l + 1] = '\0';

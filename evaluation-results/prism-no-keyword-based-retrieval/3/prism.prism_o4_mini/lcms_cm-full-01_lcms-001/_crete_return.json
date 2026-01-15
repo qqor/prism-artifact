@@ -1,0 +1,14 @@
+{
+  "project_name": "lcms",
+  "vulnerability_identifier": "lcms_cm-full-01_lcms-001",
+  "source_directory": "/home/qqor/crete/.cache/official-afc-little-cms",
+  "llm_usage": {
+    "total_cost": 0.553223,
+    "prompt_tokens": 326234,
+    "completion_tokens": 44174
+  },
+  "variant": "sound",
+  "diff": "--- a/src/cmsps2.c\n+++ b/src/cmsps2.c\n@@ -758,6 +758,10 @@\n     const char* PreMin, *PostMin;\n     cmsStage* mpe;\n         \n+    // Guard against empty or uninitialized pipeline to avoid null-deref in cmsStageType\n+    if (Pipeline == NULL || Pipeline->Elements == NULL) {\n+        return FALSE;\n+    }\n     mpe = Pipeline->Elements;\n \n     switch (cmsStageInputChannels(mpe)) {\n@@ -783,7 +787,7 @@\n \n     _cmsIOPrintf(m, \"<<\\n\");\n \n-    if (cmsStageType(mpe) == cmsSigCurveSetElemType) {\n+    if (mpe != NULL && cmsStageType(mpe) == cmsSigCurveSetElemType) {\n \n         _cmsIOPrintf(m, \"/DecodeDEF [ \");\n         EmitNGamma(m, cmsStageOutputChannels(mpe), _cmsStageGetPtrToCurveSet(mpe));\n@@ -792,7 +796,7 @@\n         mpe = mpe ->Next;\n     }\n \n-    if (cmsStageType(mpe) == cmsSigCLutElemType) {\n+    if (mpe != NULL && cmsStageType(mpe) == cmsSigCLutElemType) {\n \n             _cmsIOPrintf(m, \"/Table \");\n             WriteCLUT(m, mpe, PreMaj, PostMaj, PreMin, PostMin, FALSE, (cmsColorSpaceSignature) 0);\n@@ -896,6 +900,12 @@\n \n             DeviceLink = cmsPipelineDup(v ->Lut);\n             if (DeviceLink == NULL) {\n+                cmsDeleteTransform(xform);\n+                return FALSE;\n+            }\n+            // Reject empty pipeline to avoid null-deref in EmitCIEBasedDEF\n+            if (DeviceLink->Elements == NULL) {\n+                cmsPipelineFree(DeviceLink);\n                 cmsDeleteTransform(xform);\n                 return FALSE;\n             }\n@@ -1065,7 +1075,8 @@\n         // Read the lut with all necessary conversion stages\n         lut = _cmsReadInputLUT(hProfile, Intent);\n         if (lut == NULL) goto Error;\n-\n+        // Reject empty pipeline early\n+        if (lut->Elements == NULL) goto Error;\n \n         // Tone curves + matrix can be implemented without any LUT\n         if (cmsPipelineCheckAndRetreiveStages(lut, 2, cmsSigCurveSetElemType, cmsSigMatrixElemType, &Shaper, &Matrix)) {\n",
+  "stdout": "",
+  "stderr": ""
+}

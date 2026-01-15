@@ -1,0 +1,14 @@
+{
+  "project_name": "apache-poi",
+  "vulnerability_identifier": "apache-poi_poi-full-01_vuln_1",
+  "source_directory": "/home/qqor/aixcc/crete/.cache/official-afc-poi",
+  "llm_usage": {
+    "total_cost": 0.3406271,
+    "prompt_tokens": 189581,
+    "completion_tokens": 30020
+  },
+  "variant": "sound",
+  "diff": "--- a/poi-scratchpad/src/main/java/org/apache/poi/hmef/attribute/MAPIAttribute.java\n+++ b/poi-scratchpad/src/main/java/org/apache/poi/hmef/attribute/MAPIAttribute.java\n@@ -172,7 +172,11 @@\n                   if (IOUtils.readFully(inp, mpdata) < 0) {\n                      throw new IOException(\"Not enough data to read \" + mplen + \" bytes for attribute name\");\n                   }\n-                  name = StringUtil.getFromUnicodeLE(mpdata, 0, (mplen/2)-1);\n+                  int charCount = (mplen / 2) - 1;\n+                  if (charCount > 1_000_000) {\n+                      throw new IOException(\"Attribute name too large: \" + charCount + \" chars\");\n+                  }\n+                  name = StringUtil.getFromUnicodeLE(mpdata, 0, charCount);\n                   skipToBoundary(mplen, inp);\n                }\n \n\n--- a/poi-scratchpad/src/main/java/org/apache/poi/hmef/attribute/TNEFStringAttribute.java\n+++ b/poi-scratchpad/src/main/java/org/apache/poi/hmef/attribute/TNEFStringAttribute.java\n@@ -43,12 +43,21 @@\n \n       String tmpData = null;\n       byte[] data = getData();\n-      if(getType() == TNEFProperty.TYPE_TEXT) {\n-         tmpData = StringUtil.getFromUnicodeLE(data);\n+      int charCount;\n+      if (getType() == TNEFProperty.TYPE_TEXT) {\n+          // Unicode 16-bit LE string\n+          charCount = data.length / 2;\n+          if (charCount > 1_000_000) {\n+              throw new IOException(\"TNEF string too large: \" + charCount + \" chars\");\n+          }\n+          tmpData = StringUtil.getFromUnicodeLE(data, 0, charCount);\n       } else {\n-         tmpData = StringUtil.getFromCompressedUnicode(\n-              data, 0, data.length\n-         );\n+          // Compressed (ISO-8859-1) string\n+          charCount = data.length;\n+          if (charCount > 1_000_000) {\n+              throw new IOException(\"TNEF string too large: \" + charCount + \" chars\");\n+          }\n+          tmpData = StringUtil.getFromCompressedUnicode(data, 0, charCount);\n       }\n \n       // Strip off the null terminator if present\n",
+  "stdout": "",
+  "stderr": ""
+}

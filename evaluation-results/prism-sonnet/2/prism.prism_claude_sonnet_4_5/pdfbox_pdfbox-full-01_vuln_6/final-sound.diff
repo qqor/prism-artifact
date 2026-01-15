@@ -1,0 +1,45 @@
+--- a/fontbox/src/main/java/org/apache/fontbox/pfb/PfbParser.java
++++ b/fontbox/src/main/java/org/apache/fontbox/pfb/PfbParser.java
+@@ -153,17 +153,33 @@
+                 throw new IOException("Incorrect record type: " + recordType);
+             }
+ 
+-            int size = in.read();
+-            size += in.read() << 8;
+-            size += in.read() << 16;
+-            size += in.read() << 24;
++            // Read size as unsigned 32-bit value using long to prevent negative values
++            long size = (in.read() & 0xFFL)
++                      | ((in.read() & 0xFFL) << 8)
++                      | ((in.read() & 0xFFL) << 16)
++                      | ((in.read() & 0xFFL) << 24);
++            
+             LOG.debug("record type: {}, segment size: {}", recordType, size);
++            
++            // Validate individual segment size before allocation
++            if (size < 0 || size > Integer.MAX_VALUE)
++            {
++                throw new IOException("Segment size " + size + " is invalid or exceeds maximum array size");
++            }
++            if (size > MAX_LENGTH)
++            {
++                throw new IOException("Segment size " + size + " exceeds maximum allowed size of " + MAX_LENGTH);
++            }
++            
++            // Validate cumulative total
+             long newTotal = total + size;
+-            if (newTotal > MAX_LENGTH) {
+-                throw new IOException("record size would be too large: " + newTotal);
+-            }
+-
+-            byte[] ar = new byte[size];
++            if (newTotal > MAX_LENGTH)
++            {
++                throw new IOException("Total size " + newTotal + " would exceed maximum allowed size of " + MAX_LENGTH);
++            }
++
++            // Safe to cast to int and allocate since we validated size <= Integer.MAX_VALUE
++            byte[] ar = new byte[(int) size];
+             int got = in.read(ar);
+             if (got != size)
+             {

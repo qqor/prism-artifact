@@ -1,0 +1,14 @@
+{
+  "project_name": "wireshark",
+  "vulnerability_identifier": "wireshark_ws-full-01_vuln_010",
+  "source_directory": "/tasks_new/wireshark_ws-full-01/official-afc-wireshark",
+  "llm_usage": {
+    "total_cost": 0.4364041,
+    "prompt_tokens": 263251,
+    "completion_tokens": 33370
+  },
+  "variant": "sound",
+  "diff": "--- a/epan/dissectors/packet-netbios.c\n+++ b/epan/dissectors/packet-netbios.c\n@@ -688,9 +688,7 @@\n \tuint8_t flag;\n \tstatic const char hex_digits[16] = {'0','1','2','3','4','5','6','7','8','9','a','b','c','d','e','f'};\n \tuint8_t *signature;\n-\tuint8_t byte;\n-\tint i = 0;\n-\tint index = 0;\n+\t/* removed unused variables byte, i, and index */\n \n     if (!tree)\n         return 0;\n@@ -703,13 +701,11 @@\n \tflag = tvb_get_uint8(tvb, offset + NB_DATA1);\n \n \t/* Allocate buffer for signature field */\n-\tif (flag & 0x80) {\n-\t\tsignature = g_malloc( NB_SIZE_HMAC + 1);\n-\t} else {\n-\t\tsignature = g_malloc( NB_SIZE_TMAC + 1);\n-\t}\n-\n-\tif (signature == NULL)\n+\t/* Determine raw and ASCII lengths */\n+\tguint raw_len   = (flag & 0x80) ? NB_SIZE_HMAC : NB_SIZE_TMAC;\n+\tguint ascii_len = raw_len * 2;\n+\tsignature = g_malloc(ascii_len + 1);\n+\tif (!signature)\n \t\treturn 0;\n \n     proto_tree_add_item(ttree, hf_netb_trace_id, tvb, offset + NB_DATA2, 2, ENC_BIG_ENDIAN);\n@@ -719,18 +715,24 @@\n     proto_tree_add_item(ttree, hf_netb_trace_signature, tvb, offset + NB_SIGNATURE, 8, ENC_NA);\n \n \t/* Convert signature field to a string */\n-\twhile ( tvb_offset_exists(tvb, offset + NB_SIGNATURE + i) ) {\n-\t\tbyte = tvb_get_uint8(tvb, offset + NB_SIGNATURE + i);\n-\n-\t\tsignature[index++] = hex_digits[byte >> 4];\n-\t\tsignature[index++] = hex_digits[byte & 0x0F];\n-\n-\t\ti++;\n+\t{\n+\t\tguint remaining = tvb_reported_length_remaining(tvb, offset + NB_SIGNATURE);\n+\t\tguint available = remaining < raw_len ? remaining : raw_len;\n+\t\tfor (guint j = 0; j < available; j++) {\n+\t\t\tguint8 byte = tvb_get_uint8(tvb, offset + NB_SIGNATURE + j);\n+\t\t\tsignature[2*j]     = hex_digits[byte >> 4];\n+\t\t\tsignature[2*j + 1] = hex_digits[byte & 0x0F];\n+\t\t}\n+\t\tsignature[2*available] = '\\0';\n+\t\tproto_tree_add_string(\n+\t\t\tttree,\n+\t\t\thf_netb_trace_signature,\n+\t\t\ttvb,\n+\t\t\toffset + NB_SIGNATURE,\n+\t\t\tavailable,\n+\t\t\tsignature\n+\t\t);\n \t}\n-\n-\tsignature[index] = '\\0';\n-\t\n-\tproto_tree_add_string(ttree, hf_netb_trace_signature, tvb, offset + NB_SIGNATURE, i - 1, signature);\n \n \tfree(signature);\n \n",
+  "stdout": "",
+  "stderr": ""
+}

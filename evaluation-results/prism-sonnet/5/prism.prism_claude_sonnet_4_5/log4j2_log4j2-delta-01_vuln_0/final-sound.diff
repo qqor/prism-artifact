@@ -1,0 +1,126 @@
+--- a/core/src/main/java/org/apache/logging/log4j/core/lookup/JndiLookup.java
++++ b/core/src/main/java/org/apache/logging/log4j/core/lookup/JndiLookup.java
+@@ -19,8 +19,11 @@
+ import javax.naming.InitialContext;
+ import javax.naming.NamingException;
+ 
++import org.apache.logging.log4j.Logger;
+ import org.apache.logging.log4j.core.LogEvent;
+ import org.apache.logging.log4j.core.config.plugins.Plugin;
++import org.apache.logging.log4j.status.StatusLogger;
++import org.apache.logging.log4j.util.PropertiesUtil;
+ 
+ /**
+  * Looks up keys from JNDI resources.
+@@ -28,10 +31,21 @@
+ @Plugin(name = "jndi", category = "Lookup")
+ public class JndiLookup implements StrLookup {
+ 
+-    private static boolean ENABLE_JNDI = true;
++    private static final Logger LOGGER = StatusLogger.getLogger();
++    private static final boolean ENABLE_JNDI;
+ 
+     /** JNDI resourcce path prefix used in a J2EE container */
+     static final String CONTAINER_JNDI_RESOURCE_PATH_PREFIX = "java:comp/env/";
++
++    static {
++        final PropertiesUtil props = PropertiesUtil.getProperties();
++        ENABLE_JNDI = props.getBooleanProperty("log4j2.enableJndi", false);
++        if (ENABLE_JNDI) {
++            LOGGER.warn("JNDI lookup is enabled. This poses a security risk. Please ensure this is intentional.");
++        } else {
++            LOGGER.info("JNDI lookup is disabled by default for security. Set log4j2.enableJndi=true to enable.");
++        }
++    }
+ 
+     /**
+      * Get the value of the JNDI resource.
+@@ -55,12 +69,62 @@
+             return null;
+         }
+ 
++        if (!isValidJndiName(key)) {
++            LOGGER.warn("Rejecting JNDI lookup for key '{}' due to security restrictions. " +
++                       "Only local JNDI resources (java: protocol) are allowed.", key);
++            return null;
++        }
++
+         try {
+             InitialContext ctx = new InitialContext();
+             return (String) ctx.lookup(convertJndiName(key));
+         } catch (NamingException e) {
+             return null;
+         }
++    }
++
++    /**
++     * Validates whether a JNDI name is safe to lookup.
++     * Only local JNDI resources with java: protocol are allowed.
++     * Remote protocols like ldap://, rmi://, dns:// are blocked.
++     * 
++     * @param jndiName The name to validate.
++     * @return true if the name is safe to lookup, false otherwise.
++     */
++    private boolean isValidJndiName(final String jndiName) {
++        if (jndiName == null) {
++            return false;
++        }
++
++        // Convert the name first to get the actual lookup name
++        final String convertedName = convertJndiName(jndiName);
++
++        // Only allow 'java:' protocol for local JNDI resources
++        if (convertedName.startsWith("java:")) {
++            return true;
++        }
++
++        // Check for dangerous remote protocols
++        final String lowerName = convertedName.toLowerCase();
++        final String[] dangerousProtocols = {
++            "ldap://", "ldaps://", "rmi://", "dns://",
++            "iiop://", "corba://", "nis://", "nds://"
++        };
++        
++        for (final String protocol : dangerousProtocols) {
++            if (lowerName.startsWith(protocol)) {
++                return false;
++            }
++        }
++
++        // If the original name has a colon but doesn't start with java:, reject it
++        // This prevents bypasses with other protocols
++        if (jndiName.indexOf(':') != -1 && !jndiName.startsWith("java:")) {
++            return false;
++        }
++
++        // If no colon, it will be converted to java:comp/env/ prefix (safe)
++        return true;
+     }
+ 
+     /**
+@@ -78,10 +142,6 @@
+         return jndiName;
+     }
+ 
+-    public static void setEnableJndi(boolean enableJndi) {
+-        ENABLE_JNDI = enableJndi;
+-    }
+-
+     public static boolean isEnableJndi() {
+         return ENABLE_JNDI;
+     }
+
+--- a/core/src/main/java/org/apache/logging/log4j/core/helpers/Constants.java
++++ b/core/src/main/java/org/apache/logging/log4j/core/helpers/Constants.java
+@@ -41,6 +41,11 @@
+     public static final String JNDI_CONTEXT_NAME = "java:comp/env/log4j/context-name";
+ 
+     /**
++     * Name of the system property to enable/disable JNDI lookups.
++     */
++    public static final String LOG4J_ENABLE_JNDI = "log4j2.enableJndi";
++
++    /**
+      * Line separator.
+      */
+     public static final String LINE_SEP = PropertiesUtil.getProperties().getStringProperty("line.separator", "\n");

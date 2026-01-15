@@ -1,0 +1,43 @@
+--- a/core/src/main/java/org/apache/logging/log4j/core/lookup/JndiLookup.java
++++ b/core/src/main/java/org/apache/logging/log4j/core/lookup/JndiLookup.java
+@@ -21,6 +21,7 @@
+ 
+ import org.apache.logging.log4j.core.LogEvent;
+ import org.apache.logging.log4j.core.config.plugins.Plugin;
++import org.apache.logging.log4j.util.PropertiesUtil;
+ 
+ /**
+  * Looks up keys from JNDI resources.
+@@ -28,7 +29,7 @@
+ @Plugin(name = "jndi", category = "Lookup")
+ public class JndiLookup implements StrLookup {
+ 
+-    private static boolean ENABLE_JNDI = true;
++    private static boolean ENABLE_JNDI = PropertiesUtil.getProperties().getBooleanProperty("log4j2.enableJndi", false);
+ 
+     /** JNDI resourcce path prefix used in a J2EE container */
+     static final String CONTAINER_JNDI_RESOURCE_PATH_PREFIX = "java:comp/env/";
+
+--- a/core/src/main/java/org/apache/logging/log4j/core/lookup/Interpolator.java
++++ b/core/src/main/java/org/apache/logging/log4j/core/lookup/Interpolator.java
+@@ -49,6 +49,9 @@
+             @SuppressWarnings("unchecked")
+             final Class<StrLookup> clazz = entry.getValue().getPluginClass();
+             try {
++                if ("jndi".equals(entry.getKey()) && !JndiLookup.isEnableJndi()) {
++                    continue;
++                }
+                 lookups.put(entry.getKey(), clazz.newInstance());
+             } catch (final Exception ex) {
+                 LOGGER.error("Unable to create Lookup for " + entry.getKey(), ex);
+@@ -63,7 +66,9 @@
+         this.defaultLookup = new MapLookup(new HashMap<String, String>());
+         lookups.put("sys", new SystemPropertiesLookup());
+         lookups.put("env", new EnvironmentLookup());
+-        lookups.put("jndi", new JndiLookup());
++        if (JndiLookup.isEnableJndi()) {
++            lookups.put("jndi", new JndiLookup());
++        }
+     }
+ 
+      /**

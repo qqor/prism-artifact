@@ -1,0 +1,36 @@
+diff --git a/epan/dissectors/packet-gvcp.c b/epan/dissectors/packet-gvcp.c
+index d49324a429..1b51efed4b 100644
+--- a/epan/dissectors/packet-gvcp.c
++++ b/epan/dissectors/packet-gvcp.c
+@@ -971,7 +971,6 @@ void process_register_writes(proto_tree *tree, tvbuff_t *tvb, int offset)
+ 
+ 	return;
+ }
+-
+ /*
+ Attempts to dissect a bootstrap register
+ */
+@@ -979,7 +978,12 @@ Attempts to dissect a bootstrap register
+ static int dissect_register(uint32_t addr, proto_tree *branch, tvbuff_t *tvb, int offset, int length)
+ {
+ 	uint32_t value = 0;
+-	
++	// Rationale: prevent out-of-bounds write into fixed-size arrays
++	if (gvcp_register_count >= GVCP_REGISTER_MAX) {
++		// Warning: too many registers, skip writing
++		return 0;
++	}
++
+ 	value = tvb_get_letohl(tvb, offset);
+ 	gvcp_register_number[gvcp_register_count] = addr;
+ 	gvcp_register_value[gvcp_register_count++] = value;
+@@ -991,8 +995,7 @@ static int dissect_register(uint32_t addr, proto_tree *branch, tvbuff_t *tvb, in
+ 		proto_tree_add_item(branch, hf_gvcp_spec_version_minor, tvb, offset, 4, ENC_BIG_ENDIAN);
+ 		break;
+ 
+-	case GVCP_DEVICE_MODE:
+-		proto_tree_add_item(branch, hf_gvcp_devicemode_endianness, tvb, offset, 4, ENC_BIG_ENDIAN);
++	case GVCP_DEVICE_MODE:		proto_tree_add_item(branch, hf_gvcp_devicemode_endianness, tvb, offset, 4, ENC_BIG_ENDIAN);
+ 		proto_tree_add_item(branch, hf_gvcp_devicemode_deviceclass, tvb, offset, 4, ENC_BIG_ENDIAN);
+ 		proto_tree_add_item(branch, hf_gvcp_devicemode_current_link_configuration_v2_0, tvb, offset, 4, ENC_BIG_ENDIAN);
+ 		proto_tree_add_item(branch, hf_gvcp_devicemode_characterset, tvb, offset, 4, ENC_BIG_ENDIAN);

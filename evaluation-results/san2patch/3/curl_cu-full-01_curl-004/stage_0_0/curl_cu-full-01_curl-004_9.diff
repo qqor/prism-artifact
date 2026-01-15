@@ -1,0 +1,40 @@
+diff --git a/lib/mprintf.c b/lib/mprintf.c
+index 35e40e302..f70fdfdc7 100644
+--- a/lib/mprintf.c
++++ b/lib/mprintf.c
+@@ -1090,9 +1090,23 @@ int curl_mvsnprintf(char *buffer, size_t maxlength, const char *format,
+ int curl_msnprintf(char *buffer, size_t maxlength, const char *format, ...)
+ {
+   int retcode;
+-  va_list ap_save; /* argument pointer */
++   va_list ap_save; /* argument pointer */
+   va_start(ap_save, format);
+-  retcode = curl_mvsnprintf(buffer, maxlength, format, ap_save);
++  if(maxlength == 0) {
++    /* cannot write any data */
++    va_end(ap_save);
++    return -1;
++  }
++  /* leave room for terminating NUL: use maxlength-1 */
++  retcode = curl_mvsnprintf(buffer, maxlength - 1, format, ap_save);
++  if(retcode < 0) {
++    /* error, simply propagate */
++  }
++  else if((size_t)retcode >= maxlength - 1) {
++    /* truncate overflow */
++    retcode = (int)maxlength - 1;
++  }
++  buffer[retcode] = '\0';
+   va_end(ap_save);
+   return retcode;
+ }
+@@ -1102,8 +1116,7 @@ static int alloc_addbyter(unsigned char outc, void *f)
+ {
+   struct asprintf *infop = f;
+   CURLcode result = Curl_dyn_addn(infop->b, &outc, 1);
+-  if(result) {
+-    infop->merr = result == CURLE_TOO_LARGE ? MERR_TOO_LARGE : MERR_MEM;
++  if(result) {    infop->merr = result == CURLE_TOO_LARGE ? MERR_TOO_LARGE : MERR_MEM;
+     return 1 ; /* fail */
+   }
+   return 0;

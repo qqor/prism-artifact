@@ -1,0 +1,26 @@
+diff --git a/src/shared/parse-argument.c b/src/shared/parse-argument.c
+index e6159c1482..1f4de33fce 100644
+--- a/src/shared/parse-argument.c
++++ b/src/shared/parse-argument.c
+@@ -63,6 +63,7 @@ int parse_path_argument(const char *path, bool suppress_root, char **arg) {
+          * NOTE THAT THIS WILL FREE THE PREVIOUS ARGUMENT POINTER ON SUCCESS!
+          * Hence, do not pass in uninitialized pointers.
+          */
++// FIXME: Crash CWE-415: Double Free
+ 
+         if (isempty(path)) {
+                 *arg = mfree(*arg);
+@@ -77,7 +78,12 @@ int parse_path_argument(const char *path, bool suppress_root, char **arg) {
+         if (suppress_root && empty_or_root(p))
+                 p = mfree(p);
+ 
+-        return free_and_replace(*arg, p);
++        /* Rationale: use temporary to free old arg and avoid accidental reuse */
++        char *old = *arg;
++        *arg = NULL;
++        free(old);
++        *arg = p;
++        return 0;
+ }
+ 
+ int parse_signal_argument(const char *s, int *ret) {

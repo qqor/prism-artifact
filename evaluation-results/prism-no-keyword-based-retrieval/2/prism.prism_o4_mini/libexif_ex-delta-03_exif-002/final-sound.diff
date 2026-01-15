@@ -1,0 +1,54 @@
+--- a/libexif/exif-data.c
++++ b/libexif/exif-data.c
+@@ -66,6 +66,9 @@
+ 	/* Temporarily used while loading data */
+ 	unsigned int offset_mnote;
+ 
++	/* Actual EXIF payload length (slice after header), for bounds checks */
++	unsigned int full_size;
++
+ 	ExifDataOption options;
+ 	ExifDataType data_type;
+ };
+@@ -194,7 +197,19 @@
+ 	else
+ 		doff = offset + 8;
+ 
+-	/* Sanity checks */
++	/* Sanity checks against full buffer size */
++	if (doff >= data->priv->full_size) {
++		exif_log (data->priv->log, EXIF_LOG_CODE_DEBUG, "ExifData",
++				  "Tag starts past end of full buffer (%u >= %u)", doff, data->priv->full_size);
++		return 0;
++	}
++	if (s > data->priv->full_size - doff) {
++		exif_log (data->priv->log, EXIF_LOG_CODE_DEBUG, "ExifData",
++				  "Tag data goes past end of full buffer (%u > %u)", doff + s, data->priv->full_size);
++		return 0;
++	}
++
++	/* Sanity checks against slice size */
+ 	if (doff >= size) {
+ 		exif_log (data->priv->log, EXIF_LOG_CODE_DEBUG, "ExifData",
+ 				  "Tag starts past end of buffer (%u > %u)", doff, size);
+@@ -203,7 +218,7 @@
+ 
+ 	if (s > size - doff) {
+ 		exif_log (data->priv->log, EXIF_LOG_CODE_DEBUG, "ExifData",
+-				  "Tag data goes past end of buffer (%u > %u)", doff+s, size);
++				  "Tag data goes past end of buffer (%u > %u)", doff + s, size);
+ 		return 0;
+ 	}
+ 
+@@ -955,8 +970,9 @@
+ 	fullds = ds;
+ 	if (ds > 0xfffe)
+ 		ds = 0xfffe;
+-
+-	/* Byte order (offset 6, length 2) */
++	ds -= 6;
++	d += 6;
++	data->priv->full_size = ds;
+ 	if (!memcmp (d + 6, "II", 2))
+ 		data->priv->order = EXIF_BYTE_ORDER_INTEL;
+ 	else if (!memcmp (d + 6, "MM", 2))

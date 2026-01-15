@@ -1,0 +1,30 @@
+--- a/epan/dissectors/packet-aim.c
++++ b/epan/dissectors/packet-aim.c
+@@ -582,13 +582,23 @@
+ aim_get_buddyname(wmem_allocator_t *pool, uint8_t **name, tvbuff_t *tvb, int offset)
+ {
+ 	uint16_t buddyname_length;
+-
+-	*name = wmem_alloc(pool, 256);
++	uint16_t clamped_length;
+ 
+ 	buddyname_length = tvb_get_ntohs(tvb, offset);
+ 
+-	if (pool)
+-		memcpy(*name, tvb_get_ptr(tvb,offset,1), buddyname_length);
++	/* Clamp to maximum safe size (matching dissect_aim_buddyname uint8_t behavior) */
++	clamped_length = MIN(buddyname_length, 255);
++
++	/* Allocate buffer with room for null terminator */
++	*name = (uint8_t *)wmem_alloc(pool, clamped_length + 1);
++
++	if (pool && clamped_length > 0) {
++		/* Copy from offset+2 to skip the 2-byte length field, using safe tvb API */
++		tvb_memcpy(tvb, *name, offset + 2, clamped_length);
++		(*name)[clamped_length] = '\0';
++	} else if (pool) {
++		(*name)[0] = '\0';
++	}
+ 
+ 	return buddyname_length;
+ }

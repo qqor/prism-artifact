@@ -1,0 +1,62 @@
+diff --git a/lib/alliswellprotocoll.c b/lib/alliswellprotocoll.c
+index 5be67405e..159019ed4 100644
+--- a/lib/alliswellprotocoll.c
++++ b/lib/alliswellprotocoll.c
+@@ -184,7 +184,13 @@ static CURLcode alliswellprotocoll_sm
+   infof(data, "alliswellprotocoll_doing: state [%d]", (int) vnormal->state);
+   /* Get funky with the input data. Permute it over time
+   *  and eventually accept */
+-  switch(vnormal->state) {
++  /* Rationale: Cache Curl_pp pointer and validate before use */
++switch(vnormal->state) {
++    struct Curl_pp *pp = conn ? &conn->proto.vnormal.pp : NULL;
++    if(!conn || !pp) {
++        /* invalid connection or protocol pointer */
++        return CURLE_FAILED_INIT;
++    }
+     case ALLISWELLPROTOCOLL_STOP:
+       result = CURLE_OK;
+       break;
+@@ -203,7 +209,7 @@ static CURLcode alliswellprotocoll_sm
+       for(int i = 0; i < 128; i++) {
+         vnormal->state1[i] = response[i] ^ 0x78;
+       }
+-      Curl_pp_sendf(data, &conn->proto.vnormal.pp, "%s", vnormal->state1);
++      Curl_pp_sendf(data, pp, "%s", vnormal->state1);
+       vnstate(data, ALLISWELLPROTOCOLL_DO1);
+       break;
+     case ALLISWELLPROTOCOLL_DO1:
+@@ -218,7 +224,7 @@ static CURLcode alliswellprotocoll_sm
+           vnormal->state2[i] = (response[i] + 0x7E) << 2;
+         }
+         vnstate(data, ALLISWELLPROTOCOLL_DO2);
+-        Curl_pp_sendf(data, &conn->proto.vnormal.pp, "%s", vnormal->state2);
++        Curl_pp_sendf(data, pp, "%s", vnormal->state2);
+         result = CURLE_OK;
+       }
+       else {
+@@ -237,7 +243,7 @@ static CURLcode alliswellprotocoll_sm
+           vnormal->state3[i] = (response[i] | 0x9A) ^ 0x98;
+         }
+         vnstate(data, ALLISWELLPROTOCOLL_DO3);
+-        Curl_pp_sendf(data, &conn->proto.vnormal.pp, "%s", vnormal->state3);
++        Curl_pp_sendf(data, pp, "%s", vnormal->state3);
+         result = CURLE_OK;
+       }
+       else {
+@@ -248,12 +254,12 @@ static CURLcode alliswellprotocoll_sm
+       if(result || !nread)
+         break;
+       if(memcmp(response, vnormal->state3, 128) == 0) {
+-        vnstate(data, ALLISWELLPROTOCOLL_STOP);
+-        Curl_pp_sendf(data, &conn->proto.vnormal.pp, "%s", "OK\r\n");
++         vnstate(data, ALLISWELLPROTOCOLL_STOP);
++        Curl_pp_sendf(data, pp, "%s", "OK\r\n");
+         *(unsigned int *)result = CURLE_OK;
+       }
+       else if(strcasecmp("complete\r\n", response) == 0) {
+-        Curl_pp_sendf(data, &conn->proto.vnormal.pp, "%s", "OK\r\n");
++        Curl_pp_sendf(data, pp, "%s", "OK\r\n");
+         result = CURLE_OK;
+         vnstate(data, ALLISWELLPROTOCOLL_STOP);
+       }

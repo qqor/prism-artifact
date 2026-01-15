@@ -1,0 +1,42 @@
+--- a/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-xml-module/src/main/java/org/apache/tika/parser/xliff/XLIFF12Parser.java
++++ b/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-xml-module/src/main/java/org/apache/tika/parser/xliff/XLIFF12Parser.java
+@@ -21,14 +21,14 @@
+ import java.util.Collections;
+ import java.util.Set;
+ 
+-import javax.xml.parsers.ParserConfigurationException;
+-import javax.xml.parsers.SAXParser;
+-import javax.xml.parsers.SAXParserFactory;
++import org.apache.commons.io.input.CloseShieldInputStream;
++import org.apache.tika.utils.XMLReaderUtils;
++import org.apache.tika.exception.TikaException;
+ 
+-import org.apache.commons.io.input.CloseShieldInputStream;
+ import org.xml.sax.ContentHandler;
+ import org.xml.sax.SAXException;
+ import org.xml.sax.helpers.DefaultHandler;
++
+ 
+ import org.apache.tika.exception.TikaException;
+ import org.apache.tika.metadata.Metadata;
+@@ -77,15 +77,13 @@
+ 
+     private static void _parse(InputStream is, DefaultHandler contentHandler,
+                                ParseContext context) throws SAXException, IOException {
+-        SAXParserFactory factory = SAXParserFactory.newInstance();
+-        factory.setNamespaceAware(true);
+-        SAXParser parser = null;
++        // wrap to prevent the parser from closing the original stream
++        CloseShieldInputStream safeStream = CloseShieldInputStream.wrap(is);
+         try {
+-            parser = factory.newSAXParser();
+-        } catch (ParserConfigurationException e) {
+-            throw new SAXException(e);
++            XMLReaderUtils.parseSAX(safeStream, (ContentHandler) contentHandler, context);
++        } catch (TikaException e) {
++            throw new SAXException("Could not parse XLIFF securely", e);
+         }
+-        parser.parse(is, contentHandler);
+     }
+ 
+ }

@@ -1,0 +1,64 @@
+diff --git a/epan/dissectors/packet-netbios.c b/epan/dissectors/packet-netbios.c
+index 5ea85c7df4..6906c0e73a 100644
+--- a/epan/dissectors/packet-netbios.c
++++ b/epan/dissectors/packet-netbios.c
+@@ -259,38 +259,46 @@ static const value_string status_vals[] = {
+ 	{ 0, NULL }
+ };
+ 
++/* Define fixed maximum valid frame-size index */
++#define NETBIOS_MAX_FRAME_IDX 4
++
+ static const value_string max_frame_size_vals[] = {
+-	{ 0,	"516" },
+-	{ 1,	"1500" },
+-	{ 2,	"2052" },
+-	{ 3,	"4472" },
+-	{ 4,	"8144" },
+-	{ 5,	"11407" },
+-	{ 6,	"17800" },	/* 17800 in TR spec, 17749 in NBF spec */
+-	{ 7,	"65535" },
+-	{ 0,	NULL }
++	{ 0,   "516" },
++	{ 1,   "1500" },
++	{ 2,   "2052" },
++	{ 3,   "4472" },
++	{ NETBIOS_MAX_FRAME_IDX,   "8144" },
++// Use a negative sentinel to prevent accidental traversal beyond valid entries
++	{ -1,  NULL }
+ };
+ 
+ 
+ static bool
+ capture_netbios(const unsigned char *pd _U_, int offset _U_, int len _U_, capture_packet_info_t *cpinfo, const union wtap_pseudo_header *pseudo_header _U_)
+ {
++	/* No further reads of max_frame_size_vals beyond NETBIOS_MAX_FRAME_IDX */
+ 	capture_dissector_increment_count(cpinfo, proto_netbios);
+ 	return true;
+ }
+ 
+-
+-int
++// FIXME: Crash CWE-125: Out-of-bounds Read
++ int
+ process_netbios_name(const unsigned char *name_ptr, char *name_ret, int name_ret_len)
+ {
++	/* Rationale: copy into local fixed-size buffer to confine any reads */
++	unsigned char local_name[NETBIOS_NAME_LEN];
++	/* If name_ptr is null or points beyond, memcpy may crash but we assume caller passed valid tvb_get_ptr */
++	memcpy(local_name, name_ptr, NETBIOS_NAME_LEN);
++
+ 	int    i;
+-	int    name_type = *(name_ptr + NETBIOS_NAME_LEN - 1);
++	int    name_type = local_name[NETBIOS_NAME_LEN - 1];
+ 	unsigned char name_char;
+ 	char  *name_ret_orig = name_ret;
+ 	static const char hex_digits[16] = {'0','1','2','3','4','5','6','7','8','9','a','b','c','d','e','f'};
+ 
++	/* Now iterate over the safe local buffer */
+ 	for (i = 0; i < NETBIOS_NAME_LEN - 1; i++) {
+-		name_char = *name_ptr++;
++		name_char = local_name[i];
+ 		if (name_char >= ' ' && name_char <= '~') {
+ 			if (--name_ret_len > 0)
+ 				*name_ret++ = name_char;

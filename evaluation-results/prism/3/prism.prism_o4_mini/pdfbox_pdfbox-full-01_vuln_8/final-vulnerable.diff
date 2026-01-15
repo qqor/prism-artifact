@@ -1,0 +1,67 @@
+--- a/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/BaseParser.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/BaseParser.java
+@@ -338,39 +338,31 @@
+      */
+     private boolean readUntilEndOfCOSDictionary() throws IOException
+     {
+-        int c = source.read();
+-        while (c != -1 && c != '/' && c != '>')
+-        {
+-            // in addition to stopping when we find / or >, we also want
+-            // to stop when we find endstream or endobj.
+-            if (c == E)
+-            {
+-                c = source.read();
+-                if (c == N)
+-                {
+-                    c = source.read();
+-                    if (c == D)
+-                    {
+-                        c = source.read();
+-                        boolean isStream = c == S && source.read() == T && source.read() == R
+-                                && source.read() == E && source.read() == A && source.read() == M;
+-                        boolean isObj = !isStream && c == O && source.read() == B
+-                                && source.read() == J;
+-                        if (isStream || isObj)
+-                        {
+-                            // we're done reading this object!
+-                            return true;
+-                        }
+-                    }
+-                }
+-            }
+-            c = source.read();
+-        }
+-        if (c == -1)
+-        {
+-            return true;
+-        }
+-        source.rewind(1);
++        // We have already read '<<', so initialize depth=1
++        int depth = 1;
++        while (depth > 0)
++        {
++            int c = source.read();
++            if (c == -1)
++            {
++                // EOF or truncated stream: cannot recover -> abort
++                return true;
++            }
++            if (c == '<' && source.peek() == '<')
++            {
++                // consume second '<'
++                source.read();
++                depth++;
++            }
++            else if (c == '>' && source.peek() == '>')
++            {
++                // consume second '>'
++                source.read();
++                depth--;
++            }
++            // otherwise, keep scanning
++        }
++        // depth == 0 -> found matching '>>'; caller can continue parsing at this point
+         return false;
+     }
+ 

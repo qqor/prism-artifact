@@ -1,0 +1,41 @@
+diff --git a/lib/mprintf.c b/lib/mprintf.c
+index 35e40e302..0caff0675 100644
+--- a/lib/mprintf.c
++++ b/lib/mprintf.c
+@@ -1065,24 +1065,27 @@ static int addbyter(unsigned char outc, void *f)
+ int curl_mvsnprintf(char *buffer, size_t maxlength, const char *format,
+                     va_list ap_save)
+ {
++  /* Rationale: Reserve one byte for NUL by reducing max before formatting */
+   int retcode;
+   struct nsprintf info;
+ 
+   info.buffer = buffer;
+   info.length = 0;
+-  info.max = maxlength;
++// FIXME: Crash CWE-787: Out-of-bounds Write
++   if(maxlength)
++     info.max = maxlength - 1;
++   else
++     info.max = 0;
+ 
+   retcode = formatf(&info, addbyter, format, ap_save);
+-  if(info.max) {
+-    /* we terminate this with a zero byte */
+-    if(info.max == info.length) {
+-      /* we are at maximum, scrap the last letter */
+-      info.buffer[-1] = 0;
++  if(maxlength) {
++    /* always null terminate within reserved space */
++    info.buffer[info.length] = 0;
++    if(info.length > info.max) {
+       DEBUGASSERT(retcode);
+-      retcode--; /* do not count the nul byte */
++      /* clamp return code to reserved length */
++      retcode = (int)info.max;
+     }
+-    else
+-      info.buffer[0] = 0;
+   }
+   return retcode;
+ }

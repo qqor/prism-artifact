@@ -1,0 +1,35 @@
+--- a/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveEntry.java
++++ b/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveEntry.java
+@@ -1483,12 +1483,12 @@
+      */
+     @Override
+     public Path resolveIn(final Path parentPath) throws IOException {
+-        final String name = getName();
+-        final Path outputFile = parentPath.resolve(name).normalize();
++        String normalizedName = Normalizer.normalize(getName(), Normalizer.Form.NFKD);
++        Path outputFile = parentPath.resolve(normalizedName).normalize();
+         if (!outputFile.startsWith(parentPath)) {
+-            throw new IOException(String.format("Zip slip '%s' + '%s' -> '%s'", parentPath, name, outputFile));
+-        }
+-        return parentPath.resolve(Normalizer.normalize(name, Normalizer.Form.NFKD)).normalize();
++            throw new IOException(String.format("Zip slip '%s' + '%s' -> '%s'", parentPath, normalizedName, outputFile));
++        }
++        return outputFile;
+     }
+ 
+     /**
+
+--- a/src/main/java/org/apache/commons/compress/archivers/examples/Expander.java
++++ b/src/main/java/org/apache/commons/compress/archivers/examples/Expander.java
+@@ -71,6 +71,11 @@
+         T nextEntry = supplier.get();
+         while (nextEntry != null) {
+             final Path targetPath = nullTarget ? null : nextEntry.resolveIn(targetDirPath);
++            // Ensure no traversal beyond the intended root
++            final Path normalizedTargetPath = nullTarget ? null : targetPath.normalize();
++            if (!nullTarget && !normalizedTargetPath.startsWith(targetDirPath)) {
++                throw new IOException("Entry escapes target directory: " + nextEntry.getName());
++            }
+             if (nextEntry.isDirectory()) {
+                 if (!nullTarget && !Files.isDirectory(targetPath) && Files.createDirectories(targetPath) == null) {
+                     throw new IOException("Failed to create directory " + targetPath);

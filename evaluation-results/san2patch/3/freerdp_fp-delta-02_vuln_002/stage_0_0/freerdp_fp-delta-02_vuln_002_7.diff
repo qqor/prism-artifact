@@ -1,0 +1,42 @@
+diff --git a/libfreerdp/crypto/x509_utils.c b/libfreerdp/crypto/x509_utils.c
+index 7a24a353e..0b8dda115 100644
+--- a/libfreerdp/crypto/x509_utils.c
++++ b/libfreerdp/crypto/x509_utils.c
+@@ -447,22 +447,23 @@ BOOL x509_validate_subject_aternative_names(const X509* cert) {
+     for (i = 0; i < count; i++) {
+         GENERAL_NAME *gen_name = sk_GENERAL_NAME_value(san_names, i);
+ 
+-        if (gen_name->type == GEN_DNS) {
+-			// Allocate string length + 1 for security
+-			dns_name = malloc( strlen((char *)ASN1_STRING_get0_data(gen_name->d.dNSName)) + 1);
+-
+-			if (dns_name == NULL)
+-				goto end;
+-			
+-			memcpy(dns_name, (char *)ASN1_STRING_get0_data(gen_name->d.dNSName),  
+-				ASN1_STRING_length(gen_name->d.dNSName)) ;
+-			
++        /* Convert ASN1 string to UTF-8 safely and check length */
++         if (gen_name->type == GEN_DNS) {
++            unsigned char *utf8 = NULL;
++            int len = ASN1_STRING_to_UTF8(&utf8, gen_name->d.dNSName);
++            if (len <= 0 || len > MAX_SAN_NAME_LEN) {
++                OPENSSL_free(utf8);
++                result = FALSE;
++                goto end;
++            }
++            dns_name = (char *)utf8;
++
+             if (!verify_san(dns_name)) {
+-				free(dns_name);
+-				result = FALSE;
+-				goto end;
++                OPENSSL_free(dns_name);
++                result = FALSE;
++                goto end;
+             } else {
+-				free(dns_name);
++                OPENSSL_free(dns_name);
+             }
+         }
+     }

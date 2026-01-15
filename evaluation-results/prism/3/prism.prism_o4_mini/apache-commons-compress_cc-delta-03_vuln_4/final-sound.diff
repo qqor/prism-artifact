@@ -1,0 +1,48 @@
+--- a/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java
++++ b/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java
+@@ -219,7 +219,7 @@
+      * </p>
+      */
+     private static final Pattern PAX_EXTENDED_HEADER_FILE_TIMES_PATTERN =
+-            Pattern.compile("-?\\d{1,19}(?:\\.\\d*)?");
++            Pattern.compile("-?\\d{1,19}(?:\\.\\d{0,9})?");
+ 
+     private static FileTime fileTimeFromOptionalSeconds(final long seconds) {
+         return seconds <= 0 ? null : FileTimes.fromUnixTime(seconds);
+@@ -272,11 +272,32 @@
+             throw new IOException("Corrupted PAX header. Time field value is invalid '" + value + "'");
+         }
+ 
+-        final BigDecimal epochSeconds = new BigDecimal(value);
+-        final long seconds = epochSeconds.longValue();
+-        final long nanos = epochSeconds.remainder(BigDecimal.ONE).movePointRight(9).longValue();
++        // Manual parsing to avoid expensive BigDecimal operations
+         try {
+-            return Instant.ofEpochSecond(seconds, nanos);
++            String secondsPart;
++            String fractionPart;
++            int dotIndex = value.indexOf('.');
++            if (dotIndex >= 0) {
++                secondsPart = value.substring(0, dotIndex);
++                fractionPart = value.substring(dotIndex + 1);
++            } else {
++                secondsPart = value;
++                fractionPart = "";
++            }
++            long secs = Long.parseLong(secondsPart);
++            if (fractionPart.length() > 9) {
++                throw new IOException("Corrupted PAX header. Time field value has too many fractional digits '" + value + "'");
++            }
++            long nanosVal = 0;
++            if (!fractionPart.isEmpty()) {
++                String frac = fractionPart + "000000000";
++                frac = frac.substring(0, 9);
++                nanosVal = Long.parseLong(frac);
++            }
++            if (secs < 0) {
++                nanosVal = -nanosVal;
++            }
++            return Instant.ofEpochSecond(secs, nanosVal);
+         } catch (DateTimeException | ArithmeticException e) {
+             // DateTimeException: Thrown if the instant exceeds the maximum or minimum instant.
+             // ArithmeticException: Thrown if numeric overflow occurs.

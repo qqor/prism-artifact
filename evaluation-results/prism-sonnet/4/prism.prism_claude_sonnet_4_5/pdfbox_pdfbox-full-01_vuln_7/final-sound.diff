@@ -1,0 +1,137 @@
+--- a/fontbox/src/main/java/org/apache/fontbox/type1/Type1Parser.java
++++ b/fontbox/src/main/java/org/apache/fontbox/type1/Type1Parser.java
+@@ -219,7 +219,9 @@
+                             || lexer.peekToken().getText().equals("readonly")
+                             || lexer.peekToken().getText().equals("def"))))
+             {
+-                lexer.nextToken();
++                if (lexer.nextToken() == null) {
++                    throw new IOException("Should have found dup, readonly or def?! EOF?");
++                }
+             }
+             
+             Map<Integer, String> codeToName = new HashMap<>();
+@@ -559,7 +561,9 @@
+             // for a more thorough validation, the presence of "begin" before Private
+             // determines how code before and following charstrings should look
+             // it is not currently checked anyway
+-            lexer.nextToken();
++            if (lexer.nextToken() == null) {
++                throw new IOException("Unexpected EOF while searching for /Private dict");
++            }
+             peekToken = lexer.peekToken();
+         }
+         if (peekToken == null)
+@@ -640,7 +644,9 @@
+         while (!(lexer.peekKind(Token.LITERAL)
+                 && lexer.peekToken().getText().equals("CharStrings")))
+         {
+-            lexer.nextToken();
++            if (lexer.nextToken() == null) {
++                throw new IOException("Unexpected EOF while searching for /CharStrings dict");
++            }
+         }
+ 
+         // CharStrings dict
+@@ -707,6 +713,10 @@
+     {
+         // allocate size (array indexes may not be in-order)
+         int length = read(Token.INTEGER).intValue();
++        if (length < 0 || length > 65536)
++        {
++            throw new IOException("Invalid Subrs array length: " + length);
++        }
+         for (int i = 0; i < length; i++)
+         {
+             font.subrs.add(null);
+@@ -777,6 +787,10 @@
+     private void readCharStrings(int lenIV) throws IOException
+     {
+         int length = read(Token.INTEGER).intValue();
++        if (length < 0 || length > 65536)
++        {
++            throw new IOException("Invalid CharStrings dict length: " + length);
++        }
+         read(Token.NAME, "dict");
+         // could actually be a sequence ending in "CharStrings begin", too
+         // instead of the "dup begin"
+
+--- a/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/XrefParser.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/XrefParser.java
+@@ -23,6 +23,7 @@
+ import java.util.Map;
+ import java.util.Optional;
+ import java.util.Map.Entry;
++import java.util.Set;
+ 
+ import org.apache.logging.log4j.LogManager;
+ import org.apache.logging.log4j.Logger;
+@@ -98,17 +99,19 @@
+         }
+         document.setStartXref(startXrefOffset);
+         long prev = startXrefOffset;
+-        //lastPrev prevents potential infinite loops in crafted files
+-        long lastPrev = -1;
+         // ---- parse whole chain of xref tables/object streams using PREV reference
++        Set<Long> prevSet = new HashSet<>();
+         COSDictionary trailer = null;
+-        while (prev > 0 && prev != lastPrev)
+-        {
+-            lastPrev = prev;
++        while (prev > 0)
++        {
++            // save expected position for loop detection
++            prevSet.add(prev);
+             // seek to xref table
+             source.seek(prev);
+             // skip white spaces
+             parser.skipSpaces();
++            // save current position as well due to skipped spaces
++            prevSet.add(source.getPosition());
+             // -- parse xref
+             if (source.peek() == X)
+             {
+@@ -170,7 +173,7 @@
+                     trailer.setLong(COSName.PREV, prev);
+                 }
+             }
+-            if (prev == lastPrev)
++            if (prevSet.contains(prev))
+             {
+                 throw new IOException("/Prev loop at offset " + prev);
+             }
+
+--- a/pdfbox/src/main/java/org/apache/pdfbox/pdmodel/PDPageTree.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/pdmodel/PDPageTree.java
+@@ -18,8 +18,11 @@
+ 
+ import java.util.ArrayDeque;
+ import java.util.Collections;
++import java.util.HashSet;
+ import java.util.Iterator;
++import java.util.List;
+ import java.util.Queue;
++import java.util.Set;
+ import org.apache.pdfbox.cos.COSArray;
+ import org.apache.pdfbox.cos.COSBase;
+ import org.apache.pdfbox.cos.COSDictionary;
+@@ -180,6 +183,7 @@
+     private final class PageIterator implements Iterator<PDPage>
+     {
+         private final Queue<COSDictionary> queue = new ArrayDeque<>();
++        private Set<COSDictionary> seen = new HashSet<>();
+ 
+         private PageIterator(COSDictionary node)
+         {
+@@ -205,6 +209,11 @@
+          */
+         private List<COSDictionary> enqueueKids(COSDictionary node)
+         {
++            if (seen.contains(node)) {
++                LOG.warn("Found an infinite loop in the page tree");
++                return Collections.emptyList();
++            }
++            seen.add(node);
+             if (isPageTreeNode(node))
+             {
+                 return getKids(node);

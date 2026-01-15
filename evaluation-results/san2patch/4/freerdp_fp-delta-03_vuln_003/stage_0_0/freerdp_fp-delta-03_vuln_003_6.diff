@@ -1,0 +1,34 @@
+diff --git a/libfreerdp/codec/rfx.c b/libfreerdp/codec/rfx.c
+index 3b9168ab6..c69e8492f 100644
+--- a/libfreerdp/codec/rfx.c
++++ b/libfreerdp/codec/rfx.c
+@@ -707,9 +707,9 @@ static INLINE BOOL rfx_process_message_frame_end(RFX_CONTEXT* WINPR_RESTRICT con
+ }
+ 
+ static INLINE BOOL rfx_process_message_metadata(RFX_CONTEXT* WINPR_RESTRICT context,
+-												RFX_MESSAGE* WINPR_RESTRICT message,
+-												wStream* WINPR_RESTRICT s,
+-												UINT16* WINPR_RESTRICT pExpectedBlockType)
++									RFX_MESSAGE* WINPR_RESTRICT message,
++									wStream* WINPR_RESTRICT s,
++									UINT16* WINPR_RESTRICT pExpectedBlockType)
+ {
+ 	UINT32 magic = 0;
+ 
+@@ -731,7 +731,15 @@ static INLINE BOOL rfx_process_message_metadata(RFX_CONTEXT* WINPR_RESTRICT cont
+ 		WLog_Print(context->priv->log, WLOG_ERROR, "invalid magic number 0x%08" PRIX32 "", magic);
+ 		return FALSE;
+ 	}
+-	*(UINT64*)metadataBlock = metadataData;
++	/* Use secure memcpy_s to prevent overflow */
++	if (memcpy_s(metadataBlock, metadataBlockSize,
++			   &metadataData, sizeof(metadataData)) != 0)
++	{
++		WLog_Print(context->priv->log, WLOG_ERROR,
++			"Metadata write overflow or memcpy_s failure (block size=%" PRIu32 ")",
++			metadataBlockSize);
++		return FALSE;
++	}
+ 	return TRUE;
+ }
+ 

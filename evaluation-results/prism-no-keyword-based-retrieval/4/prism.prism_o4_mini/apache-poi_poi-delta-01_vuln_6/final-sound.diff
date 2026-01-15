@@ -1,0 +1,37 @@
+--- a/poi-ooxml/src/main/java/org/apache/poi/xssf/extractor/XSSFEventBasedExcelExtractor.java
++++ b/poi-ooxml/src/main/java/org/apache/poi/xssf/extractor/XSSFEventBasedExcelExtractor.java
+@@ -73,7 +73,8 @@
+     implements POIXMLTextExtractor, ExcelExtractor {
+ 
+     private static final Logger LOGGER = PoiLogManager.getLogger(XSSFEventBasedExcelExtractor.class);
+-    private static final Pattern MAJOR_VERSION_PATTERN = Pattern.compile("(-?(?:\\d{1,30})*)(?:\\.(\\dc?)*)");
++    // Maximum length for AppVersion to avoid resource exhaustion
++    private static final int MAX_APP_VERSION_LENGTH = 200;
+     protected final OPCPackage container;
+     protected final POIXMLProperties properties;
+ 
+@@ -526,9 +527,21 @@
+             if (appVersionString.isEmpty()) {
+                 return;
+             }
+-            Matcher m = MAJOR_VERSION_PATTERN.matcher(appVersionString);
+-            if (m.find()) {
+-                text.append("MajorVersion: ").append(m.group(1)).append("\n");
++            if (appVersionString.length() > MAX_APP_VERSION_LENGTH) {
++                LOGGER.warn("Skipping AppVersion parsing, length={} exceeds safe limit", appVersionString.length());
++            } else {
++                // Extract major version without regex to avoid backtracking and injection risks
++                int idx = 0;
++                if (appVersionString.charAt(0) == '-') {
++                    idx = 1;
++                }
++                int start = idx;
++                while (idx < appVersionString.length() && Character.isDigit(appVersionString.charAt(idx))) {
++                    idx++;
++                }
++                if (idx > start) {
++                    text.append("MajorVersion: ").append(appVersionString.substring(0, idx)).append("\n");
++                }
+             }
+             appVersionBuffer.setLength(0);
+         }

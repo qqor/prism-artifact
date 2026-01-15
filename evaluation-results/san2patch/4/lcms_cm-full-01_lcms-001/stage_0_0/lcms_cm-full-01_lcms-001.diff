@@ -1,0 +1,51 @@
+diff --git a/src/cmsps2.c b/src/cmsps2.c
+index cb2db85..a1e3e62 100644
+--- a/src/cmsps2.c
++++ b/src/cmsps2.c
+@@ -778,12 +778,12 @@ int EmitCIEBasedDEF(cmsIOHANDLER* m, cmsPipeline* Pipeline, cmsUInt32Number Inte
+ 
+     default:
+         return 0;
+-
+     }
+ 
+     _cmsIOPrintf(m, "<<\n");
+ 
+-    if (cmsStageType(mpe) == cmsSigCurveSetElemType) {
++    /* Protect each stage-type check with NULL guard */
++    if (mpe != NULL && cmsStageType(mpe) == cmsSigCurveSetElemType) {
+ 
+         _cmsIOPrintf(m, "/DecodeDEF [ ");
+         EmitNGamma(m, cmsStageOutputChannels(mpe), _cmsStageGetPtrToCurveSet(mpe));
+@@ -792,7 +792,7 @@ int EmitCIEBasedDEF(cmsIOHANDLER* m, cmsPipeline* Pipeline, cmsUInt32Number Inte
+         mpe = mpe ->Next;
+     }
+ 
+-    if (cmsStageType(mpe) == cmsSigCLutElemType) {
++    if (mpe != NULL && cmsStageType(mpe) == cmsSigCLutElemType) {
+ 
+             _cmsIOPrintf(m, "/Table ");
+             WriteCLUT(m, mpe, PreMaj, PostMaj, PreMin, PostMin, FALSE, (cmsColorSpaceSignature) 0);
+@@ -888,7 +888,8 @@ cmsBool WriteInputLUT(cmsIOHANDLER* m, cmsHPROFILE hProfile, cmsUInt32Number Int
+             break;
+ 
+     case 3:
+-    case 4: {
++    // Rationale: Ensure pipeline remains valid after optimization
++case 4: {
+             cmsUInt32Number OutFrm = TYPE_Lab_16;
+             cmsPipeline* DeviceLink;
+             _cmsTRANSFORM* v = (_cmsTRANSFORM*) xform;
+@@ -903,6 +904,12 @@ cmsBool WriteInputLUT(cmsIOHANDLER* m, cmsHPROFILE hProfile, cmsUInt32Number Int
+             dwFlags |= cmsFLAGS_FORCE_CLUT;
+             _cmsOptimizePipeline(m->ContextID, &DeviceLink, Intent, &InputFormat, &OutFrm, &dwFlags);
+ 
++            // Validate pipeline after optimization
++            if (DeviceLink == NULL) {
++                cmsDeleteTransform(xform);
++                return FALSE;
++            }
++
+             rc = EmitCIEBasedDEF(m, DeviceLink, Intent, &BlackPointAdaptedToD50);
+             cmsPipelineFree(DeviceLink);            
+             if (!rc) {

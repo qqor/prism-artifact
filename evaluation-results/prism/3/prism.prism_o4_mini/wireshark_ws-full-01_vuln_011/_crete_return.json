@@ -1,0 +1,14 @@
+{
+  "project_name": "wireshark",
+  "vulnerability_identifier": "wireshark_ws-full-01_vuln_011",
+  "source_directory": "/tasks_new/wireshark_ws-full-01/official-afc-wireshark",
+  "llm_usage": {
+    "total_cost": 0.2321418,
+    "prompt_tokens": 113846,
+    "completion_tokens": 24298
+  },
+  "variant": "sound",
+  "diff": "--- a/epan/dissectors/packet-aim.c\n+++ b/epan/dissectors/packet-aim.c\n@@ -581,16 +581,41 @@\n static int\n aim_get_buddyname(wmem_allocator_t *pool, uint8_t **name, tvbuff_t *tvb, int offset)\n {\n-\tuint16_t buddyname_length;\n-\n-\t*name = wmem_alloc(pool, 256);\n-\n-\tbuddyname_length = tvb_get_ntohs(tvb, offset);\n-\n-\tif (pool)\n-\t\tmemcpy(*name, tvb_get_ptr(tvb,offset,1), buddyname_length);\n-\n-\treturn buddyname_length;\n+    uint16_t name_length_field;\n+    uint16_t copy_length;\n+    const uint8_t *ptr;\n+    guint32 rem_len;\n+\n+    /* Ensure we have at least 2 bytes for the length field */\n+    if (tvb_reported_length_remaining(tvb, offset) < 2) {\n+        *name = wmem_alloc(pool, 1);\n+        (*name)[0] = '\\0';\n+        return 0;\n+    }\n+\n+    /* Read buddy-name length (network byte order) */\n+    name_length_field = tvb_get_ntohs(tvb, offset);\n+\n+    /* Calculate remaining bytes after the length field */\n+    rem_len = tvb_reported_length_remaining(tvb, offset + 2);\n+\n+    /* Cap the copy length to avoid overflow and overread */\n+    copy_length = name_length_field;\n+    if (copy_length > 255)\n+        copy_length = 255;\n+    if (copy_length > rem_len)\n+        copy_length = rem_len;\n+\n+    /* Pointer to buddy-name data starts 2 bytes past offset */\n+    ptr = tvb_get_ptr(tvb, offset + 2, copy_length);\n+\n+    /* Allocate buffer for name plus null terminator */\n+    *name = wmem_alloc(pool, copy_length + 1);\n+    memcpy(*name, ptr, copy_length);\n+    (*name)[copy_length] = '\\0';\n+\n+    /* Return the payload length field for offset calculations */\n+    return name_length_field;\n }\n \n \n",
+  "stdout": "",
+  "stderr": ""
+}

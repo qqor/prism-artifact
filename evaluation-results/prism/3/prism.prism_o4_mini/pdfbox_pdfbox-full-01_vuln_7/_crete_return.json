@@ -1,0 +1,14 @@
+{
+  "project_name": "pdfbox",
+  "vulnerability_identifier": "pdfbox_pdfbox-full-01_vuln_7",
+  "source_directory": "/tasks_new/pdfbox_pdfbox-full-01/official-afc-pdfbox",
+  "llm_usage": {
+    "total_cost": 0.3019038,
+    "prompt_tokens": 161294,
+    "completion_tokens": 28291
+  },
+  "variant": "sound",
+  "diff": "--- a/pdfbox/src/main/java/org/apache/pdfbox/pdmodel/PDPageTree.java\n+++ b/pdfbox/src/main/java/org/apache/pdfbox/pdmodel/PDPageTree.java\n@@ -180,6 +180,7 @@\n     private final class PageIterator implements Iterator<PDPage>\n     {\n         private final Queue<COSDictionary> queue = new ArrayDeque<>();\n+        private final java.util.Set<COSDictionary> visitedNodes = new java.util.HashSet<>();\n \n         private PageIterator(COSDictionary node)\n         {\n@@ -205,23 +206,29 @@\n          */\n         private List<COSDictionary> enqueueKids(COSDictionary node)\n         {\n+            if (node == null) {\n+                return Collections.<COSDictionary>emptyList();\n+            }\n+            if (visitedNodes.contains(node)) {\n+                LOG.error(\"Skipping cyclic page-tree node {}\", node);\n+                return Collections.<COSDictionary>emptyList();\n+            }\n+            visitedNodes.add(node);\n             if (isPageTreeNode(node))\n             {\n                 return getKids(node);\n             }\n+            COSName type = node.getCOSName(COSName.TYPE);\n+            if (COSName.PAGE.equals(type))\n+            {\n+                queue.add(node);\n+            }\n             else\n             {\n-                if (node != null && COSName.PAGE.equals(node.getCOSName(COSName.TYPE)))\n-                {\n-                    queue.add(node);\n-                }\n-                else\n-                {\n-                    LOG.error(\"Page skipped due to an invalid or missing type {}\",\n-                            () -> (node == null ? \"(null)\" : node.getCOSName(COSName.TYPE)));\n-                }\n-            }\n-            return Collections.EMPTY_LIST;\n+                LOG.error(\"Page skipped due to an invalid or missing type {}\", () ->\n+                        (type == null ? \"(null)\" : type));\n+            }\n+            return Collections.<COSDictionary>emptyList();\n         }\n \n         @Override\n",
+  "stdout": "",
+  "stderr": ""
+}

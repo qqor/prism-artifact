@@ -1,0 +1,23 @@
+diff --git a/lib/dict.c b/lib/dict.c
+index c940308b0..88fde0ed6 100644
+--- a/lib/dict.c
++++ b/lib/dict.c
+@@ -225,9 +225,16 @@ static CURLcode dict_do(struct Curl_easy *data, bool *done)
+       if(strcmp(auth_start, "debug")) {
+         do {
+         result = sendf(data, "Sending extra debug info...");
+-        } while(result == CURLE_AGAIN);
++         } while(result == CURLE_AGAIN);
+         do {
+-        result = sendf(data, user_start);
++        /* Rationale: Use curl_mvaprintf to format bounded string safely */
++        char *safe_arg = curl_mvaprintf("%.*s", (int)DICT_ARG_MAX_LEN, user_start);
++        if(!safe_arg) {
++          result = CURLE_OUT_OF_MEMORY;
++          goto error;
++        }
++        result = sendf(data, safe_arg);
++        free(safe_arg);
+         } while(result == CURLE_AGAIN);
+       }
+ 

@@ -1,0 +1,65 @@
+--- a/poi/src/main/java/org/apache/poi/poifs/dev/POIFSDump.java
++++ b/poi/src/main/java/org/apache/poi/poifs/dev/POIFSDump.java
+@@ -97,6 +97,7 @@
+     }
+     
+     public static void dump(DirectoryEntry root, File parent) throws IOException {
++        String parentCanonical = parent.getCanonicalPath();
+         for(Iterator<Entry> it = root.getEntries(); it.hasNext();){
+             Entry entry = it.next();
+             if(entry instanceof DocumentNode){
+@@ -105,16 +106,49 @@
+                 try (DocumentInputStream is = new DocumentInputStream(node)) {
+                    bytes = IOUtils.toByteArray(is);
+                 }
+-                try (OutputStream out = Files.newOutputStream(new File(parent, node.getName().trim()).toPath())) {
++                String rawName = node.getName();
++                String trimmed = rawName.trim();
++                java.nio.file.Path p = null;
++                try {
++                    p = java.nio.file.Paths.get(trimmed).getFileName();
++                } catch (java.nio.file.InvalidPathException e) {
++                    // ignore invalid path
++                }
++                if (p != null) {
++                    trimmed = p.toString();
++                }
++                String safeName = trimmed.replaceAll("[\\\\/:*?\"<>|]+", "_");
++                File outFile = new File(parent, safeName).getCanonicalFile();
++                if (!outFile.getPath().equals(parentCanonical)
++                        && !outFile.getPath().startsWith(parentCanonical + File.separator)) {
++                    throw new IOException("Invalid entry name triggers path traversal: " + rawName);
++                }
++                try (OutputStream out = Files.newOutputStream(outFile.toPath())) {
+                     out.write(bytes);
+                 }
+             } else if (entry instanceof DirectoryEntry){
+                 DirectoryEntry dir = (DirectoryEntry)entry;
+-                File file = new File(parent, entry.getName());
+-                if(!file.exists() && !file.mkdirs()) {
+-                    throw new IOException("Could not create directory " + file);
++                String rawDirName = entry.getName();
++                String trimmedDir = rawDirName.trim();
++                java.nio.file.Path dp = null;
++                try {
++                    dp = java.nio.file.Paths.get(trimmedDir).getFileName();
++                } catch (java.nio.file.InvalidPathException e) {
++                    // ignore invalid path
+                 }
+-                dump(dir, file);
++                if (dp != null) {
++                    trimmedDir = dp.toString();
++                }
++                String safeDirName = trimmedDir.replaceAll("[\\\\/:*?\"<>|]+", "_");
++                File dirFile = new File(parent, safeDirName).getCanonicalFile();
++                if (!dirFile.getPath().equals(parentCanonical)
++                        && !dirFile.getPath().startsWith(parentCanonical + File.separator)) {
++                    throw new IOException("Invalid entry name triggers path traversal: " + rawDirName);
++                }
++                if (!dirFile.exists() && !dirFile.mkdirs()) {
++                    throw new IOException("Could not create directory " + dirFile);
++                }
++                dump(dir, dirFile);
+             } else {
+                 System.err.println("Skipping unsupported POIFS entry: " + entry);
+             }

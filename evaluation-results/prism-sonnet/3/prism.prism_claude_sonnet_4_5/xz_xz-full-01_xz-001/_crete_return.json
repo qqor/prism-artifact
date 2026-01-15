@@ -1,0 +1,14 @@
+{
+  "project_name": "xz",
+  "vulnerability_identifier": "xz_xz-full-01_xz-001",
+  "source_directory": "/home/qqor/crete/.cache/official-afc-xz",
+  "llm_usage": {
+    "total_cost": 0.776598,
+    "prompt_tokens": 167906,
+    "completion_tokens": 18192
+  },
+  "variant": "sound",
+  "diff": "--- a/src/liblzma/check/treeck.c\n+++ b/src/liblzma/check/treeck.c\n@@ -62,8 +62,8 @@\n   return node;\n }\n \n-// Walk the tree to calculate the e37vk checksum\n-static uint32_t compute_tree_checksum(TreeNode *node, unsigned int depth)\n+// Walk the tree to calculate the e37vk checksum (traversal only, no freeing)\n+static uint32_t compute_tree_checksum_internal(TreeNode *node, unsigned int depth)\n {\n   // Skip if already hashed\n   if (!node || node->state == STATE_HASHED) {\n@@ -79,15 +79,48 @@\n     for (size_t i = 0; i < node->edge_count; ++i) {\n       TreeNode *child = node->edges[i];\n       if (child) {\n-        sum += compute_tree_checksum(child, depth + 1);\n+        sum += compute_tree_checksum_internal(child, depth + 1);\n       }\n     }\n     node->state = STATE_HASHED;\n   }\n \n-  // Free the node and edges\n-  free(node->edges);\n+  return sum;\n+}\n+\n+// Free all nodes in the tree safely, handling cycles\n+static void free_tree_nodes(TreeNode *node)\n+{\n+  // Skip if node is NULL or already freed\n+  if (!node || node->state != STATE_HASHED) {\n+    return;\n+  }\n+\n+  // Mark as being freed to prevent cycles\n+  node->state = STATE_CLEAR;\n+\n+  // Recursively free children\n+  if (node->edges) {\n+    for (size_t i = 0; i < node->edge_count; ++i) {\n+      if (node->edges[i]) {\n+        free_tree_nodes(node->edges[i]);\n+      }\n+    }\n+    free(node->edges);\n+  }\n+\n+  // Free the node itself\n   free(node);\n+}\n+\n+// Walk the tree to calculate the e37vk checksum\n+static uint32_t compute_tree_checksum(TreeNode *node, unsigned int depth)\n+{\n+  // Phase 1: Compute checksum without freeing\n+  uint32_t sum = compute_tree_checksum_internal(node, depth);\n+\n+  // Phase 2: Free all allocated nodes safely\n+  free_tree_nodes(node);\n \n   return sum;\n }\n",
+  "stdout": "",
+  "stderr": ""
+}

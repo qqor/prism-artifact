@@ -1,0 +1,89 @@
+diff --git a/libfreerdp/codec/rfx.c b/libfreerdp/codec/rfx.c
+index 3b9168ab6..394a31726 100644
+--- a/libfreerdp/codec/rfx.c
++++ b/libfreerdp/codec/rfx.c
+@@ -1274,62 +1274,30 @@ BOOL rfx_process_message(RFX_CONTEXT* WINPR_RESTRICT context, const BYTE* WINPR_
+ 
+ 		switch (blockType)
+ 		{
+-			/* Header messages:
+-			 * The stream MUST start with the header messages and any of these headers can appear
+-			 * in the stream at a later stage. The header messages can be repeated.
+-			 */
+-			case WBT_SYNC:
+-				ok = rfx_process_message_sync(context, subStream);
+-				break;
+-
+-			case WBT_CONTEXT:
+-				ok = rfx_process_message_context(context, subStream);
+-				break;
+-
+-			case WBT_CODEC_VERSIONS:
+-				ok = rfx_process_message_codec_versions(context, subStream);
+-				break;
+-
+-			case WBT_CHANNELS:
+-				ok = rfx_process_message_channels(context, subStream);
+-				break;
+-
+-				/* Data messages:
+-				 * The data associated with each encoded frame or image is always bracketed by the
+-				 * TS_RFX_FRAME_BEGIN (section 2.2.2.3.1) and TS_RFX_FRAME_END (section 2.2.2.3.2)
+-				 * messages. There MUST only be one TS_RFX_REGION (section 2.2.2.3.3) message per
+-				 * frame and one TS_RFX_TILESET (section 2.2.2.3.4) message per TS_RFX_REGION.
+-				 */
+-
+-			case WBT_FRAME_BEGIN:
+-				ok = rfx_process_message_frame_begin(context, message, subStream,
+-				                                     &context->expectedDataBlockType);
+-				break;
+-
+-			case WBT_REGION:
+-				ok = rfx_process_message_region(context, message, subStream,
+-				                                &context->expectedDataBlockType);
+-				break;
+-
+-			case WBT_EXTENSION:
+-				ok = rfx_process_message_tileset(context, message, subStream,
+-				                                 &context->expectedDataBlockType);
+-				break;
+-
++			/* Header messages: ... */
++			case WBT_SYNC: ok = rfx_process_message_sync(context, subStream); break;
++			case WBT_CONTEXT: ok = rfx_process_message_context(context, subStream); break;
++			case WBT_CODEC_VERSIONS: ok = rfx_process_message_codec_versions(context, subStream); break;
++			case WBT_CHANNELS: ok = rfx_process_message_channels(context, subStream); break;
++			case WBT_FRAME_BEGIN: ok = rfx_process_message_frame_begin(context, message, subStream, &context->expectedDataBlockType); break;
++			case WBT_REGION: ok = rfx_process_message_region(context, message, subStream, &context->expectedDataBlockType); break;
++			case WBT_EXTENSION: ok = rfx_process_message_tileset(context, message, subStream, &context->expectedDataBlockType); break;
++
++			/* Clamp metadata count to buffer size to avoid overflow */
+ 			case WBT_METADATA:
+-				ok = rfx_process_message_metadata(context, message, subStream,
+-				                                 &context->expectedDataBlockType);
+-				break;
+-
+-			case WBT_FRAME_END:
+-				ok = rfx_process_message_frame_end(context, message, subStream,
+-				                                   &context->expectedDataBlockType);
+-				break;
++			{
++				UINT32 totalPixels = context->width * context->height;
++				if (message->numMetadata > totalPixels)
++				{
++					WLog_Warn(TAG, "metadata count %u clamped to buffer capacity %u", message->numMetadata, totalPixels);
++					message->numMetadata = totalPixels;
++				}
++				ok = rfx_process_message_metadata(context, message, subStream, &context->expectedDataBlockType);
++			}
++			break;
+ 
+-			default:
+-				WLog_Print(context->priv->log, WLOG_ERROR, "unknown blockType 0x%" PRIX32 "",
+-				           blockType);
+-				return FALSE;
++			case WBT_FRAME_END: ok = rfx_process_message_frame_end(context, message, subStream, &context->expectedDataBlockType); break;
++			default: WLog_Print(context->priv->log, WLOG_ERROR, "unknown blockType 0x%" PRIX32 "", blockType); return FALSE;
+ 		}
+ 	}
+ 

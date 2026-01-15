@@ -1,0 +1,14 @@
+{
+  "project_name": "apache-poi",
+  "vulnerability_identifier": "apache-poi_poi-delta-01_vuln_6",
+  "source_directory": "/home/qqor/aixcc/crete/.cache/official-afc-poi",
+  "llm_usage": {
+    "total_cost": 0.1326831,
+    "prompt_tokens": 67117,
+    "completion_tokens": 13376
+  },
+  "variant": "sound",
+  "diff": "--- a/poi-ooxml/src/main/java/org/apache/poi/xssf/extractor/XSSFEventBasedExcelExtractor.java\n+++ b/poi-ooxml/src/main/java/org/apache/poi/xssf/extractor/XSSFEventBasedExcelExtractor.java\n@@ -73,7 +73,8 @@\n     implements POIXMLTextExtractor, ExcelExtractor {\n \n     private static final Logger LOGGER = PoiLogManager.getLogger(XSSFEventBasedExcelExtractor.class);\n-    private static final Pattern MAJOR_VERSION_PATTERN = Pattern.compile(\"(-?(?:\\\\d{1,30})*)(?:\\\\.(\\\\dc?)*)\");\n+    private static final Pattern MAJOR_VERSION_PATTERN = Pattern.compile(\"(-?\\\\d{1,30})\");\n+    private static final int MAX_APP_VERSION_LENGTH = 512;\n     protected final OPCPackage container;\n     protected final POIXMLProperties properties;\n \n@@ -523,21 +524,30 @@\n \n         private void handleAppVersion() {\n             String appVersionString = appVersionBuffer.toString();\n+            // clear buffer early to release memory\n+            appVersionBuffer.setLength(0);\n             if (appVersionString.isEmpty()) {\n+                return;\n+            }\n+            if (appVersionString.length() > MAX_APP_VERSION_LENGTH) {\n+                LOGGER.warn(\"Skipped AppVersion parse: length {} exceeds {}\", appVersionString.length(), MAX_APP_VERSION_LENGTH);\n                 return;\n             }\n             Matcher m = MAJOR_VERSION_PATTERN.matcher(appVersionString);\n             if (m.find()) {\n                 text.append(\"MajorVersion: \").append(m.group(1)).append(\"\\n\");\n             }\n-            appVersionBuffer.setLength(0);\n         }\n \n         @Override\n         public void characters(char[] ch, int start, int length) throws SAXException {\n             text.append(ch, start, length);\n             if (inAppVersion) {\n-                appVersionBuffer.append(ch, start, length);\n+                int remaining = MAX_APP_VERSION_LENGTH - appVersionBuffer.length();\n+                if (remaining > 0) {\n+                    int toAppend = Math.min(length, remaining);\n+                    appVersionBuffer.append(ch, start, toAppend);\n+                }\n             }\n         }\n     }\n",
+  "stdout": "",
+  "stderr": ""
+}

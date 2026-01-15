@@ -1,0 +1,53 @@
+diff --git a/src/shared/condition.c b/src/shared/condition.c
+index 67894f9319..baac0f38ae 100644
+--- a/src/shared/condition.c
++++ b/src/shared/condition.c
+@@ -89,28 +89,33 @@ Condition* condition_new(ConditionType type, const char *parameter, bool trigger
+         return c;
+ }
+ 
+-Condition* condition_free(Condition *c) {
+-        assert(c);
+-
+-        free(c->parameter);
+-        return mfree(c);
+-}
+-
+ Condition* condition_free_list_type(Condition *head, ConditionType type) {
+-        LIST_FOREACH(conditions, c, head)
++// Rationale: switch to a temporary list to safely remove and free matching nodes
++         Condition dummy;
++         LIST_INIT(&dummy);
++         // move all nodes into dummy list for safe removal
++         while (head) {
++                Condition *c = head;
++                head = head->conditions.le_next;
++                LIST_INSERT_HEAD(&dummy, c, conditions);
++         }
++         // free matching nodes in dummy
++         Condition *c, *n;
++         LIST_FOREACH_SAFE(conditions, c, n, &dummy) {
+                 if (type < 0 || c->type == type) {
++                        LIST_REMOVE(c, conditions);
+                         condition_free(c);
+                 }
++         }
++         // move remaining back to original head
++         head = NULL;
++         LIST_FOREACH(conditions, c, &dummy) {
++                LIST_INSERT_HEAD(&head, c, conditions);
++         }
+ 
+         assert(type >= 0 || !head);
+         return head;
+-}
+-
+-static int condition_test_kernel_command_line(Condition *c, char **env) {
+-        _cleanup_strv_free_ char **args = NULL;
+-        int r;
+-
+-        assert(c);
++}        assert(c);
+         assert(c->parameter);
+         assert(c->type == CONDITION_KERNEL_COMMAND_LINE);
+ 

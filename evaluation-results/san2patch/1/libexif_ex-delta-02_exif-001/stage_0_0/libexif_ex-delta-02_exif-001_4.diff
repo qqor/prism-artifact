@@ -1,0 +1,40 @@
+diff --git a/libexif/exif-data.c b/libexif/exif-data.c
+index b133887..d68631e 100644
+--- a/libexif/exif-data.c
++++ b/libexif/exif-data.c
+@@ -1012,7 +1012,7 @@ exif_data_load_data (ExifData *data, const unsigned char *d_orig,
+ 			exif_log (data->priv->log, EXIF_LOG_CODE_CORRUPT_DATA,
+ 				  "ExifData", "Bogus offset of IFD1.");
+ 		} else {
+-		   exif_data_load_data_content (data, EXIF_IFD_1, d + 6, ds - 6, offset, 0);
++			exif_data_load_data_content (data, EXIF_IFD_1, d + 6, ds - 6, offset, 0);
+ 		}
+ 	}
+ 
+@@ -1020,9 +1020,14 @@ exif_data_load_data (ExifData *data, const unsigned char *d_orig,
+ 	 * If we got an EXIF_TAG_MAKER_NOTE, try to interpret it. Some
+ 	 * cameras use pointers in the maker note tag that point to the
+ 	 * space between IFDs. Here is the only place where we have access
+-	 * to that data.
++// FIXME: Crash CWE-125: Out-of-bounds Read
++ 	 * to that data.
+ 	 */
+-	interpret_maker_note(data, d, fullds);
++	/* Clamp maker-note length to safe bounds to avoid OOB reads */
++	size_t safe_len = fullds;
++	if (safe_len < 4)
++		safe_len = 0;
++	interpret_maker_note(data, d, safe_len);
+ 
+ 	/* Fixup tags if requested */
+ 	if (data->priv->options & EXIF_DATA_OPTION_FOLLOW_SPECIFICATION)
+@@ -1032,8 +1037,7 @@ exif_data_load_data (ExifData *data, const unsigned char *d_orig,
+ void
+ exif_data_save_data (ExifData *data, unsigned char **d, unsigned int *ds)
+ {
+-	if (ds)
+-		*ds = 0;	/* This means something went wrong */
++	if (ds)		*ds = 0;	/* This means something went wrong */
+ 
+ 	if (!data || !d || !ds)
+ 		return;

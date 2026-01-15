@@ -1,0 +1,136 @@
+--- a/fontbox/src/main/java/org/apache/fontbox/pfb/PfbParser.java
++++ b/fontbox/src/main/java/org/apache/fontbox/pfb/PfbParser.java
+@@ -20,6 +20,7 @@
+ import java.io.EOFException;
+ import java.io.IOException;
+ import java.io.InputStream;
++import java.io.ByteArrayOutputStream;
+ import java.nio.file.Files;
+ import java.nio.file.Paths;
+ import java.util.ArrayList;
+@@ -71,6 +72,29 @@
+     private static final long MAX_LENGTH = 100_000_000;
+ 
+     /**
++     * Read all bytes from InputStream with a limit to prevent OOM.
++     */
++    private static byte[] readAllBytesWithLimit(InputStream in, long max) throws IOException
++    {
++        byte[] buffer = new byte[8192];
++        long totalRead = 0;
++        try (ByteArrayOutputStream out = new ByteArrayOutputStream())
++        {
++            int read;
++            while ((read = in.read(buffer)) != -1)
++            {
++                totalRead += read;
++                if (totalRead > max)
++                {
++                    throw new IOException("PFB data too large: " + totalRead + " bytes, exceeds max " + max);
++                }
++                out.write(buffer, 0, read);
++            }
++            return out.toByteArray();
++        }
++    }
++
++    /**
+      * the parsed pfb-data.
+      */
+     private byte[] pfbdata;
+@@ -90,9 +114,13 @@
+      * @param filename  the file name
+      * @throws IOException if an IO-error occurs.
+      */
+-    public PfbParser(final String filename) throws IOException 
+-    {
+-        this(Files.readAllBytes(Paths.get(filename)));
++    public PfbParser(final String filename) throws IOException
++    {
++        try (InputStream is = Files.newInputStream(Paths.get(filename)))
++        {
++            byte[] pfb = readAllBytesWithLimit(is, MAX_LENGTH);
++            parsePfb(pfb);
++        }
+     }
+ 
+     /**
+@@ -100,9 +128,9 @@
+      * @param in   The input.
+      * @throws IOException if an IO-error occurs.
+      */
+-    public PfbParser(final InputStream in) throws IOException 
+-    {
+-        byte[] pfb = in.readAllBytes();
++    public PfbParser(final InputStream in) throws IOException
++    {
++        byte[] pfb = readAllBytesWithLimit(in, MAX_LENGTH);
+         parsePfb(pfb);
+     }
+ 
+@@ -113,6 +141,10 @@
+      */
+     public PfbParser(final byte[] bytes) throws IOException
+     {
++        if (bytes.length > MAX_LENGTH)
++        {
++            throw new IOException("PFB data too large: " + bytes.length + " bytes, exceeds max " + MAX_LENGTH);
++        }
+         parsePfb(bytes);
+     }
+ 
+@@ -132,6 +164,7 @@
+         List<byte[]> barrList = new ArrayList<>(3);
+         ByteArrayInputStream in = new ByteArrayInputStream(pfb);
+         int total = 0;
++        int segmentCount = 0;
+         do
+         {
+             int r = in.read();
+@@ -139,7 +172,7 @@
+             {
+                 break; // EOF
+             }
+-            if (r != START_MARKER) 
++            if (r != START_MARKER)
+             {
+                 throw new IOException("Start marker missing");
+             }
+@@ -147,6 +180,12 @@
+             if (recordType == EOF_MARKER)
+             {
+                 break;
++            }
++            // count only actual data segments
++            segmentCount++;
++            if (segmentCount > 3)
++            {
++                throw new IOException("Too many PFB segments: " + segmentCount);
+             }
+             if (recordType != ASCII_MARKER && recordType != BINARY_MARKER)
+             {
+@@ -158,8 +197,13 @@
+             size += in.read() << 16;
+             size += in.read() << 24;
+             LOG.debug("record type: {}, segment size: {}", recordType, size);
++            if (size < 0 || size > MAX_LENGTH)
++            {
++                throw new IOException("PFB segment size invalid or too large: " + size);
++            }
+             long newTotal = total + size;
+-            if (newTotal > MAX_LENGTH) {
++            if (newTotal > MAX_LENGTH)
++            {
+                 throw new IOException("record size would be too large: " + newTotal);
+             }
+ 
+@@ -219,6 +263,9 @@
+             System.arraycopy(cleartomarkSegment, 0, pfbdata, dstPos, cleartomarkSegment.length);
+             lengths[2] = cleartomarkSegment.length;
+         }
++        // release segment buffers to allow GC
++        typeList.clear();
++        barrList.clear();
+     }
+ 
+     /**

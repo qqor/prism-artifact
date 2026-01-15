@@ -1,0 +1,50 @@
+diff --git a/lib/verynormalprotocol.c b/lib/verynormalprotocol.c
+index 6b53dc359..cf86ece21 100644
+--- a/lib/verynormalprotocol.c
++++ b/lib/verynormalprotocol.c
+@@ -118,30 +118,34 @@ static CURLcode verynormalprotocol_do(struct Curl_easy *data, bool *done)
+ 
+ static CURLcode verynormalprotocol_doing(struct Curl_easy *data, bool *done)
+ {
++  /* Rationale: Use inline guard before each '*done' to skip write if 'done' is NULL */
+   CURLcode result = CURLE_WEIRD_SERVER_REPLY;
+   ssize_t nread;
+   char response[128];
+ 
+-  *done = FALSE;
++#define SAFE_DONE(val) do { if(done) *done = (val); } while(0)
++
++  SAFE_DONE(FALSE);
+ 
+   /* Read the response from the server. If we see the correct "heartbeat",
+      we should complete the transaction and return CURLE_OK. */
+   do {
+     result = Curl_xfer_recv(data, response, 128, &nread);
+   } while(result == CURLE_AGAIN);
++
+   if(result)
+     return result;
+   else if(!nread) {
+     failf(data, "Connection disconnected");
+-    *done = TRUE;
++    SAFE_DONE(TRUE);
+     result = CURLE_RECV_ERROR;
+   }
+   else if(strcasecmp(response, "crashycrashy") == 0) {
+-    *done = TRUE;
+-    *(unsigned int *)result = CURLE_OK;
++    SAFE_DONE(TRUE);
++    result = CURLE_OK;
+   }
+   else {
+-    *done = TRUE;
++    SAFE_DONE(TRUE);
+     result = CURLE_WEIRD_SERVER_REPLY;
+   }
+ 
+@@ -149,4 +153,5 @@ static CURLcode verynormalprotocol_doing(struct Curl_easy *data, bool *done)
+     result = CURLE_OK;
+   return result;
+ }
++#undef SAFE_DONE
+ 

@@ -1,0 +1,100 @@
+--- a/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/BruteForceParser.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/BruteForceParser.java
+@@ -53,6 +53,9 @@
+      * EOF-marker.
+      */
+     private static final char[] EOF_MARKER = { '%', '%', 'E', 'O', 'F' };
++
++    private static final long DEFAULT_BF_SEARCH_RANGE = 1_048_576L;
++    private final long maxSearchRange;
+     /**
+      * obj-marker.
+      */
+@@ -94,6 +97,8 @@
+         document = cosDocument;
+         parser = cosParser;
+         source = parser.source;
++        this.maxSearchRange = Long.getLong("nonSequentialPDFParser.bruteforceSearchRange",
++                                           DEFAULT_BF_SEARCH_RANGE);
+     }
+ 
+     /**
+@@ -133,6 +138,7 @@
+     {
+         long lastEOFMarker = bfSearchForLastEOFMarker();
+         long originOffset = source.getPosition();
++        long scanLimit = Math.min(lastEOFMarker, MINIMUM_SEARCH_OFFSET + maxSearchRange);
+         long currentOffset = MINIMUM_SEARCH_OFFSET;
+         long lastObjectId = Long.MIN_VALUE;
+         int lastGenID = Integer.MIN_VALUE;
+@@ -204,7 +210,11 @@
+                     endOfObjFound = true;
+                 }
+             }
+-        } while (currentOffset < lastEOFMarker && !parser.isEOF());
++        } while (currentOffset < scanLimit && !parser.isEOF());
++        if (currentOffset >= scanLimit)
++        {
++            LOG.warn("Brute-force search capped at {} bytes, objects may be skipped", maxSearchRange);
++        }
+         if ((lastEOFMarker < Long.MAX_VALUE || endOfObjFound) && lastObjOffset > 0)
+         {
+             // if the pdf wasn't cut off in the middle or if the last object ends with a "endobj" marker
+
+--- a/pdfbox/src/main/java/org/apache/pdfbox/pdmodel/PDPageTree.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/pdmodel/PDPageTree.java
+@@ -180,9 +180,11 @@
+     private final class PageIterator implements Iterator<PDPage>
+     {
+         private final Queue<COSDictionary> queue = new ArrayDeque<>();
++        private final Set<COSDictionary> visited = new HashSet<>();
+ 
+         private PageIterator(COSDictionary node)
+         {
++            visited.add(node);
+             List<COSDictionary> kids = enqueueKids(node);
+             while (!kids.isEmpty())
+             {
+@@ -205,7 +207,7 @@
+          */
+         private List<COSDictionary> enqueueKids(COSDictionary node)
+         {
+-            if (isPageTreeNode(node))
++            if (isPageTreeNode(node) && visited.add(node))
+             {
+                 return getKids(node);
+             }
+
+--- a/pdfbox/src/main/java/org/apache/pdfbox/text/PDFTextStripper.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/text/PDFTextStripper.java
+@@ -141,6 +141,9 @@
+     private int startBookmarkPageNumber = -1;
+     private int endBookmarkPageNumber = -1;
+ 
++    private static final int DEFAULT_MAX_PAGES = 1000;
++    private final int maxPages = Integer.getInteger("pdftextstripper.maxPages", DEFAULT_MAX_PAGES);
++
+     private PDOutlineItem endBookmark = null;
+     private boolean suppressDuplicateOverlappingText = true;
+     private boolean shouldSeparateByBeads = true;
+@@ -295,13 +298,20 @@
+             startBookmarkPageNumber = 0;
+             endBookmarkPageNumber = 0;
+         }
++        int pagesProcessed = 0;
+ 
+         for (PDPage page : pages)
+         {
++            if (pagesProcessed >= maxPages)
++            {
++                LOG.warn("PDFTextStripper: page cap reached ({}), stopping text extraction", maxPages);
++                break;
++            }
+             if (page.hasContents())
+             {
+                 processPage(page);
+             }
++            pagesProcessed++;
+             currentPageNo++;
+         }
+     }

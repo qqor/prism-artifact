@@ -1,0 +1,101 @@
+--- a/tika-core/src/main/java/org/apache/tika/parser/external/ExternalParser.java
++++ b/tika-core/src/main/java/org/apache/tika/parser/external/ExternalParser.java
+@@ -35,7 +35,7 @@
+ import java.util.concurrent.TimeoutException;
+ import java.util.regex.Matcher;
+ import java.util.regex.Pattern;
+-
++import java.util.Arrays;
+ import org.apache.commons.io.IOUtils;
+ import org.apache.commons.io.output.NullOutputStream;
+ import org.slf4j.Logger;
+@@ -158,7 +158,12 @@
+ 
+         Process process = null;
+         try {
+-            process = Runtime.getRuntime().exec(checkCmd);
++            try {
++                process = launchExternal(checkCmd);
++            } catch (TikaException | IOException e) {
++                LOG.debug("unsafe check command or failed launch: " + Arrays.toString(checkCmd), e);
++                return false;
++            }
+             Thread stdErrSuckerThread = ignoreStream(process.getErrorStream(), false);
+             Thread stdOutSuckerThread = ignoreStream(process.getInputStream(), false);
+             stdErrSuckerThread.join();
+@@ -200,6 +205,19 @@
+         }
+     }
+ 
++    /**
++     * Validates arguments and starts the external process safely.
++     */
++    private static Process launchExternal(String[] cmd) throws TikaException, IOException {
++        Pattern safe = Pattern.compile("^[A-Za-z0-9_\\-\\.\\\\/]+$");
++        for (String arg : cmd) {
++            if (!"-".equals(arg) && !safe.matcher(arg).matches()) {
++                throw new TikaException("Unsafe command argument: " + arg);
++            }
++        }
++        return new ProcessBuilder(cmd).start();
++    }
++
+     public Set<MediaType> getSupportedTypes(ParseContext context) {
+         return getSupportedTypes();
+     }
+@@ -279,8 +297,8 @@
+ 
+     private void parse(TikaInputStream stream, XHTMLContentHandler xhtml, Metadata metadata,
+                        TemporaryResources tmp) throws IOException, SAXException, TikaException {
+-        boolean inputToStdIn = true;
+-        boolean outputFromStdOut = true;
++        boolean inputToStdIn = false;
++        boolean outputFromStdOut = false;
+         boolean hasPatterns = (metadataPatterns != null && !metadataPatterns.isEmpty());
+ 
+         File output = null;
+@@ -293,28 +311,26 @@
+             cmd = new String[command.length];
+             System.arraycopy(command, 0, cmd, 0, command.length);
+         }
++        // Replace tokens and set streaming flags
++        inputToStdIn = false;
++        outputFromStdOut = false;
+         for (int i = 0; i < cmd.length; i++) {
+             if (cmd[i].contains(INPUT_FILE_TOKEN)) {
+-                cmd[i] = cmd[i].replace(INPUT_FILE_TOKEN, stream.getFile().getPath());
+-                inputToStdIn = false;
++                cmd[i] = cmd[i].replace(INPUT_FILE_TOKEN, "-");
++                inputToStdIn = true;
+             }
+             if (cmd[i].contains(OUTPUT_FILE_TOKEN)) {
+-                output = tmp.createTemporaryFile();
+-                outputFromStdOut = false;
+-                cmd[i] = cmd[i].replace(OUTPUT_FILE_TOKEN, output.getPath());
+-            }
+-        }
+-
+-        // Execute
+-        Process process = null;
+-        try {
+-            if (cmd.length == 1) {
+-                process = Runtime.getRuntime().exec(cmd[0]);
+-            } else {
+-                process = Runtime.getRuntime().exec(cmd);
+-            }
+-        } catch (Exception e) {
+-            LOG.warn("problem with process exec", e);
++                cmd[i] = cmd[i].replace(OUTPUT_FILE_TOKEN, "-");
++                outputFromStdOut = true;
++            }
++        }
++        // Launch process with validation
++        Process process;
++        try {
++            process = launchExternal(cmd);
++        } catch (TikaException | IOException e) {
++            LOG.warn("problem launching external process: " + Arrays.toString(cmd), e);
++            throw new TikaException("Failed to launch external process", e);
+         }
+ 
+         try {

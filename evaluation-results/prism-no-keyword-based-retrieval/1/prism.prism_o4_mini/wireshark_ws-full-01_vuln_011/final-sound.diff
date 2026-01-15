@@ -1,0 +1,43 @@
+--- a/epan/dissectors/packet-aim.c
++++ b/epan/dissectors/packet-aim.c
+@@ -581,16 +581,30 @@
+ static int
+ aim_get_buddyname(wmem_allocator_t *pool, uint8_t **name, tvbuff_t *tvb, int offset)
+ {
+-	uint16_t buddyname_length;
+-
+-	*name = wmem_alloc(pool, 256);
+-
+-	buddyname_length = tvb_get_ntohs(tvb, offset);
+-
+-	if (pool)
+-		memcpy(*name, tvb_get_ptr(tvb,offset,1), buddyname_length);
+-
+-	return buddyname_length;
++    uint16_t buddyname_length;
++    gint avail;
++
++    /* Read declared length (2-byte header) */
++    buddyname_length = tvb_get_ntohs(tvb, offset);
++
++    /* Determine available bytes past header and clamp */
++    avail = tvb_reported_length_remaining(tvb, offset + 2);
++    if (buddyname_length > avail)
++        buddyname_length = avail;
++    if (buddyname_length > 255)
++        buddyname_length = 255;
++
++    /* Allocate buffer including room for NUL terminator */
++    *name = wmem_alloc(pool, buddyname_length + 1);
++
++    /* Copy name bytes and NUL-terminate */
++    if (buddyname_length > 0) {
++        const uint8_t *src = tvb_get_ptr(tvb, offset + 2, buddyname_length);
++        memcpy(*name, src, buddyname_length);
++    }
++    (*name)[buddyname_length] = '\0';
++
++    return buddyname_length;
+ }
+ 
+ 

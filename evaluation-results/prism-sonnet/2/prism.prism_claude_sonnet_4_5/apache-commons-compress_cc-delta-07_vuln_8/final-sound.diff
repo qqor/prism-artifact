@@ -1,0 +1,80 @@
+--- a/src/main/java/org/apache/commons/compress/archivers/examples/Expander.java
++++ b/src/main/java/org/apache/commons/compress/archivers/examples/Expander.java
+@@ -72,7 +72,27 @@
+         T nextEntry = supplier.get();
+         while (nextEntry != null) {
+             final Path targetPath = nullTarget ? null : nextEntry.resolveIn(targetDirPath);
+-            if (nextEntry.isDirectory()) {
++            
++            if (!nullTarget && isUnixSymlink(nextEntry)) {
++                final java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
++                writer.accept(nextEntry, baos);
++                final String symlinkTarget = new String(baos.toByteArray(), StandardCharsets.UTF_8);
++                
++                final Path symlinkTargetPath = targetDirPath.resolve(symlinkTarget).normalize();
++                if (!symlinkTargetPath.startsWith(targetDirPath)) {
++                    throw new IOException(String.format("Symlink target escapes: '%s' + '%s' -> '%s'", 
++                        targetDirPath, symlinkTarget, symlinkTargetPath));
++                }
++                
++                final Path parent = targetPath.getParent();
++                if (!Files.isDirectory(parent) && Files.createDirectories(parent) == null) {
++                    throw new IOException("Failed to create directory " + parent);
++                }
++                
++                if (!Files.isRegularFile(targetPath) && !Files.isSymbolicLink(targetPath)) {
++                    Files.createSymbolicLink(targetPath, symlinkTargetPath);
++                }
++            } else if (nextEntry.isDirectory()) {
+                 if (!nullTarget && !Files.isDirectory(targetPath) && Files.createDirectories(targetPath) == null) {
+                     throw new IOException("Failed to create directory " + targetPath);
+                 }
+@@ -468,41 +488,14 @@
+      * @since 1.22
+      */
+     public void expand(final ZipFile archive, final Path targetDirectory) throws IOException {
+-        if (! Files.isDirectory(targetDirectory)) {
+-            Files.createDirectories(targetDirectory);
+-        }
+         final Enumeration<ZipArchiveEntry> entries = archive.getEntries();
+-        while (entries.hasMoreElements()) {
+-            ZipArchiveEntry zae = entries.nextElement();
+-            if (zae.isUnixSymlink()) {
+-                String targetName = IOUtils.toString(archive.getInputStream(zae),
+-                        StandardCharsets.UTF_8);
+-                Path link = targetDirectory.resolve(zae.getName());
+-                Path target = targetDirectory.resolve(targetName);
+-                Path parent = createParentDirectory(targetDirectory, link);
+-
+-                if (!Files.isSameFile(link.getParent(), parent)) {
+-                    link = parent.relativize(link.getFileName()).normalize();
+-                }
+-                if (!Files.isRegularFile(link) && !Files.isSymbolicLink(link)) {
+-                    Files.createSymbolicLink(link, target);
+-                }
+-            } else if (! zae.isDirectory()) {
+-                Path target = targetDirectory.resolve(zae.getName()).normalize();
+-                if (!target.startsWith(targetDirectory)) {
+-                    throw new IOException(String.format("Zip slip '%s' + '%s' -> '%s'",
+-                            targetDirectory, zae.getName(), target));
+-                }
+-                Path parent = createParentDirectory(targetDirectory, target);
+-                if (! target.getParent().toAbsolutePath().normalize().equals(
+-                        parent.toAbsolutePath().normalize())) {
+-                    target = parent.normalize().resolve(target.getFileName());
+-                }
+-                try (InputStream is = archive.getInputStream(zae)) {
+-                    Files.copy(is, target);
+-                }
+-            }
+-        }
++        expand(() -> entries.hasMoreElements() ? entries.nextElement() : null,
++               (entry, out) -> {
++                   try (InputStream in = archive.getInputStream(entry)) {
++                       IOUtils.copy(in, out);
++                   }
++               },
++               targetDirectory);
+     }
+ 
+     private static Path createParentDirectory(Path root, Path target) throws IOException {

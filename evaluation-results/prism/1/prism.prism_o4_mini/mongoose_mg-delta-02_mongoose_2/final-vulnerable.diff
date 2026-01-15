@@ -1,0 +1,60 @@
+--- a/src/net_builtin.c
++++ b/src/net_builtin.c
+@@ -799,9 +799,24 @@
+     struct mg_connection *c = getpeer(ifp->mgr, pkt, false);
+     if (c) mg_error(c, "Received fragmented packet");
+   } else if (pkt->ip->proto == 1) {
+-    pkt->icmp = (struct icmp *) (pkt->ip + 1);
+-    if (pkt->pay.len < sizeof(*pkt->icmp)) return;
+-    mkpay(pkt, pkt->icmp + 1);
++    size_t ip_hlen = (pkt->ip->ver & 0x0F) * 4;
++    uint8_t *base = (uint8_t *)pkt->raw.buf;
++    uint8_t *end = base + pkt->raw.len;
++    uint8_t *start = (uint8_t *)pkt->ip + ip_hlen;
++    /* Ensure full ICMP header is within packet buffer */
++    if (start < base || start + sizeof(struct icmp) > end) return;
++    pkt->icmp = (struct icmp *)start;
++    /* Compute and clamp payload */
++    uint8_t *pay_start = start + sizeof(struct icmp);
++    if (pay_start > end) {
++      pkt->pay.ptr = NULL;
++      pkt->pay.len = 0;
++    } else {
++      mkpay(pkt, pay_start);
++      if (pay_start + pkt->pay.len > end) {
++        pkt->pay.len = (size_t)(end - pay_start);
++      }
++    }
+     rx_icmp(ifp, pkt);
+   } else if (pkt->ip->proto == 17) {
+     pkt->udp = (struct udp *) (pkt->ip + 1);
+@@ -881,18 +896,19 @@
+     rx_ip6(ifp, &pkt);
+   } else if (pkt.eth->type == mg_htons(0x800)) {
+     pkt.ip = (struct ip *) (pkt.eth + 1);
++    size_t orig_len = pkt.raw.len;
+     if (pkt.raw.len < sizeof(*pkt.eth) + sizeof(*pkt.ip)) return;  // Truncated
+-    // Truncate frame to what IP header tells us
+-    if ((size_t) mg_ntohs(pkt.ip->len) + sizeof(struct eth) < pkt.raw.len) {
+-      pkt.raw.len = (size_t) mg_ntohs(pkt.ip->len) + sizeof(struct eth);
+-    }
++    // Clamp to IP header length and original buffer size
++    size_t ip_tot = (size_t)mg_ntohs(pkt.ip->len) + sizeof(struct eth);
++    pkt.raw.len = ip_tot < orig_len ? ip_tot : orig_len;
+     if (pkt.raw.len < sizeof(*pkt.eth) + sizeof(*pkt.ip)) return;  // Truncated
+-    if ((pkt.ip->ver >> 4) != 4) return;                           // Not IP
+-    if ((pkt.ip->ver & 0xF) > 5)                                   // Handle IPv4 options
+-        mkpay(&pkt, (char *)(pkt.ip) + ((pkt.ip->ver & 0xF)*4));
+-    else
+-        mkpay(&pkt, pkt.ip + 1);
+-
++    if ((pkt.ip->ver >> 4) != 4) return;                           // Not IPv4
++    size_t ip_hlen = (pkt.ip->ver & 0x0F) * 4;
++    if (ip_hlen < sizeof(*pkt.ip) ||
++        sizeof(*pkt.eth) + ip_hlen > pkt.raw.len) {
++      return;
++    }
++    mkpay(&pkt, (char *)pkt.ip + ip_hlen);
+     rx_ip(ifp, &pkt);
+   } else {
+     MG_DEBUG(("Unknown eth type %x", mg_htons(pkt.eth->type)));

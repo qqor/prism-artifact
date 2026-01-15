@@ -1,0 +1,23 @@
+diff --git a/epan/dissectors/packet-json.c b/epan/dissectors/packet-json.c
+index fbf7776431..dc749cadff 100644
+--- a/epan/dissectors/packet-json.c
++++ b/epan/dissectors/packet-json.c
+@@ -564,9 +564,15 @@ get_json_string(wmem_allocator_t *scope, tvbparse_elem_t *tok, bool remove_quote
+ 	string = tvb_get_string_enc(scope, tok->tvb, tok->offset, tok->len, ENC_UTF_8);
+ 
+ 	if (unescape_strings) {
+-		string = json_string_unescape(scope, string, &length);
+-	}
+-	else {
++		size_t orig_len = strlen(string);
++		/* allocate a new buffer with extra padding to avoid OOB reads */
++		char *safe_str = wmem_alloc(scope, orig_len + 3);
++		memcpy(safe_str, string, orig_len + 1);
++		/* pad with two NUL bytes */
++		safe_str[orig_len + 1] = '\0';
++		safe_str[orig_len + 2] = '\0';
++		string = json_string_unescape(scope, safe_str, &length);
++	} else {
+ 		length = strlen(string);
+ 	}
+ 

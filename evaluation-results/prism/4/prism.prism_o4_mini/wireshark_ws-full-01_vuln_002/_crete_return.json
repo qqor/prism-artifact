@@ -1,0 +1,14 @@
+{
+  "project_name": "wireshark",
+  "vulnerability_identifier": "wireshark_ws-full-01_vuln_002",
+  "source_directory": "/home/qqor/crete/.cache/official-afc-wireshark",
+  "llm_usage": {
+    "total_cost": 0.4178240000000001,
+    "prompt_tokens": 220472,
+    "completion_tokens": 39842
+  },
+  "variant": "sound",
+  "diff": "--- a/epan/dissectors/packet-telnet.c\n+++ b/epan/dissectors/packet-telnet.c\n@@ -2007,6 +2007,8 @@\n telnet_sub_option(packet_info *pinfo, proto_tree *option_tree, proto_item *option_item, tvbuff_t *tvb, int start_offset)\n {\n   int           offset = start_offset;\n+  /* Prevent premature free of NAWS data; defer free to end of dissect_telnet */\n+  hf_telnet_naws_subopt_set = 0;\n   uint8_t       opt_byte;\n   const tn_opt *opt;\n   int           subneg_len;\n@@ -2274,6 +2276,12 @@\n static int\n dissect_telnet(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)\n {\n+  /* Initialize NAWS state to avoid use-after-free */\n+  hf_telnet_naws_subopt_set = 0;\n+  hf_telnet_line = 0;\n+  hf_telnet_width = 0;\n+  hf_telnet_height = 0;\n+  hf_naws_data = NULL;\n   proto_tree *telnet_tree, *ti;\n   tvbuff_t   *next_tvb;\n   int         offset    = 0;\n@@ -2339,6 +2347,12 @@\n       break;\n     }\n   }\n+  if (hf_telnet_naws_subopt_set && hf_naws_data) {\n+    wmem_free(pinfo->pool, hf_naws_data);\n+    hf_telnet_naws_subopt_set = 0;\n+    hf_telnet_line = 0;\n+    hf_naws_data = NULL;\n+  }\n   return tvb_captured_length(tvb);\n }\n \n",
+  "stdout": "",
+  "stderr": ""
+}

@@ -1,0 +1,51 @@
+--- a/tika-core/src/main/java/org/apache/tika/detect/ShellCodeDetector.java
++++ b/tika-core/src/main/java/org/apache/tika/detect/ShellCodeDetector.java
+@@ -41,7 +41,30 @@
+ import org.apache.tika.utils.StringUtils;
+ 
+ /**
+- * Simple detector to determine if a shell script is no-arg shell script.
++ * Simple detector to determine if a shell script is a no-arg shell script.
++ * 
++ * <p><strong>SECURITY WARNING - DISABLED BY DEFAULT:</strong> This detector executes shell 
++ * scripts to test if they can run without arguments. This poses a <strong>CRITICAL SECURITY 
++ * RISK</strong> when processing untrusted input, as it can lead to <strong>REMOTE CODE 
++ * EXECUTION</strong>.</p>
++ * 
++ * <p>By default, this detector operates in <strong>safe mode</strong>, which only detects 
++ * shell scripts by filename extension (.sh, .bash) and shebang patterns (#!/...), but does 
++ * NOT execute them. This provides shell script detection without security risks.</p>
++ * 
++ * <p>To enable <strong>full mode</strong> with execution (for TRUSTED content ONLY):</p>
++ * <ol>
++ *   <li>Set the system property: <code>-Dtika.detector.shell.enable=true</code></li>
++ *   <li>Only process files from <strong>TRUSTED SOURCES</strong></li>
++ * </ol>
++ * 
++ * <p><strong>DO NOT ENABLE FULL MODE</strong> when processing files from untrusted sources 
++ * such as user uploads, email attachments, or downloaded files.</p>
++ * 
++ * <p><strong>Safe Mode Capabilities:</strong> Detects shell scripts and returns 
++ * MediaType.application("x-sh")</p>
++ * <p><strong>Full Mode Additions:</strong> Executes scripts to determine if they run without 
++ * arguments and sets the SHELL_NO_ARGS metadata property</p>
+  */
+ public class ShellCodeDetector implements Detector {
+ 
+@@ -84,6 +107,16 @@
+         if (StringUtils.isBlank(fileName)) {
+             return isShell(isShell);
+         }
++        
++        // Security guard: Disable execution by default due to critical security risk
++        // This detector executes shell scripts to test if they run without arguments,
++        // which allows remote code execution when processing untrusted files.
++        // Set -Dtika.detector.shell.enable=true to enable execution for TRUSTED content only.
++        if (!Boolean.getBoolean("tika.detector.shell.enable")) {
++            // Return SHELL_SCRIPT to preserve detection capability while skipping execution
++            return SHELL_SCRIPT;
++        }
++        
+         //now test for no-arg shell script
+         TikaInputStream tis = TikaInputStream.get(CloseShieldInputStream.wrap(input));
+         fileName = FilenameUtils.getName(fileName);

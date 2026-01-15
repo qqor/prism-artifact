@@ -1,0 +1,77 @@
+--- a/fontbox/src/main/java/org/apache/fontbox/type1/Type1Parser.java
++++ b/fontbox/src/main/java/org/apache/fontbox/type1/Type1Parser.java
+@@ -44,6 +44,11 @@
+     private static final int EEXEC_KEY = 55665;
+     private static final int CHARSTRING_KEY = 4330;
+ 
++    // limits to prevent unbounded loops in Type 1 parsing
++    private static final int MAX_DICT_ENTRIES    = 10_000;
++    private static final int MAX_ENCODING_TOKENS = 10_000;
++    private static final int MAX_DUP_ENTRIES     = 1_000;
++    private static final int MAX_PROCVOID_TOKENS = 100_000;
+     // state
+     private Type1Lexer lexer;
+     private Type1Font font;
+@@ -107,6 +112,9 @@
+ 
+         // font dict
+         int length = read(Token.INTEGER).intValue();
++        if (length < 0 || length > MAX_DICT_ENTRIES) {
++            throw new IOException("Invalid dictionary length: " + length);
++        }
+         read(Token.NAME, "dict");
+         // found in some TeX fonts
+         readMaybe(Token.NAME, "dup");
+@@ -214,18 +222,23 @@
+             // 0 1 255 {1 index exch /.notdef put } for
+             // we have to check "readonly" and "def" too
+             // as some fonts don't provide any dup-values, see PDFBOX-2134
++            int encodingTokenCount = 0;
+             while (!(lexer.peekKind(Token.NAME)
+-                    && (lexer.peekToken().getText().equals("dup")
+-                            || lexer.peekToken().getText().equals("readonly")
+-                            || lexer.peekToken().getText().equals("def"))))
+-            {
++                    && ("dup".equals(lexer.peekToken().getText())
++                        || "readonly".equals(lexer.peekToken().getText())
++                        || "def".equals(lexer.peekToken().getText())))) {
++                if (lexer.peekToken() == null || ++encodingTokenCount > MAX_ENCODING_TOKENS) {
++                    throw new IOException("Malformed encoding: too many tokens");
++                }
+                 lexer.nextToken();
+             }
+             
+             Map<Integer, String> codeToName = new HashMap<>();
+-            while (lexer.peekKind(Token.NAME) &&
+-                    lexer.peekToken().getText().equals("dup"))
+-            {
++            int dupCount = 0;
++            while (lexer.peekKind(Token.NAME) && "dup".equals(lexer.peekToken().getText())) {
++                if (++dupCount > MAX_DUP_ENTRIES) {
++                    throw new IOException("Too many dup entries: " + dupCount);
++                }
+                 read(Token.NAME, "dup");
+                 int code = read(Token.INTEGER).intValue();
+                 String name = read(Token.LITERAL).getText();
+@@ -510,14 +523,13 @@
+     private void readProcVoid() throws IOException
+     {
+         int openProc = 1;
+-        while (true)
+-        {
+-            if (lexer.peekToken() == null)
+-            {
+-                throw new IOException("Malformed procedure: missing token");
+-            }
+-            if (lexer.peekKind(Token.START_PROC))
+-            {
++        int procTokenCount = 0;
++        while (true) {
++            Token next = lexer.peekToken();
++            if (next == null || ++procTokenCount > MAX_PROCVOID_TOKENS) {
++                throw new IOException("Malformed or too long procedure");
++            }
++            if (lexer.peekKind(Token.START_PROC)) {
+                 openProc++;
+             }
+ 

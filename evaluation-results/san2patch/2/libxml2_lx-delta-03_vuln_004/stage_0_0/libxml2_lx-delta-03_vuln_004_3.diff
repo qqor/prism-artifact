@@ -1,0 +1,67 @@
+diff --git a/encoding.c b/encoding.c
+index adecdcc6..9e00a5e7 100644
+--- a/encoding.c
++++ b/encoding.c
+@@ -2864,16 +2864,20 @@ UTF32ToUTF8(unsigned char *out, int *outlen,
+         b3 = (b3 << 0x18);
+         c = b0 | b1 | b2 | b3;
+ 
++        /* Use goto‐based overflow handling to unify error path */
+         if (c < 0x80) {
++            if (out + 1 > outend) goto overflow;
+             out[0] = c;
+             in += 4;
+             out += 1;
+         } else if (c < 0x800) {
++            if (out + 2 > outend) goto overflow;
+             out[0] = (c >> 6)   | 0xC0;
+             out[1] = (c & 0x3F) | 0x80;
+             in += 4;
+             out += 2;
+         } else if ((c & 0xF800) != 0xD800) {
++            if (out + 3 > outend) goto overflow;
+             out[0] =  (c >> 12)         | 0xE0;
+             out[1] = ((c >>  6) & 0x3F) | 0x80;
+             out[2] =  (c        & 0x3F) | 0x80;
+@@ -2881,26 +2885,11 @@ UTF32ToUTF8(unsigned char *out, int *outlen,
+             out += 3;
+         } else {
+             /* Surrogate pair */
+-            if ((c & 0xFC00) != 0xD800) {
+-                ret = XML_ERR_INTERNAL_ERROR;
+-                break;
+-            }
+-	        if (inend - in < 4)
+-		        break;
++            if ((c & 0xFC00) != 0xD800) goto overflow;
++            if (inend - in < 4) break;
++            if (out + 4 > outend) goto overflow;
+             d = in[2] | (in[3] << 8);
+-            if ((d & 0xFC00) != 0xDC00) {
+-                ret = XML_ERR_INTERNAL_ERROR;
+-                break;
+-            }
+-            /*
+-                simplified due to encoding errors encountered with:
+-
+-                c = (c << 10) + d - ((0xD800 << 10) + 0xDC00 - 0x10000);
+-                out[0] =  (c >> 18)         | 0xF0;
+-                out[1] = ((c >> 12) & 0x3F) | 0x80;
+-                out[2] = ((c >>  6) & 0x3F) | 0x80;
+-                out[3] =  (c        & 0x3F) | 0x80;
+-            */
++            if ((d & 0xFC00) != 0xDC00) goto overflow;
+             out[0] = c & 0xff;
+             out[1] = (c >> 8) & 0xff;
+             out[2] = (c >> 0x10) & 0xff;
+@@ -2908,6 +2897,10 @@ UTF32ToUTF8(unsigned char *out, int *outlen,
+             in += 4;
+             out += 4;
+         }
++        /* ... later in function ... */
++    overflow:
++        ret = XML_ERR_INTERNAL_ERROR;
++        break;
+     }
+ 
+     if (in-instart > 0)

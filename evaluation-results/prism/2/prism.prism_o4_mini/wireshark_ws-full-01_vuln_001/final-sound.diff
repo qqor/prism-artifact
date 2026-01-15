@@ -1,0 +1,56 @@
+--- a/epan/dissectors/packet-openvpn.c
++++ b/epan/dissectors/packet-openvpn.c
+@@ -23,6 +23,7 @@
+ #include <epan/reassemble.h>
+ #include <epan/conversation.h>
+ #include "packet-tcp.h"
++#include <string.h>
+ 
+ void proto_register_openvpn(void);
+ void proto_reg_handoff_openvpn(void);
+@@ -182,7 +183,9 @@
+   proto_tree    *packetarray_tree, *type_tree;
+   uint32_t       msg_length_remaining;
+   int            wkc_offset = -1;
+-  uint8_t        buf[8] = { 0 };
++  /* Magic string for hard-reset/work-cookie detection */
++  static const guint8 openvpn_magic[] = "OpenVPN";
++  const int magic_len = sizeof(openvpn_magic) - 1;
+ 
+   /* Clear out stuff in the info column */
+   col_set_str(pinfo->cinfo, COL_PROTOCOL, PSNAME);
+@@ -304,16 +307,25 @@
+ 
+   int data_len = msg_length_remaining;
+   int wkc_len = -1;
+-  if ((openvpn_opcode == P_CONTROL_HARD_RESET_CLIENT_V3 || openvpn_opcode == P_CONTROL_WKC_V1)
+-      &&  msg_length_remaining >= 2) {
+-
++  if ((openvpn_opcode == P_CONTROL_HARD_RESET_CLIENT_V3
++       || openvpn_opcode == P_CONTROL_WKC_V1)
++      && msg_length_remaining >= 2) {
++    /* Compute work-cookie length */
+     wkc_len = tvb_get_ntohs(tvb, tvb_reported_length(tvb) - 2);
+-    data_len = msg_length_remaining - wkc_len;
+-    tvb_memcpy(tvb, buf, offset, data_len);
+-    if (!strcmp((char*)&buf[0], "OpenVPN"))
+-        return 0;
+-  }
+-
++    /* Ensure non-negative and within remaining length */
++    if (wkc_len >= 0 && (uint32_t)wkc_len <= msg_length_remaining) {
++      data_len = (int)(msg_length_remaining - (uint32_t)wkc_len);
++      /* Exact match of magic string length and content */
++      if (data_len == magic_len
++          && tvb_bytes_exist(tvb, offset, magic_len)) {
++        const guint8 *pkt_ptr = tvb_get_ptr(tvb, offset, magic_len);
++        if (memcmp(pkt_ptr, openvpn_magic, magic_len) == 0) {
++          /* Matched "OpenVPN" → treat as control packet start */
++          return 0;
++        }
++      }
++    }
++  }
+   if (openvpn_opcode != P_CONTROL_V1) {
+     proto_tree *data_tree;
+     data_tree = proto_tree_add_subtree_format(openvpn_tree, tvb, offset, data_len,

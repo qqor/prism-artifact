@@ -1,0 +1,192 @@
+diff --git a/HTMLparser.c b/HTMLparser.c
+index 9c34e9e8..1523b649 100644
+--- a/HTMLparser.c
++++ b/HTMLparser.c
+@@ -2612,6 +2612,7 @@ htmlParseData(htmlParserCtxtPtr ctxt, htmlAsciiMask mask,
+     used = 0;
+     buffer_size = ctxt->spaceMax;
+     buffer = (xmlChar *) ctxt->spaceTab;
++    // FIXME: Crash CWE-787: Out-of-bounds Write
+     if (buffer == NULL) {
+         buffer_size = 500;
+         buffer = xmlMalloc(buffer_size + 1);
+@@ -2620,12 +2621,38 @@ htmlParseData(htmlParserCtxtPtr ctxt, htmlAsciiMask mask,
+             return(NULL);
+         }
+     }
++    // Grow initial buffer to at least maxLength to avoid repeated reallocations
++    if (maxLength > 0 && (size_t)maxLength + 1 > buffer_size + 1) {
++        size_t init_size = (size_t)maxLength;
++        xmlChar *tmp = (xmlChar *)xmlRealloc(buffer, init_size + 1);
++        if (tmp == NULL) {
++            htmlErrMemory(ctxt);
++            xmlFree(buffer);
++            return(NULL);
++        }
++        buffer = tmp;
++        buffer_size = init_size;
++    }
+ 
+     line = input->line;
+     col = input->col;
+ 
+     while (!PARSER_STOPPED(ctxt)) {
+-        const xmlChar *chunk, *in, *repl;
++        // Ensure there's enough space before copying data chunk
++        if (used + chunkSize + 1 > buffer_size) {
++            size_t new_size = buffer_size * 2;
++            while (new_size < used + chunkSize + 1) {
++                new_size *= 2;
++            }
++            xmlChar *tmp = (xmlChar *)xmlRealloc(buffer, new_size + 1);
++            if (tmp == NULL) {
++                htmlErrMemory(ctxt);
++                xmlFree(buffer);
++                return(NULL);
++            }
++            buffer = tmp;
++            buffer_size = new_size;
++        }        const xmlChar *chunk, *in, *repl;
+         size_t avail, chunkSize, extraSize;
+         int replSize;
+         int skip = 0;
+@@ -2837,22 +2864,39 @@ next_chunk:
+             size_t newSize = (used + extraSize) * 2;
+             xmlChar *tmp = (xmlChar *) xmlRealloc(buffer, newSize + 1);
+ 
+-            if (tmp == NULL) {
+-                htmlErrMemory(ctxt);
+-                goto error;
+-            }
+-            buffer = tmp;
+-            buffer_size = newSize;
+         }
+ 
++        // FIXME: Crash CWE-787: Out-of-bounds Write
+         if (chunkSize > 0) {
+             input->cur += chunkSize;
++            if (used + chunkSize > buffer_size) {
++                size_t grow = buffer_size;
++                while (grow < used + chunkSize) grow *= 2;
++                xmlChar *tmp2 = (xmlChar *)xmlRealloc(buffer, grow + 1);
++                if (tmp2 == NULL) {
++                    htmlErrMemory(ctxt);
++                    goto error;
++                }
++                buffer = tmp2;
++                buffer_size = grow;
++            }
+             memcpy(buffer + used, chunk, chunkSize);
+             used += chunkSize;
+         }
+ 
+         input->cur += skip;
+         if (replSize > 0) {
++            if (used + replSize > buffer_size) {
++                size_t grow2 = buffer_size;
++                while (grow2 < used + replSize) grow2 *= 2;
++                xmlChar *tmp3 = (xmlChar *)xmlRealloc(buffer, grow2 + 1);
++                if (tmp3 == NULL) {
++                    htmlErrMemory(ctxt);
++                    goto error;
++                }
++                buffer = tmp3;
++                buffer_size = grow2;
++            }
+             memcpy(buffer + used, repl, replSize);
+             used += replSize;
+         }
+@@ -3330,6 +3374,7 @@ htmlSecureComment(htmlParserCtxtPtr ctxt, htmlAsciiMask mask,
+     used = 0;
+     buffer_size = ctxt->spaceMax;
+     buffer = (xmlChar *) ctxt->spaceTab;
++    // FIXME: Crash CWE-787: Out-of-bounds Write
+     if (buffer == NULL) {
+         buffer_size = 500;
+         buffer = xmlMalloc(buffer_size + 1);
+@@ -3338,12 +3383,38 @@ htmlSecureComment(htmlParserCtxtPtr ctxt, htmlAsciiMask mask,
+             return(NULL);
+         }
+     }
++    // Grow initial buffer to at least maxLength to avoid repeated reallocations
++    if (maxLength > 0 && (size_t)maxLength + 1 > buffer_size + 1) {
++        size_t init_size = (size_t)maxLength;
++        xmlChar *tmp = (xmlChar *)xmlRealloc(buffer, init_size + 1);
++        if (tmp == NULL) {
++            htmlErrMemory(ctxt);
++            xmlFree(buffer);
++            return(NULL);
++        }
++        buffer = tmp;
++        buffer_size = init_size;
++    }
+ 
+     line = input->line;
+     col = input->col;
+ 
+     while (!PARSER_STOPPED(ctxt)) {
+-        const xmlChar *chunk, *in, *repl;
++        // Ensure there's enough space before copying data chunk
++        if (used + chunkSize + 1 > buffer_size) {
++            size_t new_size = buffer_size * 2;
++            while (new_size < used + chunkSize + 1) {
++                new_size *= 2;
++            }
++            xmlChar *tmp = (xmlChar *)xmlRealloc(buffer, new_size + 1);
++            if (tmp == NULL) {
++                htmlErrMemory(ctxt);
++                xmlFree(buffer);
++                return(NULL);
++            }
++            buffer = tmp;
++            buffer_size = new_size;
++        }        const xmlChar *chunk, *in, *repl;
+         size_t avail, chunkSize, extraSize;
+         int replSize;
+         int skip = 0;
+@@ -3578,22 +3649,39 @@ next_chunk:
+             size_t newSize = (used + extraSize) * 2;
+             xmlChar *tmp = (xmlChar *) xmlRealloc(buffer, newSize + 1);
+ 
+-            if (tmp == NULL) {
+-                htmlErrMemory(ctxt);
+-                goto error;
+-            }
+-            buffer = tmp;
+-            buffer_size = newSize;
+         }
+ 
++        // FIXME: Crash CWE-787: Out-of-bounds Write
+         if (chunkSize > 0) {
+             input->cur += chunkSize;
++            if (used + chunkSize > buffer_size) {
++                size_t grow = buffer_size;
++                while (grow < used + chunkSize) grow *= 2;
++                xmlChar *tmp2 = (xmlChar *)xmlRealloc(buffer, grow + 1);
++                if (tmp2 == NULL) {
++                    htmlErrMemory(ctxt);
++                    goto error;
++                }
++                buffer = tmp2;
++                buffer_size = grow;
++            }
+             memcpy(buffer + used, chunk, chunkSize);
+             used += chunkSize;
+         }
+ 
+         input->cur += skip;
+         if (replSize > 0) {
++            if (used + replSize > buffer_size) {
++                size_t grow2 = buffer_size;
++                while (grow2 < used + replSize) grow2 *= 2;
++                xmlChar *tmp3 = (xmlChar *)xmlRealloc(buffer, grow2 + 1);
++                if (tmp3 == NULL) {
++                    htmlErrMemory(ctxt);
++                    goto error;
++                }
++                buffer = tmp3;
++                buffer_size = grow2;
++            }
+             memcpy(buffer + used, repl, replSize);
+             used += replSize;
+         }

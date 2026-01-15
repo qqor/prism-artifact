@@ -1,0 +1,58 @@
+--- a/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-audiovideo-module/src/main/java/org/apache/tika/parser/m3/M3U8Parser.java
++++ b/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-audiovideo-module/src/main/java/org/apache/tika/parser/m3/M3U8Parser.java
+@@ -45,6 +45,7 @@
+ import org.apache.tika.sax.EmbeddedContentHandler;
+ import org.apache.tika.sax.XHTMLContentHandler;
+ import org.apache.tika.utils.StringUtils;
++import org.apache.tika.config.Field;
+ 
+ /**
+  * Basic parser for m3u8 files
+@@ -61,6 +62,29 @@
+     private static final String EXTINF = "#EXTINF:";
+     private static final String ENDLIST = "#EXT-X-ENDLIST";
+     private static final String EXTVERSION = "#EXT-X-VERSION:";
++
++    // Configuration for M3U8Parser to control external link fetching.
++    public static class M3U8ParserConfig {
++        @Field(name = "parser.m3u8.allowExternalLinks", required = false)
++        private boolean allowExternalLinks = false;
++
++        /**
++         * Returns true if fetching of external links is permitted.
++         */
++        public boolean isAllowExternalLinks() {
++            return allowExternalLinks;
++        }
++
++        /**
++         * Sets whether external links may be fetched during parsing.
++         */
++        public void setAllowExternalLinks(boolean allowExternalLinks) {
++            this.allowExternalLinks = allowExternalLinks;
++        }
++    }
++
++    // Default config instance, disabled external fetching by default.
++    private static final M3U8ParserConfig DEFAULT_CONFIG = new M3U8ParserConfig();
+     private static final String EXTKEY = "#EXT-X-KEY:";
+     private static final String EXTPLAYLISTTYPE = "#EXT-X-PLAYLIST-TYPE:";
+ 
+@@ -161,7 +185,16 @@
+         // split on , then the first value is the length (can be -1),
+         // the last value is the title; intermediate values are key=value format
+         metadata.add(PLAY_LIST_LINK, nextLine);
+-        if (! nextLine.startsWith("http")) {
++        if (!nextLine.startsWith("http")) {
++            return;
++        }
++        // SSRF protection: only fetch external links when enabled in config
++        M3U8ParserConfig cfg = DEFAULT_CONFIG;
++        M3U8ParserConfig userCfg = context.get(M3U8ParserConfig.class);
++        if (userCfg != null) {
++            cfg = userCfg;
++        }
++        if (!cfg.isAllowExternalLinks()) {
+             return;
+         }
+         EmbeddedDocumentExtractor ex = EmbeddedDocumentUtil.getEmbeddedDocumentExtractor(context);

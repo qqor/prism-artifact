@@ -1,0 +1,118 @@
+--- a/poi-ooxml/src/main/java/org/apache/poi/xssf/eventusermodel/XSSFSheetXMLHandler.java
++++ b/poi-ooxml/src/main/java/org/apache/poi/xssf/eventusermodel/XSSFSheetXMLHandler.java
+@@ -18,8 +18,11 @@
+ 
+ import static org.apache.poi.xssf.usermodel.XSSFRelation.NS_SPREADSHEETML;
+ 
++import java.util.ArrayList;
++import java.util.Collections;
+ import java.util.Iterator;
+ import java.util.LinkedList;
++import java.util.List;
+ import java.util.Queue;
+ 
+ import org.apache.logging.log4j.Logger;
+@@ -28,6 +31,7 @@
+ import org.apache.poi.ss.usermodel.DataFormatter;
+ import org.apache.poi.ss.usermodel.RichTextString;
+ import org.apache.poi.ss.util.CellAddress;
++import org.apache.poi.util.IOUtils;
+ import org.apache.poi.xssf.model.*;
+ import org.apache.poi.xssf.usermodel.XSSFCellStyle;
+ import org.apache.poi.xssf.usermodel.XSSFComment;
+@@ -49,6 +53,9 @@
+  */
+ public class XSSFSheetXMLHandler extends DefaultHandler {
+     private static final Logger LOG = PoiLogManager.getLogger(XSSFSheetXMLHandler.class);
++
++    private static final int MAX_NUMBER_OF_COMMENTS = 1_000_000;
++    private static final int MAX_COMMENT_ITERATIONS_PER_CALL = 100;
+ 
+     /**
+      * These are the different kinds of cells we support.
+@@ -168,10 +175,16 @@
+ 
+     private void init(Comments commentsTable) {
+         if (commentsTable != null) {
+-            commentCellRefs = new LinkedList<>();
++            List<CellAddress> tempList = new ArrayList<>();
+             for (Iterator<CellAddress> iter = commentsTable.getCellAddresses(); iter.hasNext(); ) {
+-                commentCellRefs.add(iter.next());
+-            }
++                tempList.add(iter.next());
++            }
++            
++            IOUtils.safelyAllocateCheck(tempList.size(), MAX_NUMBER_OF_COMMENTS);
++            
++            Collections.sort(tempList);
++            
++            commentCellRefs = new LinkedList<>(tempList);
+         }
+     }
+ 
+@@ -465,20 +478,33 @@
+      */
+     private void checkForEmptyCellComments(EmptyCellCommentsCheckType type) {
+         if (commentCellRefs != null && !commentCellRefs.isEmpty()) {
+-            // If we've reached the end of the sheet data, output any
+-            //  comments we haven't yet already handled
+             if (type == EmptyCellCommentsCheckType.END_OF_SHEET_DATA) {
++                int iterations = 0;
+                 while (!commentCellRefs.isEmpty()) {
++                    if (++iterations > MAX_COMMENT_ITERATIONS_PER_CALL) {
++                        LOG.atWarn().log("Exceeded maximum iterations ({}) at end of sheet data. Remaining comments: {}",
++                                MAX_COMMENT_ITERATIONS_PER_CALL, commentCellRefs.size());
++                        break;
++                    }
+                     outputEmptyCellComment(commentCellRefs.remove());
+                 }
+                 return;
+             }
+ 
+-            // At the end of a row, handle any comments for "missing" rows before us
+             if (this.cellRef == null) {
+                 if (type == EmptyCellCommentsCheckType.END_OF_ROW) {
++                    int iterations = 0;
+                     while (!commentCellRefs.isEmpty()) {
+-                        if (commentCellRefs.peek().getRow() == rowNum) {
++                        if (++iterations > MAX_COMMENT_ITERATIONS_PER_CALL) {
++                            LOG.atWarn().log("Exceeded maximum iterations ({}) at end of row {}. Remaining comments: {}",
++                                    MAX_COMMENT_ITERATIONS_PER_CALL, rowNum, commentCellRefs.size());
++                            break;
++                        }
++                        CellAddress peek = commentCellRefs.peek();
++                        if (peek == null) {
++                            break;
++                        }
++                        if (peek.getRow() == rowNum) {
+                             outputEmptyCellComment(commentCellRefs.remove());
+                         } else {
+                             return;
+@@ -491,15 +517,25 @@
+             }
+ 
+             CellAddress nextCommentCellRef;
++            int iterations = 0;
+             do {
++                if (++iterations > MAX_COMMENT_ITERATIONS_PER_CALL) {
++                    LOG.atWarn().log("Exceeded maximum iterations ({}) checking for empty cell comments at cell {}, row {}. Remaining comments: {}",
++                            MAX_COMMENT_ITERATIONS_PER_CALL, this.cellRef, rowNum, commentCellRefs.size());
++                    break;
++                }
++                
+                 CellAddress cellRef = new CellAddress(this.cellRef);
+                 CellAddress peekCellRef = commentCellRefs.peek();
++                
++                if (peekCellRef == null) {
++                    break;
++                }
++                
+                 if (type == EmptyCellCommentsCheckType.CELL && cellRef.equals(peekCellRef)) {
+-                    // remove the comment cell ref from the list if we're about to handle it alongside the cell content
+                     commentCellRefs.remove();
+                     return;
+                 } else {
+-                    // fill in any gaps if there are empty cells with comment mixed in with non-empty cells
+                     int comparison = peekCellRef.compareTo(cellRef);
+                     if (comparison > 0 && type == EmptyCellCommentsCheckType.END_OF_ROW && peekCellRef.getRow() <= rowNum) {
+                         nextCommentCellRef = commentCellRefs.remove();

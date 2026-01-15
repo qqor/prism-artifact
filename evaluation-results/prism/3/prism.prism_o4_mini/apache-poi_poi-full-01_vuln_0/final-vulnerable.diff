@@ -1,0 +1,152 @@
+--- a/poi-scratchpad/src/main/java/org/apache/poi/hslf/usermodel/HSLFSlideShowImpl.java
++++ b/poi-scratchpad/src/main/java/org/apache/poi/hslf/usermodel/HSLFSlideShowImpl.java
+@@ -41,6 +41,8 @@
+ import java.util.List;
+ import java.util.Map;
+ import java.util.NavigableMap;
++import java.util.Set;
++import java.util.HashSet;
+ import java.util.Objects;
+ import java.util.TreeMap;
+ import java.util.stream.Collectors;
+@@ -291,6 +293,9 @@
+         NavigableMap<Integer, Record> records = new TreeMap<>(); // offset -> record
+         Map<Integer, Integer> persistIds = new HashMap<>(); // offset -> persistId
+         initRecordOffsets(docstream, usrOffset, records, persistIds);
++        if (records.isEmpty()) {
++            throw new CorruptPowerPointFileException("No valid records found; aborting to avoid hang");
++        }
+         HSLFSlideShowEncrypted decryptData = new HSLFSlideShowEncrypted(docstream, records);
+ 
+         for (Map.Entry<Integer, Record> entry : records.entrySet()) {
+@@ -315,16 +320,31 @@
+     }
+ 
+     private void initRecordOffsets(byte[] docstream, int usrOffset, NavigableMap<Integer, Record> recordMap, Map<Integer, Integer> offset2id) {
++        Set<Integer> seenUsrOffsets = new HashSet<>();
++        int iterationCount = 0;
++        int maxIterations = docstream.length > 0 ? docstream.length : 1000;
++        boolean hasRepaired = false;
+         while (usrOffset != 0) {
++            if (iterationCount++ > maxIterations) {
++                throw new CorruptPowerPointFileException("Too many user edit atom iterations: " + iterationCount);
++            }
++            if (!seenUsrOffsets.add(usrOffset)) {
++                throw new CorruptPowerPointFileException("Cyclic user edit chain detected at offset " + usrOffset);
++            }
++            if (usrOffset < 0 || usrOffset + 8 > docstream.length) {
++                throw new CorruptPowerPointFileException("Invalid user edit atom offset out of bounds: " + usrOffset);
++            }
+             Record builtRecord = Record.buildRecordAtOffset(docstream, usrOffset);
+             if (!(builtRecord instanceof UserEditAtom)) {
+                 throw new CorruptPowerPointFileException("Did not have a user edit atom: " + builtRecord);
+             }
+             UserEditAtom usr = (UserEditAtom) builtRecord;
+-
+             recordMap.put(usrOffset, usr);
+ 
+             int psrOffset = usr.getPersistPointersOffset();
++            if (psrOffset < 0 || psrOffset + 8 > docstream.length) {
++                throw new CorruptPowerPointFileException("Invalid PersistPtrHolder offset: " + psrOffset);
++            }
+             Record record = Record.buildRecordAtOffset(docstream, psrOffset);
+             if (record == null) {
+                 throw new CorruptPowerPointFileException("Powerpoint document is missing a PersistPtrHolder at " + psrOffset);
+@@ -343,19 +363,26 @@
+             }
+ 
+             usrOffset = usr.getLastUserEditAtomOffset();
+-
+-            // check for corrupted user edit atom and try to repair it
+-            // if the next user edit atom offset is already known, we would go into an endless loop
++            if (usrOffset < 0 || usrOffset + 8 > docstream.length) {
++                throw new CorruptPowerPointFileException("Invalid user edit atom offset out of bounds: " + usrOffset);
++            }
+             if (usrOffset > 0 && recordMap.containsKey(usrOffset)) {
+-                // a user edit atom is usually located 36 byte before the smallest known record offset
+-                usrOffset = recordMap.firstKey() - 36;
+-                // check that we really are located on a user edit atom
+-                int ver_inst = LittleEndian.getUShort(docstream, usrOffset);
+-                int type = LittleEndian.getUShort(docstream, usrOffset + 2);
+-                int len = LittleEndian.getInt(docstream, usrOffset + 4);
++                if (hasRepaired) {
++                    throw new CorruptPowerPointFileException("Multiple repairs of user edit atom detected at offset " + usrOffset);
++                }
++                hasRepaired = true;
++                int repairedOffset = recordMap.firstKey() - 36;
++                if (repairedOffset < 0 || repairedOffset + 8 > docstream.length) {
++                    throw new CorruptPowerPointFileException("Invalid repaired user edit atom offset: " + repairedOffset);
++                }
++                int ver_inst = LittleEndian.getUShort(docstream, repairedOffset);
++                int type = LittleEndian.getUShort(docstream, repairedOffset + 2);
++                int len = LittleEndian.getInt(docstream, repairedOffset + 4);
+                 if (ver_inst == 0 && type == 4085 && (len == 0x1C || len == 0x20)) {
+                     LOG.atWarn().log("Repairing invalid user edit atom");
+-                    usr.setLastUserEditAtomOffset(usrOffset);
++                    seenUsrOffsets.add(repairedOffset);
++                    usr.setLastUserEditAtomOffset(repairedOffset);
++                    usrOffset = repairedOffset;
+                 } else {
+                     throw new CorruptPowerPointFileException("Powerpoint document contains invalid user edit atom");
+                 }
+
+--- a/poi-scratchpad/src/main/java/org/apache/poi/hslf/record/Record.java
++++ b/poi-scratchpad/src/main/java/org/apache/poi/hslf/record/Record.java
+@@ -109,9 +109,12 @@
+      * @param offset The offset to build at
+      */
+     public static Record buildRecordAtOffset(byte[] b, int offset) {
+-        long type = LittleEndian.getUShort(b,offset+2);
+-        long rlen = LittleEndian.getUInt(b,offset+4);
+-
++        // bounds check for offset and header
++        if (offset < 0 || offset + 8 > b.length) {
++            throw new CorruptPowerPointFileException("Invalid record offset: " + offset);
++        }
++        long type = LittleEndian.getUShort(b, offset+2);
++        long rlen = LittleEndian.getUInt(b, offset+4);
+         // Sanity check the length
+         int rleni = (int)rlen;
+         if(rleni < 0) { rleni = 0; }
+@@ -127,9 +130,14 @@
+ 
+         // Jump our little way along, creating records as we go
+         int pos = start;
+-        while(pos <= (start+len-8)) {
+-            long type = LittleEndian.getUShort(b,pos+2);
+-            long rlen = LittleEndian.getUInt(b,pos+4);
++        int recordCount = 0;
++        int maxRecords = len > 0 ? len / 8 : 1000;
++        while (pos <= (start+len-8)) {
++            if (recordCount++ > maxRecords) {
++                throw new CorruptPowerPointFileException("Too many child records in container at " + start);
++            }
++            long type = LittleEndian.getUShort(b, pos+2);
++            long rlen = LittleEndian.getUInt(b, pos+4);
+ 
+             // Sanity check the length
+             int rleni = (int)rlen;
+
+--- a/poi-scratchpad/src/main/java/org/apache/poi/hslf/usermodel/HSLFSlideShowEncrypted.java
++++ b/poi-scratchpad/src/main/java/org/apache/poi/hslf/usermodel/HSLFSlideShowEncrypted.java
+@@ -185,6 +185,10 @@
+         if (dea == null) {
+             return;
+         }
++        // validate offset bounds before decryption
++        if (offset < 0 || offset + 8 > docstream.length) {
++            throw new CorruptPowerPointFileException("Invalid decrypt record offset: " + offset);
++        }
+ 
+         Decryptor dec = getEncryptionInfo().getDecryptor();
+         dec.setChunkSize(-1);
+@@ -196,6 +200,9 @@
+             readFully(ccis, docstream, offset, 8);
+             // decrypt the rest of the record
+             int rlen = (int)LittleEndian.getUInt(docstream, offset+4);
++            if (rlen < 0 || offset + 8 + rlen > docstream.length) {
++                throw new CorruptPowerPointFileException("Invalid decrypt record length: " + rlen + " at offset: " + offset);
++            }
+             readFully(ccis, docstream, offset+8, rlen);
+ 
+         } catch (Exception e) {

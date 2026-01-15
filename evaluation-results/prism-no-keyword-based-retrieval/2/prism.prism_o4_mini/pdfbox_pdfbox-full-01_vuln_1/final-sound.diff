@@ -1,0 +1,52 @@
+--- a/pdfbox/src/main/java/org/apache/pdfbox/pdmodel/interactive/form/PDXFAResource.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/pdmodel/interactive/form/PDXFAResource.java
+@@ -24,6 +24,10 @@
+ import javax.xml.parsers.DocumentBuilder;
+ import javax.xml.parsers.DocumentBuilderFactory;
+ import javax.xml.parsers.ParserConfigurationException;
++import javax.xml.XMLConstants;
++import org.xml.sax.EntityResolver;
++import org.xml.sax.InputSource;
++import java.io.StringReader;
+ 
+ import org.apache.pdfbox.cos.COSArray;
+ import org.apache.pdfbox.cos.COSBase;
+@@ -134,8 +138,37 @@
+     {
+         DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+         factory.setNamespaceAware(true);
++
++        // --- BEGIN SECURE CONFIGURATION ---
+         try {
+-            DocumentBuilder builder = factory.newDocumentBuilder();
++            // Prevent most XXE attack vectors
++            factory.setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true);
++            // Disallow any DOCTYPE declarations
++            factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
++            // Disable external-general-entities (e.g. <!ENTITY xxe SYSTEM "http://…">)
++            factory.setFeature("http://xml.org/sax/features/external-general-entities", false);
++            // Disable external-parameter-entities (within DTD)
++            factory.setFeature("http://xml.org/sax/features/external-parameter-entities", false);
++            // Prevent external DTD loading
++            factory.setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false);
++            // Optionally disable entity expansion
++            factory.setExpandEntityReferences(false);
++        } catch (ParserConfigurationException e) {
++            // This should never happen, but wrap to maintain signature
++            throw new IOException("Failed to configure XML parser securely", e);
++        }
++        // --- END SECURE CONFIGURATION ---
++
++        DocumentBuilder builder;
++        try {
++            builder = factory.newDocumentBuilder();
++            // Short-circuit any entity resolution
++            builder.setEntityResolver(new EntityResolver() {
++                @Override
++                public InputSource resolveEntity(String publicId, String systemId) {
++                    return new InputSource(new StringReader(""));
++                }
++            });
+             return builder.parse(new ByteArrayInputStream(this.getBytes()));
+         } catch (ParserConfigurationException | SAXException e) {
+             throw new IOException(e);

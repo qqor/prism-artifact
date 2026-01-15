@@ -1,0 +1,50 @@
+--- a/epan/dissectors/packet-aim.c
++++ b/epan/dissectors/packet-aim.c
+@@ -581,16 +581,28 @@
+ static int
+ aim_get_buddyname(wmem_allocator_t *pool, uint8_t **name, tvbuff_t *tvb, int offset)
+ {
+-	uint16_t buddyname_length;
+-
+-	*name = wmem_alloc(pool, 256);
+-
+-	buddyname_length = tvb_get_ntohs(tvb, offset);
+-
+-	if (pool)
+-		memcpy(*name, tvb_get_ptr(tvb,offset,1), buddyname_length);
+-
+-	return buddyname_length;
++    uint16_t buddyname_length = tvb_get_ntohs(tvb, offset);
++    int data_offset = offset + 2;
++    guint rem = tvb_reported_length_remaining(tvb, data_offset);
++
++    // Enforce safe caps
++    if (buddyname_length > 255)
++        buddyname_length = 255;
++    if (buddyname_length > rem)
++        buddyname_length = rem;
++
++    // Allocate buffer for name + NUL
++    *name = wmem_alloc(pool, buddyname_length + 1);
++
++    // Copy only when there's data to copy
++    if (buddyname_length > 0) {
++        const guint8 *src = tvb_get_ptr(tvb, data_offset, buddyname_length);
++        memcpy(*name, src, buddyname_length);
++    }
++    // Null-terminate
++    (*name)[buddyname_length] = '\0';
++
++    return buddyname_length;
+ }
+ 
+ 
+@@ -604,7 +616,7 @@
+ 	int new_length = msg_length;
+ 
+ 
+-	/* make sure nothing bigger than 1000 bytes is printed */
++// extra brace removed
+ 	if( msg_length > 999 ) return;
+ 
+ 	memset( msg, '\0', 1000);

@@ -1,0 +1,50 @@
+--- a/src/main/java/org/apache/commons/compress/archivers/examples/Expander.java
++++ b/src/main/java/org/apache/commons/compress/archivers/examples/Expander.java
+@@ -477,8 +477,18 @@
+             if (zae.isUnixSymlink()) {
+                 String targetName = IOUtils.toString(archive.getInputStream(zae),
+                         StandardCharsets.UTF_8);
+-                Path link = targetDirectory.resolve(zae.getName());
+-                Path target = targetDirectory.resolve(targetName);
++                // Validate link path is within target directory
++                Path link = targetDirectory.resolve(zae.getName()).normalize();
++                if (!link.startsWith(targetDirectory)) {
++                    throw new IOException(String.format("Zip slip '%s' + '%s' -> '%s'",
++                            targetDirectory, zae.getName(), link));
++                }
++                // Validate symlink target path is within target directory
++                Path target = targetDirectory.resolve(targetName).normalize();
++                if (!target.startsWith(targetDirectory)) {
++                    throw new IOException(String.format("Zip slip via symlink target: '%s' + '%s' -> '%s'",
++                            targetDirectory, targetName, target));
++                }
+                 Path parent = createParentDirectory(targetDirectory, link);
+ 
+                 if (!Files.isSameFile(link.getParent(), parent)) {
+@@ -508,12 +518,24 @@
+     private static Path createParentDirectory(Path root, Path target) throws IOException {
+         Path relative =
+                 root.relativize(target.getParent());
+-        Path current = root.toAbsolutePath();
++        final Path normalizedRoot = root.toAbsolutePath().normalize();
++        Path current = normalizedRoot;
+ 
+         for (Path p : relative) {
+             current = current.resolve(p);
+             if (Files.isSymbolicLink(current)) {
+-                current = Files.readSymbolicLink(current);
++                Path symlinkTarget = Files.readSymbolicLink(current);
++                // Resolve symlink target and validate it stays within root
++                if (symlinkTarget.isAbsolute()) {
++                    current = symlinkTarget.normalize();
++                } else {
++                    current = current.getParent().resolve(symlinkTarget).normalize();
++                }
++                // Validate the resolved path is within the root directory
++                if (!current.startsWith(normalizedRoot)) {
++                    throw new IOException(String.format("Zip slip via symlink: '%s' -> '%s' escapes '%s'",
++                            p, current, normalizedRoot));
++                }
+             }
+             if (! Files.isDirectory(current)) {
+                 Files.createDirectory(current);

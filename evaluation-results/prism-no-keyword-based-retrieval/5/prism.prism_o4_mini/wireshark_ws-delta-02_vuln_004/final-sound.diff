@@ -1,0 +1,35 @@
+--- a/epan/dissectors/packet-icmp.c
++++ b/epan/dissectors/packet-icmp.c
+@@ -922,16 +922,25 @@
+ 	offset += 4;
+ 
+ 	switch(c_type) {
+-		case ICMP_EXT_ECHO_IDENT_NAME:
+-			/* Identification Name must be printable*/
+-			tvb_memcpy(tvb, ident_name, offset, obj_length - 4);
+-
+-			for (unsigned i = 0; i < obj_length - 4; i++)
++		case ICMP_EXT_ECHO_IDENT_NAME: {
++			/* Identification Name must be printable; clamp local copy to buffer size. */
++			guint16 data_len = obj_length - 4;
++			guint16 tvb_len  = tvb_reported_length_remaining(tvb, offset);
++			/* Do not read past end of tvb */
++			if (data_len > tvb_len)
++				data_len = tvb_len;
++			/* Clamp to local buffer size to avoid overflow */
++			guint16 copy_len = MIN(data_len, (guint16)ICMP_MAX_IDENT_NAME_LENGTH);
++			/* Safe local copy */
++			tvb_memcpy(tvb, ident_name, offset, copy_len);
++			/* Test printability only up to what we copied */
++			for (guint16 i = 0; i < copy_len; i++)
+ 				if (!g_ascii_isprint(ident_name[i]))
+ 					break;
+-
+-			proto_tree_add_item(ext_object_tree, hf_icmp_int_ident_name_string, tvb, offset, obj_length - 4, ENC_ASCII);
++			/* Display the full data_len from the packet, but local buffer was safe */
++			proto_tree_add_item(ext_object_tree, hf_icmp_int_ident_name_string, tvb, offset, data_len, ENC_ASCII);
+ 			break;
++		}
+ 		case ICMP_EXT_ECHO_IDENT_INDEX:
+ 			proto_tree_add_item(ext_object_tree, hf_icmp_int_ident_index, tvb, offset, 4, ENC_NA);
+ 			break;

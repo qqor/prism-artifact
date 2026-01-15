@@ -1,0 +1,146 @@
+--- a/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/BaseParser.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/BaseParser.java
+@@ -288,7 +288,13 @@
+         while (true)
+         {
+             skipSpaces();
+-            char c = (char) source.peek();
++            int p = source.peek();
++            if (p < 0)
++            {
++                LOG.warn("Unexpected EOF in dictionary at offset {}", source.getPosition());
++                break;
++            }
++            char c = (char) p;
+             if (c == '>')
+             {
+                 break;
+@@ -325,6 +331,39 @@
+                     source.getPosition());
+         }
+         return obj;
++    }
++
++    /**
++     * Parses a single name/value pair in a COSDictionary, with EOF guards.
++     */
++    private boolean parseCOSDictionaryNameValuePair(COSDictionary obj) throws IOException
++    {
++        // EOF guard before parsing name/value pair
++        int p = source.peek();
++        if (p < 0)
++        {
++            return false;
++        }
++        skipSpaces();
++        if (source.peek() < 0)
++        {
++            return false;
++        }
++        COSName key = parseCOSName();
++        skipSpaces();
++        if (source.peek() < 0)
++        {
++            return false;
++        }
++        COSBase value = parseCOSDictionaryValue();
++        if (value == null)
++        {
++            return false;
++        }
++        // label this item as direct to avoid signature issues
++        value.setDirect(true);
++        obj.setItem(key, value);
++        return true;
+     }
+ 
+     /**
+@@ -829,6 +868,11 @@
+      */
+     protected static boolean isEndOfName(int ch)
+     {
++        // End name on invalid or non-printable ASCII characters
++        if (ch < 33 || ch > 126)
++        {
++            return true;
++        }
+         switch (ch)
+         {
+         case ASCII_SPACE:
+@@ -863,20 +907,31 @@
+         readExpectedChar('/');
+         ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+         int c = source.read();
++        int nameLength = 0;
+         while (!isEndOfName(c))
+         {
++            if (++nameLength > 1024)
++            {
++                LOG.warn("COSName exceeded max length at offset {}", source.getPosition());
++                // Drain the rest of the name token up to the next delimiter
++                while (c != -1 && !isEndOfName(c))
++                {
++                    c = source.read();
++                }
++                break;
++            }
+             final int ch = c;
+             if (ch == '#')
+             {
+                 int ch1 = source.read();
+                 int ch2 = source.read();
+-                // Prior to PDF v1.2, the # was not a special character.  Also,
++                // Prior to PDF v1.2, the # was not a special character. Also,
+                 // it has been observed that various PDF tools do not follow the
+                 // spec with respect to the # escape, even though they report
+-                // PDF versions of 1.2 or later.  The solution here is that we
++                // PDF versions of 1.2 or later. The solution here is that we
+                 // interpret the # as an escape only when it is followed by two
+                 // valid hex digits.
+-                if (isHexDigit((char)ch1) && isHexDigit((char)ch2))
++                if (isHexDigit((char) ch1) && isHexDigit((char) ch2))
+                 {
+                     String hex = Character.toString((char) ch1) + (char) ch2;
+                     try
+@@ -895,7 +950,11 @@
+                     if (ch2 == -1 || ch1 == -1)
+                     {
+                         LOG.error("Premature EOF in BaseParser#parseCOSName");
+-                        c = -1;
++                        // Drain rest on EOF
++                        while (c != -1 && !isEndOfName(c))
++                        {
++                            c = source.read();
++                        }
+                         break;
+                     }
+                     source.rewind(1);
+
+--- a/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/XrefParser.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/XrefParser.java
+@@ -109,6 +109,12 @@
+             source.seek(prev);
+             // skip white spaces
+             parser.skipSpaces();
++            int p = source.peek();
++            if (p < 0)
++            {
++                LOG.warn("Unexpected EOF in Xref parsing at offset {}", source.getPosition());
++                break;
++            }
+             // -- parse xref
+             if (source.peek() == X)
+             {
+@@ -120,6 +126,12 @@
+                             + source.getPosition());
+                 }
+                 trailer = xrefTrailerResolver.getCurrentTrailer();
++                // ensure Prev is numeric to avoid infinite loops
++                if (trailer.containsKey(COSName.PREV) && !(trailer.getItem(COSName.PREV) instanceof COSNumber))
++                {
++                    LOG.warn("Non-numeric /Prev in trailer at offset {}, clearing prev", source.getPosition());
++                    prev = 0;
++                }
+                 // check for a XRef stream, it may contain some object ids of compressed objects 
+                 if(trailer.containsKey(COSName.XREF_STM))
+                 {

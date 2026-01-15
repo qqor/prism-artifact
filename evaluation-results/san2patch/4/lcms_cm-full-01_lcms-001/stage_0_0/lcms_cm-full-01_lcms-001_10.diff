@@ -1,0 +1,50 @@
+diff --git a/src/cmsps2.c b/src/cmsps2.c
+index cb2db85..c91ebf5 100644
+--- a/src/cmsps2.c
++++ b/src/cmsps2.c
+@@ -783,6 +783,18 @@ int EmitCIEBasedDEF(cmsIOHANDLER* m, cmsPipeline* Pipeline, cmsUInt32Number Inte
+ 
+     _cmsIOPrintf(m, "<<\n");
+ 
++    /* Fail-safe: if stage pointer is NULL, skip curve and CLUT emission */
++    if (mpe == NULL) {
++        EmitLab2XYZ(m);
++        EmitWhiteBlackD50(m, BlackPoint);
++        EmitIntent(m, Intent);
++
++        _cmsIOPrintf(m, "   >>\n");
++        _cmsIOPrintf(m, "]\n");
++
++        return 1;
++    }
++
+     if (cmsStageType(mpe) == cmsSigCurveSetElemType) {
+ 
+         _cmsIOPrintf(m, "/DecodeDEF [ ");
+@@ -888,7 +900,8 @@ cmsBool WriteInputLUT(cmsIOHANDLER* m, cmsHPROFILE hProfile, cmsUInt32Number Int
+             break;
+ 
+     case 3:
+-    case 4: {
++    // Rationale: Ensure the first stage exists and its type is valid before optimizing or emitting definition
++case 4: {
+             cmsUInt32Number OutFrm = TYPE_Lab_16;
+             cmsPipeline* DeviceLink;
+             _cmsTRANSFORM* v = (_cmsTRANSFORM*) xform;
+@@ -901,6 +914,16 @@ cmsBool WriteInputLUT(cmsIOHANDLER* m, cmsHPROFILE hProfile, cmsUInt32Number Int
+             }
+ 
+             dwFlags |= cmsFLAGS_FORCE_CLUT;
++            // Validate first stage
++            {
++                cmsStage* pFirst = cmsPipelineGetPtrToFirstStage(DeviceLink);
++                if (pFirst == NULL || cmsStageType(pFirst) == 0) {
++                    cmsPipelineFree(DeviceLink);
++                    cmsDeleteTransform(xform);
++                    return FALSE;
++                }
++            }
++
+             _cmsOptimizePipeline(m->ContextID, &DeviceLink, Intent, &InputFormat, &OutFrm, &dwFlags);
+ 
+             rc = EmitCIEBasedDEF(m, DeviceLink, Intent, &BlackPointAdaptedToD50);

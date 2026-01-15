@@ -1,0 +1,32 @@
+--- a/fontbox/src/main/java/org/apache/fontbox/type1/Type1Parser.java
++++ b/fontbox/src/main/java/org/apache/fontbox/type1/Type1Parser.java
+@@ -214,12 +214,24 @@
+             // 0 1 255 {1 index exch /.notdef put } for
+             // we have to check "readonly" and "def" too
+             // as some fonts don't provide any dup-values, see PDFBOX-2134
+-            while (!(lexer.peekKind(Token.NAME)
+-                    && (lexer.peekToken().getText().equals("dup")
+-                            || lexer.peekToken().getText().equals("readonly")
+-                            || lexer.peekToken().getText().equals("def"))))
+-            {
++            // Skip tokens until we reach "dup", "readonly", or "def", or EOF
++            Token token;
++            while ((token = lexer.peekToken()) != null)
++            {
++                if (token.getKind() == Token.NAME)
++                {
++                    String t = token.getText();
++                    if ("dup".equals(t) || "readonly".equals(t) || "def".equals(t))
++                    {
++                        break;
++                    }
++                }
+                 lexer.nextToken();
++            }
++            if (token == null)
++            {
++                // Premature end of encoding definition; abort parsing
++                throw new IOException("Unexpected end of encoding data");
+             }
+             
+             Map<Integer, String> codeToName = new HashMap<>();

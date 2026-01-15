@@ -1,0 +1,56 @@
+--- a/fontbox/src/main/java/org/apache/fontbox/type1/Type1Lexer.java
++++ b/fontbox/src/main/java/org/apache/fontbox/type1/Type1Lexer.java
+@@ -48,6 +48,14 @@
+      * Log instance.
+      */
+     private static final Logger LOG = LogManager.getLogger(Type1Lexer.class);
++    
++    /**
++     * Maximum length for a single CharString. CharStrings contain encrypted glyph
++     * outlines and should typically be at most a few kilobytes. This limit of 10MB
++     * is chosen to be consistent with PfbParser.MAX_LENGTH patterns while preventing
++     * denial of service attacks from malicious fonts.
++     */
++    private static final int MAX_CHARSTRING_LENGTH = 10_000_000; // 10 MB
+     
+     private final ByteBuffer buffer;
+     private Token aheadToken;
+@@ -501,6 +509,30 @@
+      */
+     private Token readCharString(int length) throws IOException
+     {
++        // Validation 1: Check for negative length
++        if (length < 0)
++        {
++            throw new DamagedFontException("Invalid negative CharString length: " + length 
++                                          + " at buffer position " + buffer.position());
++        }
++        
++        // Validation 2: Check against maximum allowed size
++        if (length > MAX_CHARSTRING_LENGTH)
++        {
++            throw new DamagedFontException("CharString length " + length 
++                                          + " exceeds maximum allowed length " + MAX_CHARSTRING_LENGTH 
++                                          + " at buffer position " + buffer.position());
++        }
++        
++        // Validation 3: Check buffer has sufficient remaining data
++        // Need length + 1 bytes (1 for the space separator)
++        if (buffer.remaining() < length + 1)
++        {
++            throw new IOException("Insufficient data in buffer for CharString of length " 
++                                + length + ". Required: " + (length + 1) 
++                                + ", available: " + buffer.remaining());
++        }
++        
+         try
+         {
+             buffer.get(); // space
+@@ -510,6 +542,7 @@
+         }
+         catch (BufferUnderflowException exception)
+         {
++            // This should not occur due to validation above, but kept for defense in depth
+             throw new IOException("Premature end of buffer reached");
+         }
+     }

@@ -1,0 +1,185 @@
+--- a/fontbox/src/main/java/org/apache/fontbox/type1/Type1Parser.java
++++ b/fontbox/src/main/java/org/apache/fontbox/type1/Type1Parser.java
+@@ -214,11 +214,20 @@
+             // 0 1 255 {1 index exch /.notdef put } for
+             // we have to check "readonly" and "def" too
+             // as some fonts don't provide any dup-values, see PDFBOX-2134
+-            while (!(lexer.peekKind(Token.NAME)
+-                    && (lexer.peekToken().getText().equals("dup")
+-                            || lexer.peekToken().getText().equals("readonly")
+-                            || lexer.peekToken().getText().equals("def"))))
+-            {
++            while (true)
++            {
++                Token token = lexer.peekToken();
++                if (token == null)
++                {
++                    throw new IOException("Unexpected end of file while reading encoding");
++                }
++                if (lexer.peekKind(Token.NAME)
++                        && (token.getText().equals("dup")
++                                || token.getText().equals("readonly")
++                                || token.getText().equals("def")))
++                {
++                    break;
++                }
+                 lexer.nextToken();
+             }
+             
+@@ -637,9 +646,18 @@
+         // some fonts have "2 index" here, others have "end noaccess put"
+         // sometimes followed by "put". Either way, we just skip until
+         // the /CharStrings dict is found
+-        while (!(lexer.peekKind(Token.LITERAL)
+-                && lexer.peekToken().getText().equals("CharStrings")))
+-        {
++        while (true)
++        {
++            peekToken = lexer.peekToken();
++            if (peekToken == null)
++            {
++                throw new IOException("/CharStrings token not found");
++            }
++            if (lexer.peekKind(Token.LITERAL)
++                    && peekToken.getText().equals("CharStrings"))
++            {
++                break;
++            }
+             lexer.nextToken();
+         }
+ 
+
+--- a/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/XrefParser.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/XrefParser.java
+@@ -22,6 +22,7 @@
+ import java.util.HashSet;
+ import java.util.Map;
+ import java.util.Optional;
++import java.util.Set;
+ import java.util.Map.Entry;
+ 
+ import org.apache.logging.log4j.LogManager;
+@@ -98,13 +99,17 @@
+         }
+         document.setStartXref(startXrefOffset);
+         long prev = startXrefOffset;
+-        //lastPrev prevents potential infinite loops in crafted files
+-        long lastPrev = -1;
++        // Set to detect any cycle in the PREV chain
++        Set<Long> prevSet = new HashSet<>();
+         // ---- parse whole chain of xref tables/object streams using PREV reference
+         COSDictionary trailer = null;
+-        while (prev > 0 && prev != lastPrev)
+-        {
+-            lastPrev = prev;
++        while (prev > 0)
++        {
++            if (prevSet.contains(prev))
++            {
++                throw new IOException("/Prev loop detected at offset " + prev);
++            }
++            prevSet.add(prev);
+             // seek to xref table
+             source.seek(prev);
+             // skip white spaces
+@@ -169,10 +174,6 @@
+                     prev = fixedOffset;
+                     trailer.setLong(COSName.PREV, prev);
+                 }
+-            }
+-            if (prev == lastPrev)
+-            {
+-                throw new IOException("/Prev loop at offset " + prev);
+             }
+         }
+         // ---- build valid xrefs out of the xref chain
+
+--- a/pdfbox/src/main/java/org/apache/pdfbox/pdmodel/PDPageTree.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/pdmodel/PDPageTree.java
+@@ -180,6 +180,7 @@
+     private final class PageIterator implements Iterator<PDPage>
+     {
+         private final Queue<COSDictionary> queue = new ArrayDeque<>();
++        private final Set<COSDictionary> visited = new HashSet<>();
+ 
+         private PageIterator(COSDictionary node)
+         {
+@@ -205,20 +206,33 @@
+          */
+         private List<COSDictionary> enqueueKids(COSDictionary node)
+         {
++            if (node == null)
++            {
++                LOG.error("Page skipped due to null node");
++                return Collections.EMPTY_LIST;
++            }
++            
++            if (visited.contains(node))
++            {
++                LOG.warn("Circular reference detected in page tree, skipping node");
++                return Collections.EMPTY_LIST;
++            }
++            visited.add(node);
++            
+             if (isPageTreeNode(node))
+             {
+                 return getKids(node);
+             }
+             else
+             {
+-                if (node != null && COSName.PAGE.equals(node.getCOSName(COSName.TYPE)))
++                if (COSName.PAGE.equals(node.getCOSName(COSName.TYPE)))
+                 {
+                     queue.add(node);
+                 }
+                 else
+                 {
+                     LOG.error("Page skipped due to an invalid or missing type {}",
+-                            () -> (node == null ? "(null)" : node.getCOSName(COSName.TYPE)));
++                            () -> node.getCOSName(COSName.TYPE));
+                 }
+             }
+             return Collections.EMPTY_LIST;
+
+--- a/fontbox/src/main/java/org/apache/fontbox/cff/Type1CharStringParser.java
++++ b/fontbox/src/main/java/org/apache/fontbox/cff/Type1CharStringParser.java
+@@ -46,6 +46,9 @@
+     private static final int TWO_BYTE = 12;
+     private static final int CALLOTHERSUBR = 16;
+     private static final int POP = 17;
++
++    // Maximum recursion depth for CALLSUBR
++    private static final int MAX_RECURSION_DEPTH = 10;
+ 
+     private final String fontName;
+     private String currentGlyph;
+@@ -72,19 +75,24 @@
+     public List<Object> parse(byte[] bytes, List<byte[]> subrs, String glyphName) throws IOException
+     {
+         currentGlyph = glyphName;
+-        return parse(bytes, subrs, new ArrayList<>());
+-    }
+-
+-    private List<Object> parse(byte[] bytes, List<byte[]> subrs, List<Object> sequence)
++        return parse(bytes, subrs, new ArrayList<>(), 0);
++    }
++
++    private List<Object> parse(byte[] bytes, List<byte[]> subrs, List<Object> sequence, int depth)
+             throws IOException
+     {
++        if (depth > MAX_RECURSION_DEPTH)
++        {
++            throw new IOException("Maximum recursion depth exceeded in charstring parsing for glyph '"
++                    + currentGlyph + "' of font " + fontName);
++        }
+         DataInput input = new DataInputByteArray(bytes);
+         while (input.hasRemaining())
+         {
+             int b0 = input.readUnsignedByte();
+             if (b0 == CALLSUBR)
+             {
+-                processCallSubr(subrs, sequence);
++                processCallSubr(subrs, sequence, depth);
+             }
+             else if (b0 == TWO_BYTE && input.peekUnsignedByte(0) == CALLOTHERSUBR)
+             {

@@ -1,0 +1,87 @@
+--- a/src/cmsvirt.c
++++ b/src/cmsvirt.c
+@@ -1094,14 +1094,70 @@
+     nc2 ->ColorantCount = cmsPipelineOutputChannels(v ->Lut);
+ 
+     // Make sure we have proper formatters
+-    cmsChangeBuffersFormat(xform, TYPE_NAMED_COLOR_INDEX,
++    cmsBool formatChanged;
++    cmsUInt32Number inputBytesPerPixel;
++    cmsUInt8Number* inputBuffer = NULL;
++
++    formatChanged = cmsChangeBuffersFormat(xform, TYPE_NAMED_COLOR_INDEX,
+         FLOAT_SH(0) | COLORSPACE_SH(_cmsLCMScolorSpace(v ->ExitColorSpace))
+         | BYTES_SH(2) | CHANNELS_SH(cmsChannelsOfColorSpace(v ->ExitColorSpace)));
+ 
+-    // Apply the transfor to colorants.
++    // Calculate required input buffer size
++    if (formatChanged) {
++        // TYPE_NAMED_COLOR_INDEX expects 2 bytes (cmsUInt16Number)
++        inputBytesPerPixel = 2;
++    } else {
++        // Use existing format's requirements
++        cmsUInt32Number nChan = T_CHANNELS(v->InputFormat);
++        cmsUInt32Number bytesPerSample = T_BYTES(v->InputFormat);
++        
++        // Handle special case for double (BYTES=0)
++        if (bytesPerSample == 0) bytesPerSample = sizeof(cmsUInt64Number);
++        
++        inputBytesPerPixel = nChan * bytesPerSample;
++    }
++
++    // Allocate input buffer
++    inputBuffer = (cmsUInt8Number*)_cmsMalloc(v->ContextID, inputBytesPerPixel);
++    if (inputBuffer == NULL) goto Error;
++
++    // Apply the transform to colorants.
+     for (i=0; i < nColors; i++) {
+-        cmsDoTransform(xform, &i, nc2 ->List[i].DeviceColorant, 1);
+-    }
++        
++        // Populate input buffer based on whether format changed
++        if (formatChanged) {
++            // Write as cmsUInt16Number for TYPE_NAMED_COLOR_INDEX
++            *(cmsUInt16Number*)inputBuffer = (cmsUInt16Number)i;
++        } else {
++            // Populate all channels with the index value in the original format
++            cmsUInt32Number ch, nChan = T_CHANNELS(v->InputFormat);
++            cmsUInt32Number bytesPerSample = T_BYTES(v->InputFormat);
++            
++            if (bytesPerSample == 0) bytesPerSample = sizeof(cmsUInt64Number);
++            
++            for (ch = 0; ch < nChan; ch++) {
++                switch (bytesPerSample) {
++                    case 1:
++                        inputBuffer[ch] = (cmsUInt8Number)(i & 0xFF);
++                        break;
++                    case 2:
++                        ((cmsUInt16Number*)inputBuffer)[ch] = (cmsUInt16Number)(i & 0xFFFF);
++                        break;
++                    case 4:
++                        ((cmsUInt32Number*)inputBuffer)[ch] = i;
++                        break;
++                    case 8:
++                        ((cmsUInt64Number*)inputBuffer)[ch] = (cmsUInt64Number)i;
++                        break;
++                }
++            }
++        }
++        
++        cmsDoTransform(xform, inputBuffer, nc2 ->List[i].DeviceColorant, 1);
++    }
++
++    // Free the allocated buffer
++    _cmsFree(v->ContextID, inputBuffer);
+ 
+     if (!cmsWriteTag(hICC, cmsSigNamedColor2Tag, (void*) nc2)) goto Error;
+     cmsFreeNamedColorList(nc2);
+@@ -1109,6 +1165,9 @@
+     return hICC;
+ 
+ Error:
++    if (inputBuffer != NULL) {
++        _cmsFree(v->ContextID, inputBuffer);
++    }
+     if (hICC != NULL) cmsCloseProfile(hICC);
+     return NULL;
+ }

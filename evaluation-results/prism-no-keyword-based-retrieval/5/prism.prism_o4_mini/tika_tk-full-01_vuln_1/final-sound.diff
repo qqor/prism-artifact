@@ -1,0 +1,83 @@
+--- a/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-microsoft-module/src/main/java/org/apache/tika/parser/microsoft/rtf/RTFEmbObjHandler.java
++++ b/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-microsoft-module/src/main/java/org/apache/tika/parser/microsoft/rtf/RTFEmbObjHandler.java
+@@ -25,6 +25,7 @@
+ import org.apache.commons.io.FilenameUtils;
+ import org.apache.commons.io.IOUtils;
+ import org.apache.commons.io.input.UnsynchronizedByteArrayInputStream;
++import org.apache.tika.parser.ParseContext;
+ import org.apache.commons.io.output.UnsynchronizedByteArrayOutputStream;
+ import org.xml.sax.ContentHandler;
+ import org.xml.sax.SAXException;
+@@ -67,7 +68,7 @@
+     private final EmbeddedDocumentUtil embeddedDocumentUtil;
+     private final UnsynchronizedByteArrayOutputStream os;
+     private final int memoryLimitInKb;
+-
++    private final ParseContext context;
+     private boolean isPictBitmap = false;
+     //high hex cached for writing hexpair chars (data)
+     private int hi = -1;
+@@ -87,6 +88,7 @@
+         this.embeddedDocumentUtil = new EmbeddedDocumentUtil(context);
+         os = UnsynchronizedByteArrayOutputStream.builder().get();
+         this.memoryLimitInKb = memoryLimitInKb;
++        this.context = context;
+     }
+ 
+     protected void startPict() {
+@@ -211,16 +213,24 @@
+             extractObj(bytes, handler, metadata);
+ 
+         } else if (state == EMB_STATE.JAVA_OBJDATA) {
+-            try {
+-                Object obj = new ObjectInputStream(
+-                        UnsynchronizedByteArrayInputStream.builder().setByteArray(bytes)
+-                                .get()).readObject();
+-                metadata.set(RTFMetadata.EMB_CLASS, obj.getClass().getName());
+-                metadata.set(TikaCoreProperties.CONTENT_TYPE_PARSER_OVERRIDE,
+-                        MediaType.text("plain").toString());
+-                extractObj(obj.toString().getBytes(StandardCharsets.UTF_8), handler, metadata);
+-            } catch (ClassNotFoundException e) {
+-                throw new TikaException("Not found", e);
++            RTFParserConfig cfg = context.get(RTFParserConfig.class);
++            if (cfg == null || !cfg.isAllowJavaObjects()) {
++                // Deserialization disabled: treat as raw data
++                metadata.set(RTFMetadata.EMB_CLASS, "application/octet-stream");
++                extractObj(bytes, handler, metadata);
++            } else {
++                try {
++                    Object obj = new ObjectInputStream(
++                            UnsynchronizedByteArrayInputStream.builder().setByteArray(bytes)
++                                    .get()).readObject();
++                    metadata.set(RTFMetadata.EMB_CLASS, obj.getClass().getName());
++                    metadata.set(TikaCoreProperties.CONTENT_TYPE_PARSER_OVERRIDE,
++                            MediaType.text("plain").toString());
++                    extractObj(obj.toString().getBytes(StandardCharsets.UTF_8),
++                            handler, metadata);
++                } catch (ClassNotFoundException | IOException e) {
++                    EmbeddedDocumentUtil.recordException(e, metadata);
++                }
+             }
+         } else if (state == EMB_STATE.NADA) {
+             //swallow...no start for pict or embed?!
+@@ -283,4 +293,20 @@
+         JAVA_OBJDATA, //recording java obj data
+         NADA
+     }
++    /**
++     * Controls whether embedded Java objects are deserialized.
++     */
++    public static class RTFParserConfig {
++        private boolean allowJavaObjects = false;
++
++        /** Enable parsing of embedded Java serialized objects. */
++        public void setAllowJavaObjects(boolean allowJavaObjects) {
++            this.allowJavaObjects = allowJavaObjects;
++        }
++
++        /** Returns true if embedded Java object deserialization is enabled. */
++        public boolean isAllowJavaObjects() {
++            return allowJavaObjects;
++        }
++    }
+ }

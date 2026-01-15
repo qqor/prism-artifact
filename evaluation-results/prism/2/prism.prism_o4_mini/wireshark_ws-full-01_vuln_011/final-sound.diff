@@ -1,0 +1,41 @@
+--- a/epan/dissectors/packet-aim.c
++++ b/epan/dissectors/packet-aim.c
+@@ -581,16 +581,28 @@
+ static int
+ aim_get_buddyname(wmem_allocator_t *pool, uint8_t **name, tvbuff_t *tvb, int offset)
+ {
+-	uint16_t buddyname_length;
+-
+-	*name = wmem_alloc(pool, 256);
+-
+-	buddyname_length = tvb_get_ntohs(tvb, offset);
+-
+-	if (pool)
+-		memcpy(*name, tvb_get_ptr(tvb,offset,1), buddyname_length);
+-
+-	return buddyname_length;
++    guint16 raw_len;
++    gint    copy_len;
++    const guint8 *src;
++
++    /* Read and clamp length field to buffer size (255) */
++    raw_len = tvb_get_ntohs(tvb, offset);
++    copy_len = raw_len > 255 ? 255 : raw_len;
++
++    /* Ensure the tvbuff has enough data after the 2-byte length */
++    if (!tvb_bytes_exist(tvb, offset + 2, copy_len)) {
++        *name = wmem_strdup_printf(pool, "<truncated:%u>", raw_len);
++        return 0;
++    }
++
++    /* Allocate 256 bytes: 255 for name + 1 for null terminator */
++    *name = wmem_alloc(pool, 256);
++
++    src = tvb_get_ptr(tvb, offset + 2, copy_len);
++    memcpy(*name, src, copy_len);
++    (*name)[copy_len] = '\0';
++
++    return copy_len;
+ }
+ 
+ 

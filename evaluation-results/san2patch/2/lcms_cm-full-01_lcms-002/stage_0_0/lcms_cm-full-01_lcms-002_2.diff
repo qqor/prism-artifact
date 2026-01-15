@@ -1,0 +1,50 @@
+diff --git a/src/cmspack.c b/src/cmspack.c
+index 3e9d23f..e53ce20 100644
+--- a/src/cmspack.c
++++ b/src/cmspack.c
+@@ -105,6 +105,13 @@ cmsUInt8Number* UnrollChunkyBytes(CMSREGISTER _cmsTRANSFORM* info,
+     cmsUInt32Number Extra      = T_EXTRA(info -> InputFormat);
+     cmsUInt32Number Premul     = T_PREMUL(info->InputFormat);
+ 
++    /* Determine safe unpack limit */
++    cmsUInt32Number limit = (nChan > MAX_CHANS) ? MAX_CHANS : nChan;
++    if (nChan > MAX_CHANS) {
++        /* warn about truncation */
++        cmsSignalError(info->ContextID, cmsERROR_RANGE, "Channel count truncated for unpack");
++    }
++
+     cmsUInt32Number ExtraFirst = DoSwap ^ SwapFirst;
+     cmsUInt32Number v;
+     cmsUInt32Number i;  
+@@ -123,9 +130,10 @@ cmsUInt8Number* UnrollChunkyBytes(CMSREGISTER _cmsTRANSFORM* info,
+             alpha_factor = _cmsToFixedDomain(FROM_8_TO_16(accum[nChan]));
+     }
+ 
+-    for (i=0; i < nChan; i++) {
++    for (i=0; i < limit; i++) {
+ 
+-        cmsUInt32Number index = DoSwap ? (nChan - i - 1) : i;
++// FIXME: Crash CWE-125: Out-of-bounds Read avoided by limit
++         cmsUInt32Number index = DoSwap ? (limit - i - 1) : i;
+ 
+         v = FROM_8_TO_16(*accum);
+         v = Reverse ? REVERSE_FLAVOR_16(v) : v;
+@@ -147,8 +155,8 @@ cmsUInt8Number* UnrollChunkyBytes(CMSREGISTER _cmsTRANSFORM* info,
+     if (Extra == 0 && SwapFirst) {
+         cmsUInt16Number tmp = wIn[0];
+ 
+-        memmove(&wIn[0], &wIn[1], (nChan-1) * sizeof(cmsUInt16Number));
+-        wIn[nChan-1] = tmp;
++        memmove(&wIn[0], &wIn[1], (limit-1) * sizeof(cmsUInt16Number));
++        wIn[limit-1] = tmp;
+     }
+ 
+     return accum;
+@@ -159,6 +167,7 @@ cmsUInt8Number* UnrollChunkyBytes(CMSREGISTER _cmsTRANSFORM* info,
+ }
+ 
+ 
++
+ // Extra channels are just ignored because come in the next planes
+ static
+ cmsUInt8Number* UnrollPlanarBytes(CMSREGISTER _cmsTRANSFORM* info,

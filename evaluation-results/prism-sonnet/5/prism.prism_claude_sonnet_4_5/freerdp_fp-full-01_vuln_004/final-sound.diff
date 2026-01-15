@@ -1,0 +1,41 @@
+--- a/libfreerdp/core/gcc.c
++++ b/libfreerdp/core/gcc.c
+@@ -1854,16 +1854,23 @@
+ 	if (blockLength < 4)
+ 		return FALSE;
+ 
+-	Stream_Read_UINT8(s, mcs->channelCount); /* channelCount */
+-
+-	if (blockLength < 4 + (UINT8)mcs->channelCount * 12)
+-		return FALSE;
+-
+-	if (mcs->channelCount > CHANNEL_MAX_COUNT)
++	UINT32 channelCount = 0;
++	Stream_Read_UINT32(s, channelCount); /* channelCount */
++
++	if (blockLength < 4 + channelCount * 12)
++		return FALSE;
++
++	if (channelCount > CHANNEL_MAX_COUNT)
++	{
++		WLog_ERR(TAG, "requested %" PRIu32 " channels > CHANNEL_MAX_COUNT(31)", channelCount);
++		return FALSE;
++	}
++
++	if (!Stream_CheckAndLogRequiredLengthOfSize(TAG, s, channelCount, 12ull))
+ 		return FALSE;
+ 
+ 	/* channelDefArray */
+-	for (UINT32 i = 0; i < mcs->channelCount; i++)
++	for (UINT32 i = 0; i < channelCount; i++)
+ 	{
+ 		/**
+ 		 * CHANNEL_DEF
+@@ -1886,6 +1893,7 @@
+ 		channel->ChannelId = mcs->baseChannelId++;
+ 	}
+ 
++	mcs->channelCount = (INT8)channelCount;
+ 	return TRUE;
+ }
+ 

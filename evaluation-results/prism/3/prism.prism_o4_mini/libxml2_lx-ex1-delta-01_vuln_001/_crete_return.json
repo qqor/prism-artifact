@@ -1,0 +1,14 @@
+{
+  "project_name": "libxml2",
+  "vulnerability_identifier": "libxml2_lx-ex1-delta-01_vuln_001",
+  "source_directory": "/home/qqor/crete/.cache/official-afc-libxml2",
+  "llm_usage": {
+    "total_cost": 0.5886474000000002,
+    "prompt_tokens": 303874,
+    "completion_tokens": 57815
+  },
+  "variant": "sound",
+  "diff": "--- a/HTMLparser.c\n+++ b/HTMLparser.c\n@@ -3574,10 +3574,17 @@\n         chunkSize = in - chunk;\n         extraSize = chunkSize + replSize;\n \n-        if (extraSize > buffer_size) {\n+        /* Enforce overall comment length limit before any memcpy */\n+        if ((size_t)used + extraSize > (size_t)maxLength) {\n+            htmlParseErr(ctxt, XML_ERR_RESOURCE_LIMIT,\n+                         \"comment too long\\n\", NULL, NULL);\n+            goto error;\n+        }\n+\n+        /* Ensure there is enough buffer space for the new data */\n+        if (used + extraSize > buffer_size) {\n             size_t newSize = (used + extraSize) * 2;\n             xmlChar *tmp = (xmlChar *) xmlRealloc(buffer, newSize + 1);\n-\n             if (tmp == NULL) {\n                 htmlErrMemory(ctxt);\n                 goto error;\n@@ -3598,7 +3605,29 @@\n             used += replSize;\n         }\n \n-        SHRINK;\n+        /* Append chunk and replacement with bounds and length checks */\n+        if ((size_t)used + chunkSize + replSize > (size_t)maxLength) {\n+            htmlParseErr(ctxt, XML_ERR_RESOURCE_LIMIT,\n+                         \"comment too long\\n\", NULL, NULL);\n+            goto error;\n+        }\n+        if (used + chunkSize + replSize > buffer_size) {\n+            size_t newSize = (used + chunkSize + replSize) * 2;\n+            xmlChar *tmp = (xmlChar *) xmlRealloc(buffer, newSize + 1);\n+            if (tmp == NULL) {\n+                htmlErrMemory(ctxt);\n+                goto error;\n+            }\n+            buffer = tmp;\n+            buffer_size = newSize;\n+        }\n+        memcpy(buffer + used, chunk, chunkSize);\n+        used += chunkSize;\n+        if (replSize > 0) {\n+            memcpy(buffer + used, repl, replSize);\n+            used += replSize;\n+        }\n+        buffer[used] = 0;\n \n         if (termSkip >= 0)\n             break;\n",
+  "stdout": "",
+  "stderr": ""
+}

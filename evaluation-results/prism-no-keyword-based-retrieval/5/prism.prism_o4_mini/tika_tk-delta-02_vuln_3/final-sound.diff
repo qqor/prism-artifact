@@ -1,0 +1,51 @@
+--- a/tika-core/src/main/java/org/apache/tika/io/TikaInputStream.java
++++ b/tika-core/src/main/java/org/apache/tika/io/TikaInputStream.java
+@@ -566,6 +566,8 @@
+      * @return a TikaInputStream instance
+      * @throws IOException if the resource can not be accessed
+      */
++    // SSRF Protection: context-based flag for allowing HTTP(S) fetches
++    public static final Class<Boolean> ALLOW_REMOTE_STREAMS = Boolean.class;
+     public static TikaInputStream get(URL url) throws IOException {
+         return get(url, new Metadata());
+     }
+@@ -583,6 +585,27 @@
+      * @throws IOException if the resource can not be accessed
+      */
+     public static TikaInputStream get(URL url, Metadata metadata) throws IOException {
++        return get(url, metadata, new org.apache.tika.parser.ParseContext());
++    }
++
++    /**
++     * Creates a TikaInputStream from the resource at the given URL, with ParseContext support.
++     *
++     * @param url      resource URL
++     * @param metadata metadata instance
++     * @param context  parse context carrying ALLOW_REMOTE_STREAMS flag
++     * @return a TikaInputStream instance
++     * @throws IOException if the resource cannot be accessed or SSRF protection triggers
++     */
++    public static TikaInputStream get(URL url, Metadata metadata, org.apache.tika.parser.ParseContext context) throws IOException {
++        // SSRF Protection: block HTTP(S) fetches by default unless allowed in context
++        String protocol = url.getProtocol();
++        if ("http".equalsIgnoreCase(protocol) || "https".equalsIgnoreCase(protocol)) {
++            Boolean allow = context.get(ALLOW_REMOTE_STREAMS);
++            if (allow == null || !allow) {
++                throw new IOException("Remote resource fetching disabled for SSRF protection: " + url);
++            }
++        }
+         // Special handling for file:// URLs
+         if ("file".equalsIgnoreCase(url.getProtocol())) {
+             try {
+
+--- a/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-audiovideo-module/src/main/java/org/apache/tika/parser/m3/M3U8Parser.java
++++ b/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-audiovideo-module/src/main/java/org/apache/tika/parser/m3/M3U8Parser.java
+@@ -167,7 +167,7 @@
+         EmbeddedDocumentExtractor ex = EmbeddedDocumentUtil.getEmbeddedDocumentExtractor(context);
+         Metadata m = new Metadata();
+         if (ex.shouldParseEmbedded(m)) {
+-            try (TikaInputStream tis = TikaInputStream.get(new URL(nextLine))) {
++            try (TikaInputStream tis = TikaInputStream.get(new URL(nextLine), metadata, context)) {
+                 ex.parseEmbedded(tis, new BodyContentHandler(new EmbeddedContentHandler(xhtml)), m,
+                         true);
+             }

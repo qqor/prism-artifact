@@ -1,0 +1,46 @@
+--- a/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-text-module/src/main/java/org/apache/tika/parser/csv/TextAndCSVConfig.java
++++ b/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-text-module/src/main/java/org/apache/tika/parser/csv/TextAndCSVConfig.java
+@@ -19,6 +19,7 @@
+ import java.io.Serializable;
+ import java.util.HashMap;
+ import java.util.Map;
++import org.apache.tika.config.Field;
+ 
+ public class TextAndCSVConfig implements Serializable {
+ 
+@@ -55,4 +56,20 @@
+         nameToDelimiterMap.entrySet()
+                           .forEach(e -> delimiterToNameMap.put(e.getValue(), e.getKey()));
+     }
++
++    /**
++     * Whether to fetch and parse remote resources referenced by =HYPERLINK formulas.
++     * Default is false to prevent SSRF.
++     */
++    @Field
++    private boolean fetchRemoteResources = false;
++
++    public boolean isFetchRemoteResources() {
++        return fetchRemoteResources;
++    }
++
++    @Field
++    public void setFetchRemoteResources(boolean fetchRemoteResources) {
++        this.fetchRemoteResources = fetchRemoteResources;
++    }
+ }
+
+--- a/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-text-module/src/main/java/org/apache/tika/parser/csv/TextAndCSVParser.java
++++ b/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-text-module/src/main/java/org/apache/tika/parser/csv/TextAndCSVParser.java
+@@ -258,7 +258,10 @@
+             xhtml.startElement("a", "href", url);
+             xhtml.characters(name);
+             xhtml.endElement("a");
+-            processURL(url, name, xhtml, metadata, context);
++            TextAndCSVConfig config = context.get(TextAndCSVConfig.class, defaultTextAndCSVConfig);
++            if (config.isFetchRemoteResources()) {
++                processURL(url, name, xhtml, metadata, context);
++            }
+         } else {
+             xhtml.characters(cellContent);
+         }

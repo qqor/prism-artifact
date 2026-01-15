@@ -1,0 +1,45 @@
+diff --git a/epan/dissectors/packet-netbios.c b/epan/dissectors/packet-netbios.c
+index 5ea85c7df4..b2b4d59759 100644
+--- a/epan/dissectors/packet-netbios.c
++++ b/epan/dissectors/packet-netbios.c
+@@ -295,8 +295,6 @@ process_netbios_name(const unsigned char *name_ptr, char *name_ret, int name_ret
+ 			if (--name_ret_len > 0)
+ 				*name_ret++ = name_char;
+ 		} else {
+-			/* It's not printable; show it as <XX>, where
+-			   XX is the value in hex. */
+ 			if (--name_ret_len > 0)
+ 				*name_ret++ = '<';
+ 			if (--name_ret_len > 0)
+@@ -309,16 +307,22 @@ process_netbios_name(const unsigned char *name_ptr, char *name_ret, int name_ret
+ 	}
+ 	*name_ret = '\0';
+ 
+-	/* Remove trailing space characters from name. */
+-
+-	name_ret--;
+-
+-	while (name_ret >= name_ret_orig) {
+-		if (*name_ret != ' ') {
+-			*(name_ret + 1) = 0;
+-			break;
++	/* Compute how many bytes were written without pointer arithmetic beyond buffer */
++	{
++		int written = (int)(name_ret - name_ret_orig);
++		if (written <= 0) {
++		    /* Nothing to trim */
++		    return name_type;
++		}
++		/* Trim trailing spaces by index */
++		int idx = written - 1;
++		while (idx >= 0) {
++			if (name_ret_orig[idx] != ' ') {
++				name_ret_orig[idx + 1] = '\0';
++				break;
++			}
++			idx--;
+ 		}
+-		name_ret--;
+ 	}
+ 
+ 	return name_type;

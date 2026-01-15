@@ -1,0 +1,34 @@
+diff --git a/src/json.c b/src/json.c
+index cf6bc57b..5303c7ee 100644
+--- a/src/json.c
++++ b/src/json.c
+@@ -16,6 +16,10 @@ static char json_esc(int c, int esc) {
+ 
+ static int mg_pass_string(const char *s, int len) {
+   int i;
++  const int max_len = 4096; /* Rationale: impose an upper bound on string length */
++  if (len > max_len) {
++    len = max_len;
++  }
+   for (i = 0; i < len; i++) {
+     if (s[i] == '\\' && i + 1 < len && json_esc(s[i + 1], 1)) {
+       i++;
+@@ -173,7 +177,8 @@ int mg_json_get(struct mg_str json, const char *path, int *toklen) {
+           expecting = S_KEY;
+           break;
+         } else if (c == '[') {
+-          if (depth > MG_JSON_MAX_NESTING) return MG_JSON_TOO_DEEP;
++          /* Stronger guard: reject at or beyond limit */
++          if (depth >= MG_JSON_MAX_NESTING) return MG_JSON_TOO_DEEP;
+           if (depth == ed && path[pos] == '[' && ei == ci) {
+             ed++, pos++, ci = 0;
+             for (ei = 0; path[pos] != ']' && path[pos] != '\0'; pos++) {
+@@ -182,6 +187,8 @@ int mg_json_get(struct mg_str json, const char *path, int *toklen) {
+             }
+             if (path[pos] != 0) pos++;
+           }
++          /* Double-check before write */
++          if (depth + 1 > MG_JSON_MAX_NESTING) return MG_JSON_TOO_DEEP;
+           nesting[depth++] = c;
+           break;
+         } else if (c == ']' && depth > 0) {  // Empty array

@@ -1,0 +1,38 @@
+diff --git a/src/json.c b/src/json.c
+index 2a91900..36df771 100644
+--- a/src/json.c
++++ b/src/json.c
+@@ -303,20 +303,22 @@ json_value * json_parse_ex (json_settings * settings,
+                   case 't':  string_add ('\t');  break;
+                   case 'u':
+ 
+-                    if (end - state.ptr < 4 || 
+-                        (uc_b1 = hex_value (*++ state.ptr)) == 0xFF ||
+-                        (uc_b2 = hex_value (*++ state.ptr)) == 0xFF ||
+-                        (uc_b3 = hex_value (*++ state.ptr)) == 0xFF ||
+-                        (uc_b4 = hex_value (*++ state.ptr)) == 0xFF)
++                    /* Macro-assisted bound-checked hex reads */
+                     {
+-                        sprintf (error, "Invalid character value `%c` (at %d:%d)", b, line_and_col);
+-                        goto e_failed;
++#define ADVHEX(p,var) do { if (++(p) >= end) { sprintf(error,"Invalid character value `%c` (at %d:%d)",b,line_and_col); goto e_failed; } var = hex_value(*p); if (var==0xFF) { sprintf(error,"Invalid character value `%c` (at %d:%d)",b,line_and_col); goto e_failed; } } while(0)
++                        const char *p = state.ptr;
++                        unsigned h1, h2, h3, h4;
++                        ADVHEX(p,h1);
++                        ADVHEX(p,h2);
++                        ADVHEX(p,h3);
++                        ADVHEX(p,h4);
++                        state.ptr = p;
++                        uc_b1 = (h1 << 4) | h2;
++                        uc_b2 = (h3 << 4) | h4;
++                        uchar = (uc_b1 << 8) | uc_b2;
++#undef ADVHEX
+                     }
+ 
+-                    uc_b1 = (uc_b1 << 4) | uc_b2;
+-                    uc_b2 = (uc_b3 << 4) | uc_b4;
+-                    uchar = (uc_b1 << 8) | uc_b2;
+-
+                     if ((uchar & 0xF800) == 0xD800) {
+                         json_uchar uchar2;
+                         

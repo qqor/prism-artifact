@@ -1,0 +1,83 @@
+--- a/libexif/apple/exif-mnote-data-apple.c
++++ b/libexif/apple/exif-mnote-data-apple.c
+@@ -84,12 +84,16 @@
+ 
+     tcount = (unsigned int) exif_get_short(buf + ofs + 14, d->order);
+ 
+-    /* Sanity check the offset */
+-    if (buf_size < 6 + 16 + tcount * 6 + 4) {
+-        exif_log(md->log, EXIF_LOG_CODE_CORRUPT_DATA,
+-                 "ExifMnoteDataApple", "Short MakerNote");
+-        /*printf("%s(%d)\n", __FUNCTION__, __LINE__);*/
+-        return;
++    /* Sanity check the initial header and directory entries size */
++    {
++        const size_t header_size = ofs + 16;
++        const size_t entry_size = 12;
++        size_t required = header_size + tcount * entry_size;
++        if (buf_size < required) {
++            exif_log(md->log, EXIF_LOG_CODE_CORRUPT_DATA,
++                     "ExifMnoteDataApple", "Short MakerNote");
++            return;
++        }
+     }
+ 
+     /* printf("%s(%d): total %d tags\n", __FUNCTION__, __LINE__, tcount); */
+@@ -107,25 +111,44 @@
+     }
+ 
+     for (i = 0; i < tcount; i++) {
+-        d->entries[i].tag = exif_get_short(buf + ofs, d->order);
+-        d->entries[i].format = exif_get_short(buf + ofs + 2, d->order);
+-        d->entries[i].components = exif_get_long(buf + ofs + 4, d->order);
++        const size_t entry_size = 12;
++        size_t pos = ofs + i * entry_size;
++        /* Per-entry bounds check */
++        if (pos + entry_size > buf_size) {
++            exif_log(md->log, EXIF_LOG_CODE_CORRUPT_DATA,
++                     "ExifMnoteDataApple", "Directory entry %u out of bounds", i);
++            return;
++        }
++        d->entries[i].tag = exif_get_short(buf + pos, d->order);
++        d->entries[i].format = exif_get_short(buf + pos + 2, d->order);
++        d->entries[i].components = exif_get_long(buf + pos + 4, d->order);
+         d->entries[i].order = d->order;
+         dsize = exif_format_get_size(d->entries[i].format) * d->entries[i].components;
++        size_t dofs;
+         if (dsize > 4) {
+-            dofs = d->offset + exif_get_long(buf + ofs + 8, d->order);
++            dofs = d->offset + exif_get_long(buf + pos + 8, d->order);
++            /* MakerNote payload bounds check */
++            if (dofs > buf_size || dsize > buf_size - dofs) {
++                exif_log(md->log, EXIF_LOG_CODE_CORRUPT_DATA,
++                         "ExifMnoteDataApple",
++                         "MakerNote payload out of bounds (offset=%zu size=%u buf_size=%zu)",
++                         dofs, dsize, buf_size);
++                continue;
++            }
+         } else {
+-            dofs = ofs + 8;
+-        }
+-	if (dofs > buf_size) {
+-		exif_log (md->log, EXIF_LOG_CODE_CORRUPT_DATA,
+-                                  "ExifMnoteApplet", "Tag size overflow detected (%u vs size %u)", dofs, buf_size);
+-		continue;
+-	}
+-        ofs += 12;
++            dofs = pos + 8;
++            /* MakerNote small payload bounds check */
++            if (dofs + dsize > buf_size) {
++                exif_log(md->log, EXIF_LOG_CODE_CORRUPT_DATA,
++                         "ExifMnoteDataApple",
++                         "MakerNote small payload out of bounds (offset=%zu size=%u buf_size=%zu)",
++                         dofs, dsize, buf_size);
++                continue;
++            }
++        }
+         d->entries[i].data = exif_mem_alloc(md->mem, dsize);
+         if (!d->entries[i].data) {
+-            EXIF_LOG_NO_MEMORY(md->log, "ExifMnoteApple", dsize);
++            EXIF_LOG_NO_MEMORY(md->log, "ExifMnoteDataApple", dsize);
+             continue;
+         }
+         memcpy(d->entries[i].data, buf + dofs, dsize);

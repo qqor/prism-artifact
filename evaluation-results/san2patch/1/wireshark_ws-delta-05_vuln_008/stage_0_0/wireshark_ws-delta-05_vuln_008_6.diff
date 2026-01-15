@@ -1,0 +1,40 @@
+diff --git a/epan/dissectors/packet-netbios.c b/epan/dissectors/packet-netbios.c
+index 5ea85c7df4..688538fbb1 100644
+--- a/epan/dissectors/packet-netbios.c
++++ b/epan/dissectors/packet-netbios.c
+@@ -280,23 +280,29 @@ capture_netbios(const unsigned char *pd _U_, int offset _U_, int len _U_, captur
+ }
+ 
+ 
++#include <string.h>
+ int
+ process_netbios_name(const unsigned char *name_ptr, char *name_ret, int name_ret_len)
+ {
+ 	int    i;
+-	int    name_type = *(name_ptr + NETBIOS_NAME_LEN - 1);
++	int    name_type;
+ 	unsigned char name_char;
+ 	char  *name_ret_orig = name_ret;
+ 	static const char hex_digits[16] = {'0','1','2','3','4','5','6','7','8','9','a','b','c','d','e','f'};
+-
+-	for (i = 0; i < NETBIOS_NAME_LEN - 1; i++) {
+-		name_char = *name_ptr++;
++	/* Use strnlen to avoid reading past NETBIOS_NAME_LEN */
++	size_t actual_len = strnlen((const char *)name_ptr, NETBIOS_NAME_LEN);
++	if (actual_len < NETBIOS_NAME_LEN)
++		name_type = name_ptr[actual_len - 1];
++	else
++		name_type = name_ptr[NETBIOS_NAME_LEN - 1];
++
++	for (i = 0; i < (int)actual_len - 1; i++) {
++		name_char = name_ptr[i];
+ 		if (name_char >= ' ' && name_char <= '~') {
+ 			if (--name_ret_len > 0)
+ 				*name_ret++ = name_char;
+ 		} else {
+-			/* It's not printable; show it as <XX>, where
+-			   XX is the value in hex. */
++			/* It's not printable; show it as <XX>, where XX is the value in hex. */
+ 			if (--name_ret_len > 0)
+ 				*name_ret++ = '<';
+ 			if (--name_ret_len > 0)

@@ -1,0 +1,141 @@
+--- a/poi/src/main/java/org/apache/poi/ss/formula/functions/MultiOperandNumericFunction.java
++++ b/poi/src/main/java/org/apache/poi/ss/formula/functions/MultiOperandNumericFunction.java
+@@ -38,6 +38,48 @@
+  * where the order of operands does not matter
+  */
+ public abstract class MultiOperandNumericFunction implements Function {
++
++    /**
++     * Default maximum number of cell value evaluations allowed during collection.
++     * This prevents timeout issues when processing extremely large ranges during fuzzing.
++     * Set conservatively to balance legitimate use cases with resource constraints.
++     */
++    private static final int DEFAULT_MAX_COLLECT_ITERATIONS = 100000;
++
++    /**
++     * Maximum number of cell value evaluations allowed during value collection.
++     * Can be configured via system property "poi.formula.max.collect.iterations".
++     */
++    private static int MAX_COLLECT_ITERATIONS = DEFAULT_MAX_COLLECT_ITERATIONS;
++
++    static {
++        try {
++            String propertyValue = System.getProperty("poi.formula.max.collect.iterations");
++            if (propertyValue != null) {
++                setMaxCollectIterations(Integer.parseInt(propertyValue));
++            }
++        } catch (NumberFormatException e) {
++            // Ignore and use default value
++        }
++    }
++
++    /**
++     * Sets the maximum number of iterations allowed during value collection.
++     * 
++     * @param maxIterations the maximum number of iterations
++     */
++    public static void setMaxCollectIterations(int maxIterations) {
++        MAX_COLLECT_ITERATIONS = maxIterations;
++    }
++
++    /**
++     * Gets the maximum number of iterations allowed during value collection.
++     * 
++     * @return the maximum number of iterations
++     */
++    public static int getMaxCollectIterations() {
++        return MAX_COLLECT_ITERATIONS;
++    }
+     public enum Policy {COERCE, SKIP, ERROR}
+ 
+     private interface EvalConsumer<T, R> {
+@@ -141,11 +183,15 @@
+     private void collectValues(ValueEval operand, DoubleList temp) throws EvaluationException {
+         if (operand instanceof ThreeDEval) {
+             ThreeDEval ae = (ThreeDEval) operand;
++            int iterationCount = 0;
+             for (int sIx = ae.getFirstSheetIndex(); sIx <= ae.getLastSheetIndex(); sIx++) {
+                 int width = ae.getWidth();
+                 int height = ae.getHeight();
+                 for (int rrIx = 0; rrIx < height; rrIx++) {
+                     for (int rcIx = 0; rcIx < width; rcIx++) {
++                        if (++iterationCount > MAX_COLLECT_ITERATIONS) {
++                            throw EvaluationException.numberError();
++                        }
+                         ValueEval ve = ae.getValue(sIx, rrIx, rcIx);
+                         if (!isSubtotalCounted() && ae.isSubTotal(rrIx, rcIx)) continue;
+                         if (!isHiddenRowCounted() && ae.isRowHidden(rrIx)) continue;
+@@ -159,8 +205,12 @@
+             TwoDEval ae = (TwoDEval) operand;
+             int width = ae.getWidth();
+             int height = ae.getHeight();
++            int iterationCount = 0;
+             for (int rrIx = 0; rrIx < height; rrIx++) {
+                 for (int rcIx = 0; rcIx < width; rcIx++) {
++                    if (++iterationCount > MAX_COLLECT_ITERATIONS) {
++                        throw EvaluationException.numberError();
++                    }
+                     ValueEval ve = ae.getValue(rrIx, rcIx);
+                     if (!isSubtotalCounted() && ae.isSubTotal(rrIx, rcIx)) continue;
+                     collectValue(ve, !treatStringsAsZero(), temp);
+
+--- a/poi/src/main/java/org/apache/poi/ss/formula/functions/ArrayFunctionUtils.java
++++ b/poi/src/main/java/org/apache/poi/ss/formula/functions/ArrayFunctionUtils.java
+@@ -32,6 +32,28 @@
+ 
+ final class ArrayFunctionUtils {
+ 
++    /**
++     * Default maximum number of cell value evaluations allowed during collection.
++     */
++    private static final int DEFAULT_MAX_COLLECT_ITERATIONS = 100000;
++
++    /**
++     * Maximum number of cell value evaluations allowed during value collection.
++     * Can be configured via system property "poi.formula.max.collect.iterations".
++     */
++    private static int MAX_COLLECT_ITERATIONS = DEFAULT_MAX_COLLECT_ITERATIONS;
++
++    static {
++        try {
++            String propertyValue = System.getProperty("poi.formula.max.collect.iterations");
++            if (propertyValue != null) {
++                MAX_COLLECT_ITERATIONS = Integer.parseInt(propertyValue);
++            }
++        } catch (NumberFormatException e) {
++            // Ignore and use default value
++        }
++    }
++
+     static List<DoubleList> getNumberArrays(ValueEval operand0, ValueEval operand1) throws EvaluationException {
+         double[] retval0 = collectValuesWithBlanks(operand0).toArray();
+         double[] retval1 = collectValuesWithBlanks(operand1).toArray();
+@@ -56,11 +78,15 @@
+         DoubleList doubleList = new DoubleList();
+         if (operand instanceof ThreeDEval) {
+             ThreeDEval ae = (ThreeDEval) operand;
++            int iterationCount = 0;
+             for (int sIx = ae.getFirstSheetIndex(); sIx <= ae.getLastSheetIndex(); sIx++) {
+                 int width = ae.getWidth();
+                 int height = ae.getHeight();
+                 for (int rrIx = 0; rrIx < height; rrIx++) {
+                     for (int rcIx = 0; rcIx < width; rcIx++) {
++                        if (++iterationCount > MAX_COLLECT_ITERATIONS) {
++                            throw EvaluationException.numberError();
++                        }
+                         ValueEval ve = ae.getValue(sIx, rrIx, rcIx);
+                         Double d = collectValue(ve);
+                         if (d == null) {
+@@ -77,8 +103,12 @@
+             TwoDEval ae = (TwoDEval) operand;
+             int width = ae.getWidth();
+             int height = ae.getHeight();
++            int iterationCount = 0;
+             for (int rrIx = 0; rrIx < height; rrIx++) {
+                 for (int rcIx = 0; rcIx < width; rcIx++) {
++                    if (++iterationCount > MAX_COLLECT_ITERATIONS) {
++                        throw EvaluationException.numberError();
++                    }
+                     ValueEval ve = ae.getValue(rrIx, rcIx);
+                     Double d = collectValue(ve);
+                     if (d == null) {

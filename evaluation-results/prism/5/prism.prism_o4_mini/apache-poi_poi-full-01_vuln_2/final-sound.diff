@@ -1,0 +1,59 @@
+--- a/poi/src/main/java/org/apache/poi/poifs/dev/POIFSDump.java
++++ b/poi/src/main/java/org/apache/poi/poifs/dev/POIFSDump.java
+@@ -22,7 +22,9 @@
+ import java.io.OutputStream;
+ import java.nio.ByteBuffer;
+ import java.nio.file.Files;
++import java.nio.file.Path;
+ import java.nio.file.Paths;
++import java.nio.file.StandardOpenOption;
+ import java.util.Iterator;
+ 
+ import org.apache.poi.poifs.common.POIFSConstants;
+@@ -42,6 +44,19 @@
+ public final class POIFSDump {
+ 
+     private POIFSDump() {}
++
++    /**
++     * Resolves childName against parentDir, normalizes the result, and ensures
++     * the normalized path does not escape parentDir. Throws IOException on traversal.
++     */
++    private static File safeChildFile(File parentDir, String childName) throws IOException {
++        Path parentPath = parentDir.toPath().toAbsolutePath().normalize();
++        Path childPath  = parentPath.resolve(childName).normalize();
++        if (!childPath.startsWith(parentPath)) {
++            throw new IOException("Invalid entry name (path traversal): " + childName);
++        }
++        return childPath.toFile();
++    }
+ 
+     public static void main(String[] args) throws IOException {
+         if (args.length == 0) {
+@@ -105,13 +120,22 @@
+                 try (DocumentInputStream is = new DocumentInputStream(node)) {
+                    bytes = IOUtils.toByteArray(is);
+                 }
+-                try (OutputStream out = Files.newOutputStream(new File(parent, node.getName().trim()).toPath())) {
+-                    out.write(bytes);
++                String entryName = node.getName().trim();
++                File file = safeChildFile(parent, entryName);
++                File fileParent = file.getParentFile();
++                if (fileParent != null && !fileParent.exists()) {
++                    if (!fileParent.mkdirs()) {
++                        throw new IOException("Could not create parent directories: " + fileParent);
++                    }
+                 }
++                Files.write(file.toPath(), bytes,
++                            StandardOpenOption.CREATE,
++                            StandardOpenOption.WRITE);
+             } else if (entry instanceof DirectoryEntry){
+                 DirectoryEntry dir = (DirectoryEntry)entry;
+-                File file = new File(parent, entry.getName());
+-                if(!file.exists() && !file.mkdirs()) {
++                String dirName = entry.getName();
++                File file = safeChildFile(parent, dirName);
++                if (!file.exists() && !file.mkdirs()) {
+                     throw new IOException("Could not create directory " + file);
+                 }
+                 dump(dir, file);

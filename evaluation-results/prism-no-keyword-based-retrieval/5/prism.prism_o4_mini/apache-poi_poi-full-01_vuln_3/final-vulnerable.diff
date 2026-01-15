@@ -1,0 +1,75 @@
+--- a/poi/src/main/java/org/apache/poi/hssf/usermodel/HSSFWorkbook.java
++++ b/poi/src/main/java/org/apache/poi/hssf/usermodel/HSSFWorkbook.java
+@@ -20,6 +20,10 @@
+ import static org.apache.logging.log4j.util.Unbox.box;
+ import static org.apache.poi.hssf.model.InternalWorkbook.BOOK;
+ import static org.apache.poi.hssf.model.InternalWorkbook.OLD_WORKBOOK_DIR_ENTRY_NAME;
++import java.util.Set;
++import java.util.Arrays;
++import org.apache.poi.poifs.filesystem.POIFSFileSystem;
++import org.apache.poi.poifs.filesystem.FileMagic;
+ import static org.apache.poi.hssf.model.InternalWorkbook.WORKBOOK;
+ import static org.apache.poi.hssf.model.InternalWorkbook.WORKBOOK_DIR_ENTRY_NAMES;
+ 
+@@ -304,7 +308,7 @@
+                     + "POI only supports BIFF8 format (from Excel versions 97/2000/XP/2003)");
+         }
+ 
+-        //check for non-case-sensitive book (e.g. crystal) after ruling out case-sensitive
++        // check for non-case-sensitive book (e.g. crystal) after ruling out case-sensitive
+         // OldExcelFormatException
+         if (directory.hasEntryCaseInsensitive(BOOK)) {
+             return BOOK;
+@@ -315,8 +319,17 @@
+             throw new IllegalArgumentException("The document is really a DOC file");
+         }
+ 
++        String[] truncated;
++        try {
++            Set<String> entries = directory.getEntryNames();
++            truncated = entries.size() > 20
++                ? entries.stream().limit(20).toArray(String[]::new)
++                : entries.toArray(new String[0]);
++        } catch (RuntimeException e) {
++            throw new IllegalArgumentException("Unable to locate BIFF8 Workbook entry", e);
++        }
+         throw new IllegalArgumentException("The supplied POIFSFileSystem does not contain a BIFF8 'Workbook' entry. "
+-                + "Is it really an excel file? Had: " + directory.getEntryNames());
++                + "Is it really an excel file? Had: " + Arrays.toString(truncated));
+     }
+ 
+     /**
+@@ -415,7 +428,7 @@
+      * @see POIFSFileSystem
+      */
+     public HSSFWorkbook(InputStream s) throws IOException {
+-        this(s, true);
++        this(createPOIFS(s), true);
+     }
+ 
+     /**
+@@ -433,9 +446,21 @@
+      * @see #HSSFWorkbook(POIFSFileSystem)
+      */
+     @SuppressWarnings("resource")   // POIFSFileSystem always closes the stream
+-    public HSSFWorkbook(InputStream s, boolean preserveNodes)
+-            throws IOException {
+-        this(new POIFSFileSystem(s).getRoot(), preserveNodes);
++    public HSSFWorkbook(InputStream s, boolean preserveNodes) throws IOException {
++        this(createPOIFS(s), preserveNodes);
++    }
++
++    private static DirectoryNode createPOIFS(InputStream s) throws IOException {
++        InputStream magicIn = FileMagic.prepareToCheckMagic(s);
++        FileMagic fm = FileMagic.valueOf(magicIn);
++        if (fm != FileMagic.OLE2) {
++            throw new IllegalArgumentException("Not an OLE2 (BIFF8) spreadsheet: found " + fm);
++        }
++        POIFSFileSystem fs = new POIFSFileSystem(magicIn);
++        DirectoryNode root = fs.getRoot();
++        // validate workbook entry exists early
++        getWorkbookDirEntryName(root);
++        return root;
+     }
+ 
+     /**

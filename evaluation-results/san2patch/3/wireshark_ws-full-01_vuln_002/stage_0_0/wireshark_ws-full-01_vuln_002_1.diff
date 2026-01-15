@@ -1,0 +1,63 @@
+diff --git a/epan/dissectors/packet-telnet.c b/epan/dissectors/packet-telnet.c
+index 9f003e3e61..1db6d4aba6 100644
+--- a/epan/dissectors/packet-telnet.c
++++ b/epan/dissectors/packet-telnet.c
+@@ -2064,7 +2064,9 @@ telnet_sub_option(packet_info *pinfo, proto_tree *option_tree, proto_item *optio
+   if (subneg_len > 0) {
+ 
+     /* Now dissect the suboption parameters. */
+-    if (opt->dissect != NULL) {
++    /* Rationale: simple reference counting ensures that the NAWS buffer is freed only after every consumer has finished. */
++static int naws_refcount = 0;
++if (opt->dissect != NULL) {
+ 
+       switch (opt->len_type) {
+ 
+@@ -2094,9 +2096,27 @@ telnet_sub_option(packet_info *pinfo, proto_tree *option_tree, proto_item *optio
+       if (iac_data > 0) {
+         /* Data is escaped, we have to unescape it. */
+         unescaped_tvb = unescape_and_tvbuffify_telnet_option(pinfo, tvb, start_offset, subneg_len);
++        if (opt->name && strcmp(opt->name, "NAWS") == 0) {
++          naws_refcount++;
++        }
+         (*opt->dissect)(pinfo, opt->name, unescaped_tvb, 0, subneg_len - iac_data, option_tree, option_item);
++        if (opt->name && strcmp(opt->name, "NAWS") == 0) {
++          if (--naws_refcount == 0) {
++            /* only free when last consumer is done */
++            g_free(unescaped_tvb);
++            unescaped_tvb = NULL;
++          }
++        }
+       } else {
++        if (opt->name && strcmp(opt->name, "NAWS") == 0) {
++          naws_refcount++;
++        }
+         (*opt->dissect)(pinfo, opt->name, tvb, start_offset, subneg_len, option_tree, option_item);
++        if (opt->name && strcmp(opt->name, "NAWS") == 0) {
++          if (--naws_refcount == 0) {
++            /* no dynamic buffer in this branch */
++          }
++        }
+       }
+     } else {
+       /* We don't have a dissector for them; just show them as data. */
+@@ -2206,9 +2226,16 @@ telnet_add_text(proto_tree *tree, tvbuff_t *tvb, int offset, int len)
+        If this subopt is set then a method for storing the data in a given window
+        is necessary.
+     */
+-   if ( hf_telnet_naws_subopt_set ) {
+-    int start_offset = hf_telnet_width * hf_telnet_line;
+-    tvb_get_raw_bytes_as_stringz(tvb, offset, (linelen < hf_telnet_width) ? linelen : hf_telnet_width, hf_naws_data + start_offset);
++   if (hf_telnet_naws_subopt_set && hf_naws_data != NULL) {
++     int start_offset = hf_telnet_width * hf_telnet_line;
++    tvb_get_raw_bytes_as_stringz(tvb, offset,
++        (linelen < hf_telnet_width) ? linelen : hf_telnet_width,
++        hf_naws_data + start_offset);
++    /* decrement reference count and free when zero */
++    if (--hf_naws_data_refcount == 0) {
++        g_free(hf_naws_data);
++        hf_naws_data = NULL;
++    }
+     hf_telnet_line = (hf_telnet_line + 1) % hf_telnet_height;
+   }
+ 

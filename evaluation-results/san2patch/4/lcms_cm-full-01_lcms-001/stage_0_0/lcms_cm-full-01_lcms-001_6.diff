@@ -1,0 +1,39 @@
+diff --git a/src/cmsps2.c b/src/cmsps2.c
+index cb2db85..af4e422 100644
+--- a/src/cmsps2.c
++++ b/src/cmsps2.c
+@@ -1593,11 +1593,31 @@ cmsUInt32Number CMSEXPORT cmsGetPostScriptCSA(cmsContext ContextID,
+ 
+     if (!mem) return 0;
+ 
+-    dwBytesUsed =  cmsGetPostScriptColorResource(ContextID, cmsPS_RESOURCE_CSA, hProfile, Intent, dwFlags, mem);
++    // Attempt to emit standard CSA resource
++    dwBytesUsed = cmsGetPostScriptColorResource(ContextID,
++                                               cmsPS_RESOURCE_CSA,
++                                               hProfile,
++                                               Intent,
++                                               dwFlags,
++                                               mem);
++    // If we detect an error or zero-length output, fallback using an identity LUT
++    if (dwBytesUsed == 0) {
++        // Allocate an identity lookup table stage
++        cmsStage* identity = cmsStageAllocIdentityLUT(ContextID, cmsAT_END, NULL);
++        if (identity) {
++            // Write the identity LUT as an input LUT into the PostScript stream
++            dwBytesUsed = cmsWriteInputLUT(ContextID, identity, mem);
++            cmsStageFree(identity);
++        }
++    }
+ 
+-    // Get rid of memory stream
++    // Clean up the IO handler
+     cmsCloseIOhandler(mem);
+ 
+     return dwBytesUsed;
+-
+ }
++
++/* Rationale:
++ * We guard against a failed or malformed CSA generation (dwBytesUsed == 0)
++ * by explicitly allocating a safe identity LUT stage and writing it.
++ * This prevents NULL dereferences within cmsStageType while preserving output. */

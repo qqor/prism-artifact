@@ -1,0 +1,59 @@
+--- a/poi/src/main/java/org/apache/poi/poifs/dev/POIFSDump.java
++++ b/poi/src/main/java/org/apache/poi/poifs/dev/POIFSDump.java
+@@ -72,7 +72,14 @@
+                 File dumpDir =
+                         Paths.get(filename).getParent()
+                                 .resolve(filenameWithoutPath + "_dump").toFile();
+-                File file = new File(dumpDir, root.getName());
++                String cleanRootName = root.getName().trim();
++                cleanRootName = cleanRootName.replaceAll("[\\\\/]", "_");
++                cleanRootName = cleanRootName.replace("..", "");
++                cleanRootName = cleanRootName.replaceAll("[^A-Za-z0-9._-]", "_");
++                if (cleanRootName.isEmpty()) {
++                    throw new IOException("Entry name invalid after sanitization: '" + root.getName() + "'");
++                }
++                File file = new File(dumpDir, cleanRootName);
+                 if (!file.exists() && !file.mkdirs()) {
+                     throw new IOException("Could not create directory " + file);
+                 }
+@@ -105,16 +112,35 @@
+                 try (DocumentInputStream is = new DocumentInputStream(node)) {
+                    bytes = IOUtils.toByteArray(is);
+                 }
+-                try (OutputStream out = Files.newOutputStream(new File(parent, node.getName().trim()).toPath())) {
++                String cleanName = node.getName().trim();
++                cleanName = cleanName.replaceAll("[\\\\/]", "_");
++                cleanName = cleanName.replace("..", "");
++                cleanName = cleanName.replaceAll("[^A-Za-z0-9._-]", "_");
++                if (cleanName.isEmpty()) {
++                    throw new IOException("Entry name invalid after sanitization: '" + node.getName() + "'");
++                }
++                java.nio.file.Path target = parent.toPath().resolve(cleanName).normalize();
++                if (!target.startsWith(parent.toPath())) {
++                    throw new IOException("Invalid entry path: " + cleanName);
++                }
++                try (OutputStream out = Files.newOutputStream(target)) {
+                     out.write(bytes);
+                 }
+             } else if (entry instanceof DirectoryEntry){
+                 DirectoryEntry dir = (DirectoryEntry)entry;
+-                File file = new File(parent, entry.getName());
+-                if(!file.exists() && !file.mkdirs()) {
+-                    throw new IOException("Could not create directory " + file);
++                String cleanDir = entry.getName().trim();
++                cleanDir = cleanDir.replaceAll("[\\\\/]", "_");
++                cleanDir = cleanDir.replace("..", "");
++                cleanDir = cleanDir.replaceAll("[^A-Za-z0-9._-]", "_");
++                if (cleanDir.isEmpty()) {
++                    throw new IOException("Entry name invalid after sanitization: '" + entry.getName() + "'");
+                 }
+-                dump(dir, file);
++                java.nio.file.Path dirTarget = parent.toPath().resolve(cleanDir).normalize();
++                if (!dirTarget.startsWith(parent.toPath())) {
++                    throw new IOException("Invalid entry path: " + cleanDir);
++                }
++                Files.createDirectories(dirTarget);
++                dump(dir, dirTarget.toFile());
+             } else {
+                 System.err.println("Skipping unsupported POIFS entry: " + entry);
+             }

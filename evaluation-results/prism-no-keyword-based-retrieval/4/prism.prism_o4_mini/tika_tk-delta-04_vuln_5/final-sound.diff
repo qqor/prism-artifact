@@ -1,0 +1,20 @@
+--- a/tika-pipes/tika-emitters/tika-emitter-fs/src/main/java/org/apache/tika/pipes/emitter/fs/FileSystemEmitter.java
++++ b/tika-pipes/tika-emitters/tika-emitter-fs/src/main/java/org/apache/tika/pipes/emitter/fs/FileSystemEmitter.java
+@@ -144,10 +144,13 @@
+ 
+     @Override
+     public void emit(String path, InputStream inputStream, Metadata userMetadata, ParseContext parseContext) throws IOException, TikaEmitterException {
+-        Path target = basePath.resolve(path);
+-
+-        if (!Files.isDirectory(target.getParent())) {
+-            Files.createDirectories(target.getParent());
++        Path target = basePath.resolve(path).normalize();
++        if (!target.startsWith(basePath)) {
++            throw new TikaEmitterException("File path traversal detected: " + path);
++        }
++        Path parent = target.getParent();
++        if (parent == null || !Files.isDirectory(parent)) {
++            Files.createDirectories(parent);
+         }
+         if (onExists == ON_EXISTS.REPLACE) {
+             Files.copy(inputStream, target, StandardCopyOption.REPLACE_EXISTING);

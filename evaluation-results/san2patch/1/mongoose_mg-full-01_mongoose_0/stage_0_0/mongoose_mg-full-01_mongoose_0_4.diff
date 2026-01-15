@@ -1,0 +1,28 @@
+diff --git a/src/json.c b/src/json.c
+index cf6bc57b..587ef282 100644
+--- a/src/json.c
++++ b/src/json.c
+@@ -235,7 +235,12 @@ int mg_json_get(struct mg_str json, const char *path, int *toklen) {
+         } else {
+           return MG_JSON_INVALID;
+         }
+-        break;
++// FIXME: Crash CWE-787: Out-of-bounds Write
++         /* clamp depth to prevent buffer overflow */
++         if (depth >= MONGOOSE_MAX_NESTING) {
++           depth = MONGOOSE_MAX_NESTING - 1;
++         }
++         break;
+ 
+       case S_COLON:
+         if (c == ':') {
+@@ -247,8 +252,7 @@ int mg_json_get(struct mg_str json, const char *path, int *toklen) {
+ 
+       case S_COMMA_OR_EOO:
+         if (depth <= 0) {
+-          return MG_JSON_INVALID;
+-        } else if (c == ',') {
++          return MG_JSON_INVALID;        } else if (c == ',') {
+           expecting = (nesting[depth - 1] == '{') ? S_KEY : S_VALUE;
+         } else if (c == ']' || c == '}') {
+           if (depth == ed && c == '}' && path[pos - 1] == '.')

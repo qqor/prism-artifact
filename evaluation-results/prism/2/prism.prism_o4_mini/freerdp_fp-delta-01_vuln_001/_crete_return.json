@@ -1,0 +1,14 @@
+{
+  "project_name": "freerdp",
+  "vulnerability_identifier": "freerdp_fp-delta-01_vuln_001",
+  "source_directory": "/home/qqor/crete/.cache/official-afc-freerdp",
+  "llm_usage": {
+    "total_cost": 0.11288640000000001,
+    "prompt_tokens": 62672,
+    "completion_tokens": 9988
+  },
+  "variant": "sound",
+  "diff": "--- a/libfreerdp/crypto/certificate.c\n+++ b/libfreerdp/crypto/certificate.c\n@@ -1534,9 +1534,9 @@\n \tWINPR_ASSERT(bio);\n \tWINPR_ASSERT(ppem);\n \n-\tconst uint16_t blocksize = 2048;\n-\tuint16_t offset = 0;\n-\tuint16_t length = blocksize;\n+\tconst size_t blocksize = 2048;\n+\tsize_t offset = 0;\n+\tsize_t length = blocksize;\n \tchar* pem = NULL;\n \n \t*ppem = NULL;\n@@ -1545,6 +1545,10 @@\n \n \twhile (status != 0)\n \t{\n+\t\t/* Prevent size_t wrap on very large inputs */\n+\t\tif (length > SIZE_MAX - blocksize - 1)\n+\t\t\tgoto fail;\n+\n \t\tchar* tmp = realloc(pem, length + 1);\n \t\tif (!tmp)\n \t\t\tgoto fail;\n@@ -1553,7 +1557,11 @@\n \n \t\tERR_clear_error();\n \n-\t\tstatus = BIO_read(bio, &pem[offset], (int)(length - offset));\n+\t\t{\n+\t\t\tsize_t toRead = length - offset;\n+\t\t\tint chunk = (toRead > INT_MAX) ? INT_MAX : (int)toRead;\n+\t\t\tstatus = BIO_read(bio, &pem[offset], chunk);\n+\t\t}\n \t\tif (status < 0)\n \t\t{\n \t\t\tWLog_ERR(TAG, \"failed to read certificate\");\n",
+  "stdout": "",
+  "stderr": ""
+}

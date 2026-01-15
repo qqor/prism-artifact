@@ -1,0 +1,34 @@
+diff --git a/libfreerdp/core/freerdp.c b/libfreerdp/core/freerdp.c
+index 594a1a2b8..0c90e3dee 100644
+--- a/libfreerdp/core/freerdp.c
++++ b/libfreerdp/core/freerdp.c
+@@ -1435,6 +1435,11 @@ BOOL freerdp_is_valid_mcs_create_request(const BYTE* data, size_t size)
+ 	WINPR_ASSERT(data || (size == 0));
+ 	WINPR_ASSERT(s);
+ 
++	// Added check to ensure 'size' does not exceed buffer allocation (prevent OOB write)
++	#define MCS_MAX_CREATE_REQUEST 992
++	if (size > MCS_MAX_CREATE_REQUEST)
++		return FALSE;
++
+ 	rdpMcs* mcs = test_mcs_new();
+ 	WINPR_ASSERT(mcs);
+ 
+diff --git a/libfreerdp/core/mcs.c b/libfreerdp/core/mcs.c
+index 6f3dbe199..678bdbefd 100644
+--- a/libfreerdp/core/mcs.c
++++ b/libfreerdp/core/mcs.c
+@@ -697,6 +697,13 @@ BOOL mcs_recv_connect_initial(rdpMcs* mcs, wStream* s)
+ 	    (!Stream_CheckAndLogRequiredLength(TAG, s, length)))
+ 		return FALSE;
+ 
++	/* Prevent overflow: validate length against heap buffer size */
++#ifndef MCS_MAX_CREATE_REQUEST
++#define MCS_MAX_CREATE_REQUEST 992
++#endif
++	if (length > MCS_MAX_CREATE_REQUEST)
++		return FALSE;
++
+ 	if (!gcc_read_conference_create_request(s, mcs))
+ 		return FALSE;
+ 

@@ -1,0 +1,67 @@
+--- a/src/main/java/org/apache/commons/compress/compressors/z/ZCompressorInputStream.java
++++ b/src/main/java/org/apache/commons/compress/compressors/z/ZCompressorInputStream.java
+@@ -80,6 +80,10 @@
+         }
+         blockMode = (thirdByte & BLOCK_MODE_MASK) != 0;
+         maxCodeSize = thirdByte & MAX_CODE_SIZE_MASK;
++        if (maxCodeSize < 9 || maxCodeSize > 16) {
++            throw new IllegalArgumentException("Invalid maxCodeSize of " + maxCodeSize + 
++                ". Values must be in the range [9, 16] for .Z format.");
++        }
+         if (blockMode) {
+             setClearCode(DEFAULT_CODE_SIZE);
+         }
+
+--- a/src/main/java/org/apache/commons/compress/compressors/lzw/LZWInputStream.java
++++ b/src/main/java/org/apache/commons/compress/compressors/lzw/LZWInputStream.java
+@@ -178,9 +178,9 @@
+     protected void initializeTables(final int maxCodeSize) {
+         // maxCodeSize shifted cannot be less than 256, otherwise the loop in initializeTables() will throw an ArrayIndexOutOfBoundsException
+         // maxCodeSize cannot be smaller than getCodeSize(), otherwise addEntry() will throw an ArrayIndexOutOfBoundsException
+-        if (1 << maxCodeSize < 256 || getCodeSize() > maxCodeSize) {
+-            // TODO test against prefixes.length and characters.length?
+-            throw new IllegalArgumentException("maxCodeSize " + maxCodeSize + " is out of bounds.");
++        if (maxCodeSize < 8 || maxCodeSize > 31 || getCodeSize() > maxCodeSize) {
++            throw new IllegalArgumentException("maxCodeSize " + maxCodeSize + 
++                " is out of bounds. Valid range is [8, 31] and must be >= current code size.");
+         }
+         final int maxTableSize = 1 << maxCodeSize;
+         prefixes = new int[maxTableSize];
+@@ -207,16 +207,27 @@
+             throw new IllegalArgumentException("maxCodeSize is " + maxCodeSize + ", must be bigger than 0");
+         }
+ 
+-        if (memoryLimiKiB > -1) {
+-            final int maxTableSize = 1 << maxCodeSize;
+-            // account for potential overflow
+-            final long memoryUsageBytes = (long) maxTableSize * 6; // (4 (prefixes) + 1 (characters) +1 (outputStack))
+-            final long memoryUsageKiB = memoryUsageBytes >> 10;
+-
+-            if (memoryUsageKiB > memoryLimiKiB) {
+-                throw new MemoryLimitException(memoryUsageKiB, memoryLimiKiB);
+-            }
+-        }
++        // Define a reasonable default memory limit: 100 MB
++        // This allows maxCodeSize up to ~16-17, which is sufficient for most legitimate files
++        final int DEFAULT_MEMORY_LIMIT_KIB = 102400; // 100 MB
++        
++        // Use the default limit when no limit is specified
++        final int effectiveMemoryLimit = (memoryLimiKiB == -1) ? DEFAULT_MEMORY_LIMIT_KIB : memoryLimiKiB;
++        
++        // Prevent overflow in calculation by using long
++        if (maxCodeSize > 31) {
++            throw new IllegalArgumentException("maxCodeSize " + maxCodeSize + 
++                " is too large and would cause overflow. Maximum allowed is 31.");
++        }
++        
++        final long maxTableSize = 1L << maxCodeSize;
++        final long memoryUsageBytes = maxTableSize * 6; // (4 for prefixes + 1 for characters + 1 for outputStack)
++        final long memoryUsageKiB = memoryUsageBytes >> 10;
++
++        if (memoryUsageKiB > effectiveMemoryLimit) {
++            throw new MemoryLimitException(memoryUsageKiB, effectiveMemoryLimit);
++        }
++        
+         initializeTables(maxCodeSize);
+     }
+ 

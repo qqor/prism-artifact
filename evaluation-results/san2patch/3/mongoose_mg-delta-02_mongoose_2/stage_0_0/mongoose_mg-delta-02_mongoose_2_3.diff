@@ -1,0 +1,70 @@
+diff --git a/src/net_builtin.c b/src/net_builtin.c
+index 793874f4..93233c64 100644
+--- a/src/net_builtin.c
++++ b/src/net_builtin.c
+@@ -359,8 +359,10 @@ static void rx_arp(struct mg_tcpip_if *ifp, struct pkt *pkt) {
+   } else if (pkt->arp->op == mg_htons(2)) {
+     if (memcmp(pkt->arp->tha, ifp->mac, sizeof(pkt->arp->tha)) != 0) return;
+     if (pkt->arp->spa == ifp->gw) {
++      /* Verify SHA boundary before copying */
++      if ((uint8_t *)&pkt->arp->sha + sizeof(pkt->arp->sha) > (uint8_t *)pkt + ifp->rx.len) return;
+       // Got response for the GW ARP request. Set ifp->gwmac and IP -> READY
+-      memcpy(ifp->gwmac, pkt->arp->sha, sizeof(ifp->gwmac));
++       memcpy(ifp->gwmac, pkt->arp->sha, sizeof(ifp->gwmac));
+       if (ifp->state == MG_TCPIP_STATE_IP) {
+         ifp->state = MG_TCPIP_STATE_READY;
+         onstatechange(ifp);
+@@ -369,6 +371,8 @@ static void rx_arp(struct mg_tcpip_if *ifp, struct pkt *pkt) {
+       struct mg_connection *c = getpeer(ifp->mgr, pkt, false);
+       if (c != NULL && c->is_arplooking) {
+         struct connstate *s = (struct connstate *) (c + 1);
++        /* Verify SHA boundary before copying */
++        if ((uint8_t *)&pkt->arp->sha + sizeof(pkt->arp->sha) > (uint8_t *)pkt + ifp->rx.len) return;
+         memcpy(s->mac, pkt->arp->sha, sizeof(s->mac));
+         MG_DEBUG(("%lu ARP resolved %M -> %M", c->id, mg_print_ip4, c->rem.ip,
+                   mg_print_mac, s->mac));
+@@ -380,19 +384,32 @@ static void rx_arp(struct mg_tcpip_if *ifp, struct pkt *pkt) {
+ }
+ 
+ static void rx_icmp(struct mg_tcpip_if *ifp, struct pkt *pkt) {
+-  // MG_DEBUG(("ICMP %d", (int) len));
+-  if (pkt->icmp->type == 8 && pkt->ip != NULL && pkt->ip->dst == ifp->ip) {
+-    size_t hlen = sizeof(struct eth) + sizeof(struct ip) + sizeof(struct icmp);
+-    size_t space = ifp->tx.len - hlen, plen = pkt->pay.len;
+-    if (plen > space) plen = space;
+-    struct ip *ip = tx_ip(ifp, pkt->eth->src, 1, ifp->ip, pkt->ip->src,
+-                          sizeof(struct icmp) + plen);
+-    struct icmp *icmp = (struct icmp *) (ip + 1);
+-    memset(icmp, 0, sizeof(*icmp));        // Set csum to 0
+-    memcpy(icmp + 1, pkt->pay.buf, plen);  // Copy RX payload to TX
+-    icmp->csum = ipcsum(icmp, sizeof(*icmp) + plen);
+-    ether_output(ifp, hlen + plen);
++// Rationale: Check sub-header pointers directly to avoid any OOB reads
++  uint8_t *base = (uint8_t *)pkt;
++  size_t rx_len = ifp->rx.len;
++  if (pkt->icmp->type != 8 || pkt->ip == NULL || pkt->ip->dst != ifp->ip) {
++    return;
++  }
++  /* Rationale: Bounds-check IP header */
++  struct ip *ip_hdr = pkt->ip;
++  if ((uint8_t *)(ip_hdr + 1) > base + rx_len) {
++    return;
++  }
++  /* Rationale: Bounds-check ICMP header */
++  struct icmp *icmp_hdr = pkt->icmp;
++  if ((uint8_t *)(icmp_hdr + 1) > base + rx_len) {
++    return;
+   }
++  size_t hlen = sizeof(struct eth) + sizeof(struct ip) + sizeof(struct icmp);
++  size_t space = ifp->tx.len - hlen, plen = pkt->pay.len;
++  if (plen > space) plen = space;
++  struct ip *ip = tx_ip(ifp, pkt->eth->src, 1, ifp->ip, pkt->ip->src,
++                        sizeof(struct icmp) + plen);
++  struct icmp *icmp = (struct icmp *) (ip + 1);
++  memset(icmp, 0, sizeof(*icmp));        // Set csum to 0
++  memcpy(icmp + 1, pkt->pay.buf, plen);  // Copy RX payload to TX
++  icmp->csum = ipcsum(icmp, sizeof(*icmp) + plen);
++  ether_output(ifp, hlen + plen);
+ }
+ 
+ static void rx_dhcp_client(struct mg_tcpip_if *ifp, struct pkt *pkt) {

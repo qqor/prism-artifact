@@ -1,0 +1,171 @@
+--- a/libexif/apple/exif-mnote-data-apple.c
++++ b/libexif/apple/exif-mnote-data-apple.c
+@@ -28,6 +28,8 @@
+ #include <libexif/exif-data.h>
+ #include <libexif/exif-utils.h>
+ 
++#define CHECKOVERFLOW(offset,datasize,structsize) (( offset >= datasize) || (structsize > datasize) || (offset > datasize - structsize ))
++
+ static void
+ exif_mnote_data_apple_free(ExifMnoteData *md) {
+     ExifMnoteDataApple *d = (ExifMnoteDataApple *) md;
+@@ -56,9 +58,10 @@
+ static void
+ exif_mnote_data_apple_load(ExifMnoteData *md, const unsigned char *buf, unsigned int buf_size) {
+     ExifMnoteDataApple *d = (ExifMnoteDataApple *) md;
+-    unsigned int tcount, i;
++    unsigned int c, tcount, i;
+     unsigned int dsize;
+     unsigned int ofs, dofs;
++    size_t o;
+ 
+     /*printf("%s\n", __FUNCTION__);*/
+ 
+@@ -70,6 +73,12 @@
+ 
+     /* Start of interesting data */
+     ofs = d->offset + 6;
++
++    if (CHECKOVERFLOW(ofs, buf_size, 16)) {
++        exif_log(md->log, EXIF_LOG_CODE_CORRUPT_DATA,
++                 "ExifMnoteDataApple", "Short MakerNote header");
++        return;
++    }
+ 
+     if ((buf[ofs + 12] == 'M') && (buf[ofs + 13] == 'M')) {
+         d->order = EXIF_BYTE_ORDER_MOTOROLA;
+@@ -82,55 +91,96 @@
+         return;
+     }
+ 
+-    tcount = (unsigned int) exif_get_short(buf + ofs + 14, d->order);
++    if (CHECKOVERFLOW(ofs + 14, buf_size, 2)) {
++        exif_log(md->log, EXIF_LOG_CODE_CORRUPT_DATA,
++                 "ExifMnoteDataApple", "Short MakerNote for tag count");
++        return;
++    }
++
++    c = (unsigned int) exif_get_short(buf + ofs + 14, d->order);
++
++    /* Just use an arbitrary max tag limit here to avoid needing too much memory or time */
++    if (c > 100) {
++        exif_log(md->log, EXIF_LOG_CODE_CORRUPT_DATA,
++                 "ExifMnoteDataApple", "Too many tags (%d) in Apple MakerNote", c);
++        return;
++    }
+ 
+     /* Sanity check the offset */
+-    if (buf_size < 6 + 16 + tcount * 6 + 4) {
+-        exif_log(md->log, EXIF_LOG_CODE_CORRUPT_DATA,
+-                 "ExifMnoteDataApple", "Short MakerNote");
++    if (CHECKOVERFLOW(ofs + 16, buf_size, 12 * c)) {
++        exif_log(md->log, EXIF_LOG_CODE_CORRUPT_DATA,
++                 "ExifMnoteDataApple", "Short MakerNote for entries");
++        return;
++    }
++
++    /* printf("%s(%d): total %d tags\n", __FUNCTION__, __LINE__, c); */
++
++    ofs += 16;
++
++    exif_mnote_data_apple_free(md);
++
++    /* Reserve enough space for all the possible MakerNote tags */
++    d->entries = exif_mem_alloc(md->mem, sizeof(MnoteAppleEntry) * c);
++    if (!d->entries) {
++        EXIF_LOG_NO_MEMORY(md->log, "ExifMnoteApple", sizeof(MnoteAppleEntry) * c);
+         /*printf("%s(%d)\n", __FUNCTION__, __LINE__);*/
+         return;
+     }
+ 
+-    /* printf("%s(%d): total %d tags\n", __FUNCTION__, __LINE__, tcount); */
+-
+-    ofs += 16;
+-
+-    exif_mnote_data_apple_free(md);
+-
+-    /* Reserve enough space for all the possible MakerNote tags */
+-    d->entries = exif_mem_alloc(md->mem, sizeof(MnoteAppleEntry) * tcount);
+-    if (!d->entries) {
+-        EXIF_LOG_NO_MEMORY(md->log, "ExifMnoteApple", sizeof(MnoteAppleEntry) * tcount);
+-        /*printf("%s(%d)\n", __FUNCTION__, __LINE__);*/
+-        return;
+-    }
+-
+-    for (i = 0; i < tcount; i++) {
+-        d->entries[i].tag = exif_get_short(buf + ofs, d->order);
+-        d->entries[i].format = exif_get_short(buf + ofs + 2, d->order);
+-        d->entries[i].components = exif_get_long(buf + ofs + 4, d->order);
+-        d->entries[i].order = d->order;
+-        dsize = exif_format_get_size(d->entries[i].format) * d->entries[i].components;
++    tcount = 0;
++    for (i = c, o = ofs; i; --i, o += 12) {
++        memset(&d->entries[tcount], 0, sizeof(MnoteAppleEntry));
++        
++        if (CHECKOVERFLOW(o, buf_size, 12)) {
++            exif_log(md->log, EXIF_LOG_CODE_CORRUPT_DATA,
++                     "ExifMnoteDataApple", "Short MakerNote entry");
++            break;
++        }
++
++        d->entries[tcount].tag = exif_get_short(buf + o, d->order);
++        d->entries[tcount].format = exif_get_short(buf + o + 2, d->order);
++        d->entries[tcount].components = exif_get_long(buf + o + 4, d->order);
++        d->entries[tcount].order = d->order;
++
++        /* Check if we overflow the multiplication. Use buf_size as the max size for integer overflow detection,
++         * we will check the buffer sizes closer later. */
++        if (exif_format_get_size(d->entries[tcount].format) &&
++            buf_size / exif_format_get_size(d->entries[tcount].format) < d->entries[tcount].components) {
++            exif_log(md->log, EXIF_LOG_CODE_CORRUPT_DATA,
++                     "ExifMnoteDataApple", "Tag size overflow detected (%u * %lu)",
++                     exif_format_get_size(d->entries[tcount].format),
++                     d->entries[tcount].components);
++            continue;
++        }
++
++        dsize = exif_format_get_size(d->entries[tcount].format) * d->entries[tcount].components;
++        d->entries[tcount].size = dsize;
++
+         if (dsize > 4) {
+-            dofs = d->offset + exif_get_long(buf + ofs + 8, d->order);
++            dofs = d->offset + exif_get_long(buf + o + 8, d->order);
+         } else {
+-            dofs = ofs + 8;
+-        }
+-	if (dofs > buf_size) {
+-		exif_log (md->log, EXIF_LOG_CODE_CORRUPT_DATA,
+-                                  "ExifMnoteApplet", "Tag size overflow detected (%u vs size %u)", dofs, buf_size);
+-		continue;
+-	}
+-        ofs += 12;
+-        d->entries[i].data = exif_mem_alloc(md->mem, dsize);
+-        if (!d->entries[i].data) {
++            dofs = o + 8;
++        }
++
++        if (CHECKOVERFLOW(dofs, buf_size, dsize)) {
++            exif_log(md->log, EXIF_LOG_CODE_DEBUG,
++                     "ExifMnoteDataApple",
++                     "Tag data past end of buffer (%u + %u > %u)",
++                     dofs, dsize, buf_size);
++            continue;
++        }
++
++        d->entries[tcount].data = exif_mem_alloc(md->mem, dsize);
++        if (!d->entries[tcount].data) {
+             EXIF_LOG_NO_MEMORY(md->log, "ExifMnoteApple", dsize);
+             continue;
+         }
+-        memcpy(d->entries[i].data, buf + dofs, dsize);
+-        d->entries[i].size = dsize;
+-    }
++        memcpy(d->entries[tcount].data, buf + dofs, dsize);
++
++        /* Tag was successfully parsed */
++        ++tcount;
++    }
++    /* Store the count of successfully parsed tags */
+     d->count = tcount;
+ 
+     return;

@@ -1,0 +1,85 @@
+--- a/tika-app/src/main/java/org/apache/tika/cli/TikaCLI.java
++++ b/tika-app/src/main/java/org/apache/tika/cli/TikaCLI.java
+@@ -1138,29 +1138,68 @@
+             //defensively do this so that we don't get an exception
+             //from FilenameUtils.normalize
+             name = name.replaceAll("\u0000", " ");
+-            String normalizedName = FilenameUtils.normalize(name);
+-
+-            if (normalizedName == null) {
+-                normalizedName = FilenameUtils.getName(name);
+-            }
+-
+-            if (normalizedName == null) {
++            
++            //strip off initial C:/ or ~/ or / early to prevent issues
++            int prefixLength = FilenameUtils.getPrefixLength(name);
++            if (prefixLength > -1) {
++                name = name.substring(prefixLength);
++            }
++            
++            // Use Tika's getName() to strip all directory components first
++            // This prevents path traversal by removing /, \, and : separators
++            String baseName = org.apache.tika.io.FilenameUtils.getName(name);
++            
++            // If getName() returns empty (for paths like "." or ".."), use fallback
++            String normalizedName;
++            if (baseName == null || baseName.isEmpty()) {
+                 normalizedName = "file" + count++ + ext;
+-            }
+-            //strip off initial C:/ or ~/ or /
+-            int prefixLength = FilenameUtils.getPrefixLength(normalizedName);
+-            if (prefixLength > -1) {
+-                normalizedName = normalizedName.substring(prefixLength);
+-            }
++            } else {
++                // Now normalize the basename to handle special characters
++                // Apache Commons IO normalize() is safe here since directories are already stripped
++                normalizedName = FilenameUtils.normalize(baseName);
++                if (normalizedName == null || normalizedName.isEmpty()) {
++                    normalizedName = "file" + count++ + ext;
++                }
++            }
++            
+             try {
+                 normalizedName = URLDecoder.decode(normalizedName, UTF_8);
+             } catch (IllegalArgumentException e) {
+                 LOG.warn("couldn't url decode name {}", normalizedName);
+             }
++            
+             File outputFile = new File(extractDir, normalizedName);
++            
++            // Validate the canonical path stays within extractDir
++            try {
++                String canonicalExtractDir = extractDir.getCanonicalPath();
++                String canonicalOutputPath = outputFile.getCanonicalPath();
++                
++                // Check if output file is within the extraction directory
++                if (!canonicalOutputPath.startsWith(canonicalExtractDir + File.separator) &&
++                    !canonicalOutputPath.equals(canonicalExtractDir)) {
++                    // Path traversal detected - fall back to safe filename
++                    LOG.warn("Path traversal attempt detected for file: {}", name);
++                    String safeName = org.apache.tika.io.FilenameUtils.getName(normalizedName);
++                    if (safeName == null || safeName.isEmpty()) {
++                        safeName = "file" + count++ + ext;
++                    }
++                    outputFile = new File(extractDir, safeName);
++                }
++            } catch (IOException e) {
++                // If canonical path resolution fails, use safe fallback
++                LOG.warn("Failed to resolve canonical path for: {}", normalizedName, e);
++                String safeName = "file" + count++ + ext;
++                outputFile = new File(extractDir, safeName);
++            }
++            
+             //if file already exists, prepend uuid
+             if (outputFile.exists()) {
+-                String fileName = FilenameUtils.getName(normalizedName);
++                String fileName = org.apache.tika.io.FilenameUtils.getName(normalizedName);
++                if (fileName == null || fileName.isEmpty()) {
++                    // Use safe fallback instead of potentially unsafe normalizedName
++                    fileName = "file" + count++ + ext;
++                }
+                 outputFile = new File(extractDir, UUID
+                         .randomUUID()
+                         .toString() + "-" + fileName);

@@ -1,0 +1,94 @@
+--- a/poi/src/main/java/org/apache/poi/poifs/dev/POIFSDump.java
++++ b/poi/src/main/java/org/apache/poi/poifs/dev/POIFSDump.java
+@@ -22,6 +22,7 @@
+ import java.io.OutputStream;
+ import java.nio.ByteBuffer;
+ import java.nio.file.Files;
++import java.nio.file.Path;
+ import java.nio.file.Paths;
+ import java.util.Iterator;
+ 
+@@ -42,6 +43,18 @@
+ public final class POIFSDump {
+ 
+     private POIFSDump() {}
++
++    private static Path resolveAndCheck(Path baseDir, String entryName) throws IOException {
++        if (entryName == null || entryName.trim().isEmpty()) {
++            throw new IOException("Invalid entry name: " + entryName);
++        }
++        Path normalizedBase = baseDir.toAbsolutePath().normalize();
++        Path candidate = normalizedBase.resolve(entryName.trim()).normalize();
++        if (!candidate.startsWith(normalizedBase)) {
++            throw new IOException("Path traversal detected for entry: " + entryName);
++        }
++        return candidate;
++    }
+ 
+     public static void main(String[] args) throws IOException {
+         if (args.length == 0) {
+@@ -76,9 +89,9 @@
+                 if (!file.exists() && !file.mkdirs()) {
+                     throw new IOException("Could not create directory " + file);
+                 }
+-    
++
+                 dump(root, file);
+-    
++
+                 if (dumpProps) {
+                     HeaderBlock header = fs.getHeaderBlock();
+                     dump(fs, header.getPropertyStart(), "properties", file);
+@@ -97,35 +110,34 @@
+     }
+     
+     public static void dump(DirectoryEntry root, File parent) throws IOException {
+-        for(Iterator<Entry> it = root.getEntries(); it.hasNext();){
++        for (Iterator<Entry> it = root.getEntries(); it.hasNext();) {
+             Entry entry = it.next();
+-            if(entry instanceof DocumentNode){
+-                final DocumentNode node = (DocumentNode) entry;
+-                final byte[] bytes;
++            if (entry instanceof DocumentNode) {
++                DocumentNode node = (DocumentNode) entry;
++                byte[] bytes;
+                 try (DocumentInputStream is = new DocumentInputStream(node)) {
+-                   bytes = IOUtils.toByteArray(is);
++                    bytes = IOUtils.toByteArray(is);
+                 }
+-                try (OutputStream out = Files.newOutputStream(new File(parent, node.getName().trim()).toPath())) {
++                Path target = resolveAndCheck(parent.toPath(), node.getName());
++                Files.createDirectories(target.getParent());
++                try (OutputStream out = Files.newOutputStream(target)) {
+                     out.write(bytes);
+                 }
+-            } else if (entry instanceof DirectoryEntry){
+-                DirectoryEntry dir = (DirectoryEntry)entry;
+-                File file = new File(parent, entry.getName());
+-                if(!file.exists() && !file.mkdirs()) {
+-                    throw new IOException("Could not create directory " + file);
+-                }
+-                dump(dir, file);
++            } else if (entry instanceof DirectoryEntry) {
++                DirectoryEntry dir = (DirectoryEntry) entry;
++                Path dirPath = resolveAndCheck(parent.toPath(), entry.getName());
++                Files.createDirectories(dirPath);
++                dump(dir, dirPath.toFile());
+             } else {
+                 System.err.println("Skipping unsupported POIFS entry: " + entry);
+             }
+         }
+     }
++
+     public static void dump(POIFSFileSystem fs, int startBlock, String name, File parent) throws IOException {
+-        File file = new File(parent, name);
+-        if (! Files.isDirectory(file.toPath().getParent())) {
+-            Files.createDirectories(file.toPath().getParent());
+-        }
+-        try (OutputStream out = Files.newOutputStream(file.toPath())) {
++        Path target = resolveAndCheck(parent.toPath(), name);
++        Files.createDirectories(target.getParent());
++        try (OutputStream out = Files.newOutputStream(target)) {
+             POIFSStream stream = new POIFSStream(fs, startBlock);
+ 
+             byte[] b = IOUtils.safelyAllocate(fs.getBigBlockSize(), POIFSFileSystem.getMaxRecordLength());

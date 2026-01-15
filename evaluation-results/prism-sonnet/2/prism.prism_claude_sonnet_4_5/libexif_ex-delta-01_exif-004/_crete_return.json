@@ -1,0 +1,14 @@
+{
+  "project_name": "libexif",
+  "vulnerability_identifier": "libexif_ex-delta-01_exif-004",
+  "source_directory": "/home/qqor/crete/.cache/official-afc-libexif",
+  "llm_usage": {
+    "total_cost": 2.2921620000000003,
+    "prompt_tokens": 667879,
+    "completion_tokens": 19235
+  },
+  "variant": "sound",
+  "diff": "--- a/libexif/apple/exif-mnote-data-apple.c\n+++ b/libexif/apple/exif-mnote-data-apple.c\n@@ -27,6 +27,8 @@\n \n #include <libexif/exif-data.h>\n #include <libexif/exif-utils.h>\n+\n+#define CHECKOVERFLOW(offset,datasize,structsize) (( offset >= datasize) || (structsize > datasize) || (offset > datasize - structsize ))\n \n static void\n exif_mnote_data_apple_free(ExifMnoteData *md) {\n@@ -111,17 +113,31 @@\n         d->entries[i].format = exif_get_short(buf + ofs + 2, d->order);\n         d->entries[i].components = exif_get_long(buf + ofs + 4, d->order);\n         d->entries[i].order = d->order;\n+\n+        /* Check if we overflow the multiplication. Use buf_size as the max size for integer overflow detection,\n+         * we will check the buffer sizes closer later. */\n+        if (exif_format_get_size(d->entries[i].format) &&\n+            buf_size / exif_format_get_size(d->entries[i].format) < d->entries[i].components) {\n+            exif_log(md->log, EXIF_LOG_CODE_CORRUPT_DATA,\n+                     \"ExifMnoteApple\", \"Tag size overflow detected (%u * %lu)\",\n+                     exif_format_get_size(d->entries[i].format), d->entries[i].components);\n+            continue;\n+        }\n+\n         dsize = exif_format_get_size(d->entries[i].format) * d->entries[i].components;\n         if (dsize > 4) {\n             dofs = d->offset + exif_get_long(buf + ofs + 8, d->order);\n         } else {\n             dofs = ofs + 8;\n         }\n-\tif (dofs > buf_size) {\n-\t\texif_log (md->log, EXIF_LOG_CODE_CORRUPT_DATA,\n-                                  \"ExifMnoteApplet\", \"Tag size overflow detected (%u vs size %u)\", dofs, buf_size);\n-\t\tcontinue;\n-\t}\n+\n+        if (CHECKOVERFLOW(dofs, buf_size, dsize)) {\n+            exif_log(md->log, EXIF_LOG_CODE_CORRUPT_DATA,\n+                     \"ExifMnoteApple\", \"Tag data past end of buffer (%u > %u)\",\n+                     (unsigned)(dofs + dsize), buf_size);\n+            continue;\n+        }\n+\n         ofs += 12;\n         d->entries[i].data = exif_mem_alloc(md->mem, dsize);\n         if (!d->entries[i].data) {\n",
+  "stdout": "",
+  "stderr": ""
+}

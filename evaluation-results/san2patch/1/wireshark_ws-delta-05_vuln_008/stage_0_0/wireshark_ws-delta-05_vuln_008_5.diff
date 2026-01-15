@@ -1,0 +1,32 @@
+diff --git a/epan/dissectors/packet-netbios.c b/epan/dissectors/packet-netbios.c
+index 5ea85c7df4..792d9c7ca9 100644
+--- a/epan/dissectors/packet-netbios.c
++++ b/epan/dissectors/packet-netbios.c
+@@ -284,19 +284,23 @@ int
+ process_netbios_name(const unsigned char *name_ptr, char *name_ret, int name_ret_len)
+ {
+ 	int    i;
+-	int    name_type = *(name_ptr + NETBIOS_NAME_LEN - 1);
++	int    name_type;
+ 	unsigned char name_char;
+ 	char  *name_ret_orig = name_ret;
+ 	static const char hex_digits[16] = {'0','1','2','3','4','5','6','7','8','9','a','b','c','d','e','f'};
++	/* Copy input to a local fixed-size buffer to avoid out-of-bounds reads */
++	unsigned char buf[NETBIOS_NAME_LEN];
++	memcpy(buf, name_ptr, NETBIOS_NAME_LEN);
++	/* Now safe to read the last byte in buf */
++	name_type = buf[NETBIOS_NAME_LEN - 1];
+ 
+ 	for (i = 0; i < NETBIOS_NAME_LEN - 1; i++) {
+-		name_char = *name_ptr++;
++		name_char = buf[i];
+ 		if (name_char >= ' ' && name_char <= '~') {
+ 			if (--name_ret_len > 0)
+ 				*name_ret++ = name_char;
+ 		} else {
+-			/* It's not printable; show it as <XX>, where
+-			   XX is the value in hex. */
++			/* It's not printable; show it as <XX>, where XX is the value in hex. */
+ 			if (--name_ret_len > 0)
+ 				*name_ret++ = '<';
+ 			if (--name_ret_len > 0)

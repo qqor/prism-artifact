@@ -1,0 +1,62 @@
+diff --git a/src/shared/condition.c b/src/shared/condition.c
+index 67894f9319..ae98c58f49 100644
+--- a/src/shared/condition.c
++++ b/src/shared/condition.c
+@@ -95,20 +95,51 @@ Condition* condition_free(Condition *c) {
+         free(c->parameter);
+         return mfree(c);
+ }
+-
++// FIXME: Crash CWE-416: Use After Free
++ 
+ Condition* condition_free_list_type(Condition *head, ConditionType type) {
+-        LIST_FOREACH(conditions, c, head)
+-                if (type < 0 || c->type == type) {
+-                        condition_free(c);
++        Condition *current = head;
++        Condition *prev = NULL;
++        Condition *to_free_head = NULL, *to_free_tail = NULL;
++
++        // two-pass approach: unlink nodes first, collect into a free list
++        while (current) {
++                Condition *next = current->next;
++                if (type < 0 || current->type == type) {
++                        // unlink node
++                        if (prev) {
++                                prev->next = next;
++                        } else {
++                                head = next;
++                        }
++                        current->next = NULL;
++                        // build free list
++                        if (!to_free_head) {
++                                to_free_head = to_free_tail = current;
++                        } else {
++                                to_free_tail->next = current;
++                                to_free_tail = current;
++                        }
++                } else {
++                        prev = current;
+                 }
++                current = next;
++        }
++
++        // free nodes in separate pass to avoid use-after-free during traversal
++        current = to_free_head;
++        while (current) {
++                Condition *next = current->next;
++                condition_free(current);
++                current = next;
++        }
+ 
+         assert(type >= 0 || !head);
+         return head;
+ }
+ 
+ static int condition_test_kernel_command_line(Condition *c, char **env) {
+-        _cleanup_strv_free_ char **args = NULL;
+-        int r;
++        _cleanup_strv_free_ char **args = NULL;        int r;
+ 
+         assert(c);
+         assert(c->parameter);

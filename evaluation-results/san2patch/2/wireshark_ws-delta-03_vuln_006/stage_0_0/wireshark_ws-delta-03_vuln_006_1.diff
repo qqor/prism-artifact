@@ -1,0 +1,90 @@
+diff --git a/epan/dissectors/packet-irc.c b/epan/dissectors/packet-irc.c
+index 481a619eca..4c4c3ec2aa 100644
+--- a/epan/dissectors/packet-irc.c
++++ b/epan/dissectors/packet-irc.c
+@@ -530,43 +530,52 @@
+      int end_offset;
+      int length;
+      uint8_t *channel_name;
+- 
++
+      if (tvb_get_uint8(tvb, offset) != '#')
+-         return;
++          return;
+      
+-     channel_name = malloc(CHANNELLEN+1);
+- 
++     /* Rationale: allocate buffer once sized to the lesser of remaining data or CHANNELLEN */
++     int max_len = tvb_captured_length_remaining(tvb, offset);
++     if (max_len > CHANNELLEN) max_len = CHANNELLEN;
++     channel_name = malloc(max_len + 1);
++
+      if (channel_name == NULL ) {
+          return;
+      }
+- 
++
+      start_offset = offset;
+- 
++
+      tree = proto_item_add_subtree(item, ett_irc_request_command_names);
+- 
++
+      while(tvb_offset_exists(tvb, start_offset) ) {
+          length = tvb_captured_length_remaining(tvb, start_offset);
+          end_offset = tvb_find_uint8(tvb, start_offset, length, ',');
+- 
++
+          if ( end_offset == -1 ) {
+              proto_tree_add_item(tree, hf_irc_request_command_names_channel, tvb, start_offset, length, ENC_ASCII);
+-             
+-             memset(channel_name, 0, CHANNELLEN+1);
+-             tvb_memcpy(tvb, channel_name, start_offset, (length < CHANNELLEN) ? length : CHANNELLEN);
++             int copy_len = (length < max_len) ? length : max_len;
++             memset(channel_name, 0, max_len + 1);
++             tvb_memcpy(tvb, channel_name, start_offset, copy_len);
++             channel_name[copy_len] = '\0';
+              proto_item_append_text(tree, "Channel: %s", channel_name);
+- 
++
+              free(channel_name);
+              return;
+          }
+- 
+-         memset(channel_name, 0, CHANNELLEN+1);
+-         tvb_memcpy(tvb, channel_name, start_offset, length);
++
++         {
++             int seg_len = end_offset - start_offset;
++             int copy_len = (seg_len < max_len) ? seg_len : max_len;
++             memset(channel_name, 0, max_len + 1);
++             tvb_memcpy(tvb, channel_name, start_offset, copy_len);
++             channel_name[copy_len] = '\0';
++         }
+          proto_item_append_text(tree, "Channel: %s", channel_name);
+- 
++
+          proto_tree_add_item(tree, hf_irc_request_command_names_channel, tvb, start_offset, end_offset-start_offset, ENC_ASCII);
+          start_offset = end_offset + 1;
+      }
+- 
++
+      free(channel_name);
+      return;
+  }
+@@ -1109,7 +1118,14 @@
+  
+          if (linelen != 0)
+          {
+-             if (pinfo->match_uint == pinfo->destport)
++             /* Rationale: Skip any line that exceeds safe maximum to avoid overflow */
++             if (linelen > MAX_IRC_LINE_LEN)
++             {
++                 offset = next_offset;
++                 continue;
++             }
++
++              if (pinfo->match_uint == pinfo->destport)
+              {
+                  dissect_irc_request(irc_tree, tvb, pinfo, offset, linelen);
+              }

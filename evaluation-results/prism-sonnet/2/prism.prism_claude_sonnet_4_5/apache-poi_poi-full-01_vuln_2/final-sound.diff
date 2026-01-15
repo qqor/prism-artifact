@@ -1,0 +1,65 @@
+--- a/poi/src/main/java/org/apache/poi/poifs/dev/POIFSDump.java
++++ b/poi/src/main/java/org/apache/poi/poifs/dev/POIFSDump.java
+@@ -24,6 +24,7 @@
+ import java.nio.file.Files;
+ import java.nio.file.Paths;
+ import java.util.Iterator;
++import java.util.Locale;
+ 
+ import org.apache.poi.poifs.common.POIFSConstants;
+ import org.apache.poi.poifs.filesystem.DirectoryEntry;
+@@ -72,7 +73,7 @@
+                 File dumpDir =
+                         Paths.get(filename).getParent()
+                                 .resolve(filenameWithoutPath + "_dump").toFile();
+-                File file = new File(dumpDir, root.getName());
++                File file = new File(dumpDir, sanitizeEntryName(root.getName()));
+                 if (!file.exists() && !file.mkdirs()) {
+                     throw new IOException("Could not create directory " + file);
+                 }
+@@ -96,6 +97,30 @@
+         }
+     }
+     
++    private static String sanitizeEntryName(String name) {
++        if (name == null || name.trim().isEmpty()) {
++            return "unnamed_entry";
++        }
++        
++        String sanitized = name.replaceAll("\\.{2,}", "_");
++        sanitized = sanitized.replaceAll("[/\\\\]", "_");
++        sanitized = sanitized.replaceAll("[:\\*\\?\"<>|]", "_");
++        sanitized = sanitized.replaceAll("[\\p{Cntrl}]", "_");
++        sanitized = sanitized.replaceAll("^[.\\s]+|[.\\s]+$", "");
++        sanitized = sanitized.replaceAll("_{2,}", "_");
++        
++        if (sanitized.isEmpty()) {
++            return "unnamed_entry";
++        }
++        
++        String upper = sanitized.toUpperCase(java.util.Locale.ROOT);
++        if (upper.matches("^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$")) {
++            sanitized = "_" + sanitized;
++        }
++        
++        return sanitized;
++    }
++
+     public static void dump(DirectoryEntry root, File parent) throws IOException {
+         for(Iterator<Entry> it = root.getEntries(); it.hasNext();){
+             Entry entry = it.next();
+@@ -105,12 +130,12 @@
+                 try (DocumentInputStream is = new DocumentInputStream(node)) {
+                    bytes = IOUtils.toByteArray(is);
+                 }
+-                try (OutputStream out = Files.newOutputStream(new File(parent, node.getName().trim()).toPath())) {
++                try (OutputStream out = Files.newOutputStream(new File(parent, sanitizeEntryName(node.getName())).toPath())) {
+                     out.write(bytes);
+                 }
+             } else if (entry instanceof DirectoryEntry){
+                 DirectoryEntry dir = (DirectoryEntry)entry;
+-                File file = new File(parent, entry.getName());
++                File file = new File(parent, sanitizeEntryName(entry.getName()));
+                 if(!file.exists() && !file.mkdirs()) {
+                     throw new IOException("Could not create directory " + file);
+                 }

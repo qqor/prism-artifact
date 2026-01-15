@@ -1,0 +1,63 @@
+--- a/pdfbox/src/main/java/org/apache/pdfbox/pdmodel/PDPageTree.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/pdmodel/PDPageTree.java
+@@ -183,11 +183,16 @@
+ 
+         private PageIterator(COSDictionary node)
+         {
++            // reset visited set to prevent cycles in malformed page trees
++            pageSet.clear();
++            if (node != null)
++            {
++                pageSet.add(node);
++            }
+             List<COSDictionary> kids = enqueueKids(node);
+             while (!kids.isEmpty())
+             {
+                 List<COSDictionary> newKids = new ArrayList<>();
+-
+                 for (COSDictionary kid : kids)
+                 {
+                     newKids.addAll(enqueueKids(kid));
+@@ -205,23 +210,33 @@
+          */
+         private List<COSDictionary> enqueueKids(COSDictionary node)
+         {
++            if (node == null)
++            {
++                return Collections.emptyList();
++            }
+             if (isPageTreeNode(node))
+             {
+-                return getKids(node);
++                // gather children of this page-tree node, filtering already seen ones
++                List<COSDictionary> kids = getKids(node);
++                List<COSDictionary> filtered = new ArrayList<>();
++                for (COSDictionary kid : kids)
++                {
++                    if (pageSet.add(kid))
++                    {
++                        filtered.add(kid);
++                    }
++                }
++                return filtered;
+             }
+             else
+             {
+-                if (node != null && COSName.PAGE.equals(node.getCOSName(COSName.TYPE)))
++                // leaf page: enqueue if not visited
++                if (COSName.PAGE.equals(node.getCOSName(COSName.TYPE)) && pageSet.add(node))
+                 {
+                     queue.add(node);
+                 }
+-                else
+-                {
+-                    LOG.error("Page skipped due to an invalid or missing type {}",
+-                            () -> (node == null ? "(null)" : node.getCOSName(COSName.TYPE)));
+-                }
+-            }
+-            return Collections.EMPTY_LIST;
++                return Collections.emptyList();
++            }
+         }
+ 
+         @Override

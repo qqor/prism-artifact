@@ -1,0 +1,39 @@
+--- a/libfreerdp/codec/rfx.c
++++ b/libfreerdp/codec/rfx.c
+@@ -671,13 +671,6 @@
+ 	Stream_Read_UINT32(
+ 	    s, frameIdx); /* frameIdx (4 bytes), if codec is in video mode, must be ignored */
+ 	Stream_Read_UINT16(s, numRegions); /* numRegions (2 bytes) */
+-	if (Stream_GetRemainingLength(s) >= 8)
+-	{
+-	        UINT64 blockOffset = 0;
+-	        Stream_Read_UINT64(s, blockOffset);
+-	        Stream_Read_UINT64(s, metadataData);
+-	        metadataBlock += blockOffset;
+-	}
+ 	WLog_Print(context->priv->log, WLOG_DEBUG,
+ 	           "RFX_FRAME_BEGIN: frameIdx: %" PRIu32 " numRegions: %" PRIu16 "", frameIdx,
+ 	           numRegions);
+@@ -725,13 +718,21 @@
+ 		return FALSE;
+ 	}
+ 
++	if (!Stream_CheckAndLogRequiredLengthWLog(context->priv->log, s, 4))
++		return FALSE;
++
+ 	Stream_Read_UINT32(s, magic); /* magic (4 bytes), 0xCACCACCA */
+ 	if (magic != WF_MAGIC)
+ 	{
+ 		WLog_Print(context->priv->log, WLOG_ERROR, "invalid magic number 0x%08" PRIX32 "", magic);
+ 		return FALSE;
+ 	}
+-	*(UINT64*)metadataBlock = metadataData;
++
++	/* Skip any remaining metadata bytes */
++	Stream_Seek(s, Stream_GetRemainingLength(s));
++
++	*pExpectedBlockType = WBT_FRAME_END;
++	WLog_Print(context->priv->log, WLOG_DEBUG, "RFX_METADATA block encountered and skipped");
+ 	return TRUE;
+ }
+ 

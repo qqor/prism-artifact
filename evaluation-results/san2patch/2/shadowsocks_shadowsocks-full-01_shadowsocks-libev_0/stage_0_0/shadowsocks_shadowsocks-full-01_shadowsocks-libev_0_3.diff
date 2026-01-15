@@ -1,0 +1,29 @@
+diff --git a/src/json.c b/src/json.c
+index 2a91900..c9172b3 100644
+--- a/src/json.c
++++ b/src/json.c
+@@ -250,6 +250,9 @@ json_value * json_parse_ex (json_settings * settings,
+    error[0] = '\0';
+    end = (json + length);
+ 
++   /* calculate safe boundary to allow 4-byte lookahead */
++   const json_char *safe_end = (length >= 4 ? end - 4 : json);
++
+    memcpy (&state.settings, settings, sizeof (json_settings));
+ 
+    if (!state.settings.mem_alloc)
+@@ -264,11 +267,12 @@ json_value * json_parse_ex (json_settings * settings,
+    state.uint_max -= 8; /* limit of how much can be added before next check */
+    state.ulong_max -= 8;
+ 
++   /* use safe_end to prevent reading beyond buffer */
+    for (state.first_pass = 1; state.first_pass >= 0; -- state.first_pass)
+    {
++      if (state.ptr > safe_end) goto error;
+       json_uchar uchar;
+-      unsigned char uc_b1, uc_b2, uc_b3, uc_b4;
+-      json_char * string = 0;
++      unsigned char uc_b1, uc_b2, uc_b3, uc_b4;      json_char * string = 0;
+       unsigned int string_length = 0;
+ 
+       top = root = 0;

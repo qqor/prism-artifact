@@ -1,0 +1,69 @@
+--- a/src/main/java/org/apache/commons/compress/archivers/examples/Expander.java
++++ b/src/main/java/org/apache/commons/compress/archivers/examples/Expander.java
+@@ -474,32 +474,44 @@
+         final Enumeration<ZipArchiveEntry> entries = archive.getEntries();
+         while (entries.hasMoreElements()) {
+             ZipArchiveEntry zae = entries.nextElement();
++            Path baseAbsNorm = targetDirectory.toAbsolutePath().normalize();
++
+             if (zae.isUnixSymlink()) {
+                 String targetName = IOUtils.toString(archive.getInputStream(zae),
+                         StandardCharsets.UTF_8);
+-                Path link = targetDirectory.resolve(zae.getName());
+-                Path target = targetDirectory.resolve(targetName);
+-                Path parent = createParentDirectory(targetDirectory, link);
+-
+-                if (!Files.isSameFile(link.getParent(), parent)) {
+-                    link = parent.relativize(link.getFileName()).normalize();
+-                }
+-                if (!Files.isRegularFile(link) && !Files.isSymbolicLink(link)) {
+-                    Files.createSymbolicLink(link, target);
+-                }
+-            } else if (! zae.isDirectory()) {
+-                Path target = targetDirectory.resolve(zae.getName()).normalize();
+-                if (!target.startsWith(targetDirectory)) {
+-                    throw new IOException(String.format("Zip slip '%s' + '%s' -> '%s'",
+-                            targetDirectory, zae.getName(), target));
+-                }
+-                Path parent = createParentDirectory(targetDirectory, target);
+-                if (! target.getParent().toAbsolutePath().normalize().equals(
+-                        parent.toAbsolutePath().normalize())) {
+-                    target = parent.normalize().resolve(target.getFileName());
+-                }
++                Path absLink = baseAbsNorm.resolve(zae.getName()).normalize();
++                if (!absLink.startsWith(baseAbsNorm)) {
++                    throw new IOException(String.format("File path traversal: '%s' -> '%s'",
++                            baseAbsNorm, absLink));
++                }
++                Files.createDirectories(absLink.getParent());
++
++                Path absTarget = baseAbsNorm.resolve(targetName).normalize();
++                if (!absTarget.startsWith(baseAbsNorm)) {
++                    throw new IOException(String.format("File path traversal: '%s' -> '%s'",
++                            baseAbsNorm, absTarget));
++                }
++                if (!Files.exists(absLink)) {
++                    Files.createSymbolicLink(absLink, baseAbsNorm.relativize(absTarget));
++                }
++
++            } else if (zae.isDirectory()) {
++                Path absDir = baseAbsNorm.resolve(zae.getName()).normalize();
++                if (!absDir.startsWith(baseAbsNorm)) {
++                    throw new IOException(String.format("File path traversal: '%s' -> '%s'",
++                            baseAbsNorm, absDir));
++                }
++                Files.createDirectories(absDir);
++
++            } else {
++                Path absTarget = baseAbsNorm.resolve(zae.getName()).normalize();
++                if (!absTarget.startsWith(baseAbsNorm)) {
++                    throw new IOException(String.format("File path traversal: '%s' -> '%s'",
++                            baseAbsNorm, absTarget));
++                }
++                Files.createDirectories(absTarget.getParent());
+                 try (InputStream is = archive.getInputStream(zae)) {
+-                    Files.copy(is, target);
++                    Files.copy(is, absTarget);
+                 }
+             }
+         }

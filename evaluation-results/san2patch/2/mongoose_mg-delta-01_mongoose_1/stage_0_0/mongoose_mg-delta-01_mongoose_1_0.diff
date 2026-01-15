@@ -1,0 +1,38 @@
+diff --git a/src/printf.c b/src/printf.c
+index d9998ccf..55df9cbb 100644
+--- a/src/printf.c
++++ b/src/printf.c
+@@ -3,15 +3,24 @@
+ #include "util.h"
+ 
+ size_t mg_queue_vprintf(struct mg_queue *q, const char *fmt, va_list *ap) {
+-  size_t len = mg_snprintf(NULL, 0, fmt, ap);
+-  char *buf;
+-  if (len == 0 || mg_queue_book(q, &buf, len + 1) < len + 1) {
+-    len = 0;  // Nah. Not enough space
+-  } else {
+-    len = mg_vsnprintf((char *) buf, len + 1, fmt, ap);
+-    mg_queue_add(q, len);
+-  }
+-  return len;
++	/* Use the standard vsnprintf which correctly bounds numeric conversions */
++	va_list ap_len;
++	va_copy(ap_len, *ap);
++	size_t len = vsnprintf(NULL, 0, fmt, ap_len);
++	va_end(ap_len);
++
++	char *buf;
++	/* Reserve len+1 bytes including NUL */
++	if (len == 0 || mg_queue_book(q, &buf, len + 1) < len + 1) {
++		len = 0;  // Not enough space
++	} else {
++		va_list ap_write;
++		va_copy(ap_write, *ap);
++		vsnprintf(buf, len + 1, fmt, ap_write);
++		va_end(ap_write);
++		mg_queue_add(q, len);
++	}
++	return len;
+ }
+ 
+ size_t mg_queue_printf(struct mg_queue *q, const char *fmt, ...) {

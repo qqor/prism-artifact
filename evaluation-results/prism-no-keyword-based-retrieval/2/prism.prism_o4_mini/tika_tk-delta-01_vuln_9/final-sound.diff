@@ -1,0 +1,73 @@
+--- a/tika-core/src/main/java/org/apache/tika/parser/external/ExternalParser.java
++++ b/tika-core/src/main/java/org/apache/tika/parser/external/ExternalParser.java
+@@ -36,6 +36,9 @@
+ import java.util.regex.Matcher;
+ import java.util.regex.Pattern;
+ 
++import java.nio.file.Files;
++import java.nio.file.Path;
++import java.nio.file.Paths;
+ import org.apache.commons.io.IOUtils;
+ import org.apache.commons.io.output.NullOutputStream;
+ import org.slf4j.Logger;
+@@ -137,6 +140,27 @@
+             }
+         }
+         return t;
++    }
++
++    /**
++     * Validates command array before execution to prevent OS command injection.
++     * @param cmd the command and arguments
++     * @throws TikaException if validation fails
++     */
++    private static void validateCommand(String[] cmd) throws TikaException {
++        Path exePath = Paths.get(cmd[0]);
++        if (!Files.isRegularFile(exePath) || !Files.isExecutable(exePath)) {
++            throw new TikaException("External executable not found or not executable: " + cmd[0]);
++        }
++        for (String arg : cmd) {
++            String raw = arg;
++            if (raw.startsWith("\"") && raw.endsWith("\"") && raw.length() > 1) {
++                raw = raw.substring(1, raw.length() - 1);
++            }
++            if (!raw.matches("[A-Za-z0-9_\\-./\\\\ ]+")) {
++                throw new TikaException("Invalid characters in command argument: " + arg);
++            }
++        }
+     }
+ 
+     /**
+@@ -305,16 +329,22 @@
+             }
+         }
+ 
+-        // Execute
+-        Process process = null;
+-        try {
+-            if (cmd.length == 1) {
+-                process = Runtime.getRuntime().exec(cmd[0]);
+-            } else {
+-                process = Runtime.getRuntime().exec(cmd);
+-            }
+-        } catch (Exception e) {
+-            LOG.warn("problem with process exec", e);
++        // Validate command array before execution to prevent injection
++        try {
++            validateCommand(cmd);
++        } catch (TikaException te) {
++            LOG.warn("Unsafe external command, skipping parser: {}", te.getMessage());
++            return;
++        }
++        // Execute safely without shell interpretation
++        Process process;
++        try {
++            process = new ProcessBuilder(cmd)
++                    .redirectErrorStream(false)
++                    .start();
++        } catch (IOException e) {
++            LOG.warn("problem starting external process", e);
++            return;
+         }
+ 
+         try {

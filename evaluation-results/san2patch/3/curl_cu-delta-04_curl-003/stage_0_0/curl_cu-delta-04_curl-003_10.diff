@@ -1,0 +1,39 @@
+diff --git a/lib/doh.c b/lib/doh.c
+index 8769372e0..70dc5ff03 100644
+--- a/lib/doh.c
++++ b/lib/doh.c
+@@ -1402,14 +1402,17 @@ CURLcode Curl_doh_is_resolved(struct Curl_easy *data,
+ void Curl_doh_close(struct Curl_easy *data)
+ {
+   struct doh_probes *doh = data->req.doh;
+-  if(doh && data->multi) {
++  // Rationale: After closing probe_data, set handle references to NULL to prevent use-after-free.
++if(doh && data->multi) {
+     struct Curl_easy *probe_data;
+     curl_off_t mid;
++
+     size_t slot;
+     for(slot = 0; slot < DOH_SLOT_COUNT; slot++) {
+       mid = doh->probe[slot].easy_mid;
+       if(mid < 0)
+         continue;
++      /* invalidate slot early to prevent reuse */
+       doh->probe[slot].easy_mid = -1;
+       /* should have been called before data is removed from multi handle */
+       DEBUGASSERT(data->multi);
+@@ -1418,12 +1421,14 @@ void Curl_doh_close(struct Curl_easy *data)
+       if(!probe_data) {
+         DEBUGF(infof(data, "Curl_doh_close: xfer for mid=%"
+                      FMT_OFF_T " not found!",
+-                     doh->probe[slot].easy_mid));
++                     mid));
+         continue;
+       }
+       /* data->multi might already be reset at this time */
+       curl_multi_remove_handle(data->multi, probe_data);
+       Curl_close(&probe_data);
++      /* clear dangling pointer */
++      probe_data = NULL;
+     }
+   }
+ }

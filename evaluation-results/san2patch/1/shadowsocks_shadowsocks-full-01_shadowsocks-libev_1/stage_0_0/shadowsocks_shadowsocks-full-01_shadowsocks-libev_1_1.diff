@@ -1,0 +1,102 @@
+diff --git a/src/json.c b/src/json.c
+index 2a91900..7150a2e 100644
+--- a/src/json.c
++++ b/src/json.c
+@@ -296,53 +296,46 @@ json_value * json_parse_ex (json_settings * settings,
+ 
+                switch (b)
+                {
++                  /* define macro for safe hex retrieval */
++                  #define GET_HEX(ptr, var) ((ptr + 1) > end || ((var = hex_value(*++(ptr))) == 0xFF))
+                   case 'b':  string_add ('\b');  break;
+                   case 'f':  string_add ('\f');  break;
+                   case 'n':  string_add ('\n');  break;
+                   case 'r':  string_add ('\r');  break;
+                   case 't':  string_add ('\t');  break;
+                   case 'u':
+-
+-                    if (end - state.ptr < 4 || 
+-                        (uc_b1 = hex_value (*++ state.ptr)) == 0xFF ||
+-                        (uc_b2 = hex_value (*++ state.ptr)) == 0xFF ||
+-                        (uc_b3 = hex_value (*++ state.ptr)) == 0xFF ||
+-                        (uc_b4 = hex_value (*++ state.ptr)) == 0xFF)
++                    /* check 4 hex digits */
++                    if (end - state.ptr < 4 ||
++                        GET_HEX(state.ptr, uc_b1) || GET_HEX(state.ptr, uc_b2) ||
++                        GET_HEX(state.ptr, uc_b3) || GET_HEX(state.ptr, uc_b4))
+                     {
+                         sprintf (error, "Invalid character value `%c` (at %d:%d)", b, line_and_col);
+                         goto e_failed;
+                     }
+-
+                     uc_b1 = (uc_b1 << 4) | uc_b2;
+                     uc_b2 = (uc_b3 << 4) | uc_b4;
+                     uchar = (uc_b1 << 8) | uc_b2;
+-
+                     if ((uchar & 0xF800) == 0xD800) {
+-                        json_uchar uchar2;
+-                        
+-                        if (end - state.ptr < 6 || (*++ state.ptr) != '\\' || (*++ state.ptr) != 'u' ||
+-                            (uc_b1 = hex_value (*++ state.ptr)) == 0xFF ||
+-                            (uc_b2 = hex_value (*++ state.ptr)) == 0xFF ||
+-                            (uc_b3 = hex_value (*++ state.ptr)) == 0xFF ||
+-                            (uc_b4 = hex_value (*++ state.ptr)) == 0xFF)
++                        /* check surrogate pair: 6 more characters */
++                        if (end - state.ptr < 6 ||
++                            GET_HEX(state.ptr, uc_b1) || (*(state.ptr) != '\\') ||
++                            GET_HEX(state.ptr, uc_b2) || (*(state.ptr) != 'u') ||
++                            GET_HEX(state.ptr, uc_b3) || GET_HEX(state.ptr, uc_b4))
+                         {
+                             sprintf (error, "Invalid character value `%c` (at %d:%d)", b, line_and_col);
+                             goto e_failed;
+                         }
+-
+                         uc_b1 = (uc_b1 << 4) | uc_b2;
+                         uc_b2 = (uc_b3 << 4) | uc_b4;
+                         uchar2 = (uc_b1 << 8) | uc_b2;
+-                        
+                         uchar = 0x010000 | ((uchar & 0x3FF) << 10) | (uchar2 & 0x3FF);
+                     }
+-
++                    /* UTF-8 output same as before */
+                     if (sizeof (json_char) >= sizeof (json_uchar) || (uchar <= 0x7F))
+                     {
+                        string_add ((json_char) uchar);
+                        break;
+                     }
+-
+                     if (uchar <= 0x7FF)
+                     {
+                         if (state.first_pass)
+@@ -351,10 +344,8 @@ json_value * json_parse_ex (json_settings * settings,
+                         {  string [string_length ++] = 0xC0 | (uchar >> 6);
+                            string [string_length ++] = 0x80 | (uchar & 0x3F);
+                         }
+-
+                         break;
+                     }
+-
+                     if (uchar <= 0xFFFF) {
+                         if (state.first_pass)
+                            string_length += 3;
+@@ -363,10 +354,8 @@ json_value * json_parse_ex (json_settings * settings,
+                            string [string_length ++] = 0x80 | ((uchar >> 6) & 0x3F);
+                            string [string_length ++] = 0x80 | (uchar & 0x3F);
+                         }
+-                        
+                         break;
+                     }
+-
+                     if (state.first_pass)
+                        string_length += 4;
+                     else
+@@ -375,9 +364,7 @@ json_value * json_parse_ex (json_settings * settings,
+                        string [string_length ++] = 0x80 | ((uchar >> 6) & 0x3F);
+                        string [string_length ++] = 0x80 | (uchar & 0x3F);
+                     }
+-
+                     break;
+-
+                   default:
+                      string_add (b);
+                };

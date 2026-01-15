@@ -1,0 +1,83 @@
+--- a/tika-app/src/main/java/org/apache/tika/cli/TikaCLI.java
++++ b/tika-app/src/main/java/org/apache/tika/cli/TikaCLI.java
+@@ -1136,34 +1136,66 @@
+                 name = relID + "_" + name;
+             }
+             //defensively do this so that we don't get an exception
+-            //from FilenameUtils.normalize
++            //from normalize and to prevent null bytes
+             name = name.replaceAll("\u0000", " ");
+-            String normalizedName = FilenameUtils.normalize(name);
+-
+-            if (normalizedName == null) {
+-                normalizedName = FilenameUtils.getName(name);
+-            }
+-
+-            if (normalizedName == null) {
++            
++            // First, extract only the filename to prevent path traversal attacks
++            // This removes all directory path components including ".." sequences
++            String normalizedName = org.apache.tika.io.FilenameUtils.getName(name);
++            
++            // Then normalize the filename to handle reserved characters
++            if (normalizedName != null && !normalizedName.isEmpty()) {
++                normalizedName = org.apache.tika.io.FilenameUtils.normalize(normalizedName);
++            }
++
++            if (normalizedName == null || normalizedName.isEmpty()) {
+                 normalizedName = "file" + count++ + ext;
+             }
+-            //strip off initial C:/ or ~/ or /
+-            int prefixLength = FilenameUtils.getPrefixLength(normalizedName);
+-            if (prefixLength > -1) {
+-                normalizedName = normalizedName.substring(prefixLength);
+-            }
++            
+             try {
+                 normalizedName = URLDecoder.decode(normalizedName, UTF_8);
+             } catch (IllegalArgumentException e) {
+                 LOG.warn("couldn't url decode name {}", normalizedName);
+             }
++            
+             File outputFile = new File(extractDir, normalizedName);
++            
++            // Validate that the output file is within the extract directory
++            // This prevents path traversal attacks even if getName() has edge cases
++            try {
++                File canonicalOutputFile = outputFile.getCanonicalFile();
++                File canonicalExtractDir = extractDir.getCanonicalFile();
++                if (!canonicalOutputFile.toPath().normalize().startsWith(canonicalExtractDir.toPath().normalize())) {
++                    throw new IOException("Security violation: attempted path traversal detected. " +
++                            "Output file must be within extract directory. File: " + normalizedName);
++                }
++            } catch (IOException e) {
++                LOG.error("Path traversal validation failed for file: {}", normalizedName, e);
++                throw new RuntimeException("Security violation: path traversal detected", e);
++            }
++            
+             //if file already exists, prepend uuid
+             if (outputFile.exists()) {
+-                String fileName = FilenameUtils.getName(normalizedName);
++                String fileName = org.apache.tika.io.FilenameUtils.getName(normalizedName);
++                if (fileName == null || fileName.isEmpty()) {
++                    fileName = normalizedName;
++                }
+                 outputFile = new File(extractDir, UUID
+                         .randomUUID()
+                         .toString() + "-" + fileName);
++                
++                // Validate the UUID-prefixed file as well
++                try {
++                    File canonicalOutputFile = outputFile.getCanonicalFile();
++                    File canonicalExtractDir = extractDir.getCanonicalFile();
++                    if (!canonicalOutputFile.toPath().normalize().startsWith(canonicalExtractDir.toPath().normalize())) {
++                        throw new IOException("Security violation: attempted path traversal detected. " +
++                                "Output file must be within extract directory. File: " + outputFile.getName());
++                    }
++                } catch (IOException e) {
++                    LOG.error("Path traversal validation failed for UUID-prefixed file: {}", outputFile.getName(), e);
++                    throw new RuntimeException("Security violation: path traversal detected", e);
++                }
+             }
+             return outputFile;
+         }

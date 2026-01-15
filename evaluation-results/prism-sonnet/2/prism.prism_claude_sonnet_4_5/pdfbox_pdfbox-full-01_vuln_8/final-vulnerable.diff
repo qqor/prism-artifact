@@ -1,0 +1,167 @@
+--- a/fontbox/src/main/java/org/apache/fontbox/type1/Type1Parser.java
++++ b/fontbox/src/main/java/org/apache/fontbox/type1/Type1Parser.java
+@@ -43,6 +43,9 @@
+     // constants for encryption
+     private static final int EEXEC_KEY = 55665;
+     private static final int CHARSTRING_KEY = 4330;
++    
++    // maximum number of iterations when searching for expected tokens
++    private static final int MAX_SEARCH_ITERATIONS = 10000;
+ 
+     // state
+     private Type1Lexer lexer;
+@@ -214,11 +217,20 @@
+             // 0 1 255 {1 index exch /.notdef put } for
+             // we have to check "readonly" and "def" too
+             // as some fonts don't provide any dup-values, see PDFBOX-2134
++            int encodingSearchIterations = 0;
+             while (!(lexer.peekKind(Token.NAME)
+                     && (lexer.peekToken().getText().equals("dup")
+                             || lexer.peekToken().getText().equals("readonly")
+                             || lexer.peekToken().getText().equals("def"))))
+             {
++                if (lexer.peekToken() == null)
++                {
++                    throw new IOException("Unexpected end of token stream while searching for encoding structure (dup/readonly/def)");
++                }
++                if (++encodingSearchIterations > MAX_SEARCH_ITERATIONS)
++                {
++                    throw new IOException("Exceeded maximum search iterations (" + MAX_SEARCH_ITERATIONS + ") while reading encoding");
++                }
+                 lexer.nextToken();
+             }
+             
+@@ -553,12 +565,17 @@
+         lexer = new Type1Lexer(decrypted);
+ 
+         // find /Private dict
++        int privateSearchIterations = 0;
+         Token peekToken = lexer.peekToken();
+         while (peekToken != null && !"Private".equals(peekToken.getText()))
+         {
+             // for a more thorough validation, the presence of "begin" before Private
+             // determines how code before and following charstrings should look
+             // it is not currently checked anyway
++            if (++privateSearchIterations > MAX_SEARCH_ITERATIONS)
++            {
++                throw new IOException("Exceeded maximum search iterations (" + MAX_SEARCH_ITERATIONS + ") while searching for /Private dictionary");
++            }
+             lexer.nextToken();
+             peekToken = lexer.peekToken();
+         }
+@@ -637,9 +654,18 @@
+         // some fonts have "2 index" here, others have "end noaccess put"
+         // sometimes followed by "put". Either way, we just skip until
+         // the /CharStrings dict is found
++        int charStringsSearchIterations = 0;
+         while (!(lexer.peekKind(Token.LITERAL)
+                 && lexer.peekToken().getText().equals("CharStrings")))
+         {
++            if (lexer.peekToken() == null)
++            {
++                throw new IOException("Unexpected end of token stream while searching for /CharStrings literal");
++            }
++            if (++charStringsSearchIterations > MAX_SEARCH_ITERATIONS)
++            {
++                throw new IOException("Exceeded maximum search iterations (" + MAX_SEARCH_ITERATIONS + ") while searching for /CharStrings");
++            }
+             lexer.nextToken();
+         }
+ 
+
+--- a/fontbox/src/main/java/org/apache/fontbox/type1/Type1Lexer.java
++++ b/fontbox/src/main/java/org/apache/fontbox/type1/Type1Lexer.java
+@@ -48,6 +48,11 @@
+      * Log instance.
+      */
+     private static final Logger LOG = LogManager.getLogger(Type1Lexer.class);
++    
++    /**
++     * Maximum allowed size for a CharString in bytes to prevent resource exhaustion.
++     */
++    private static final int MAX_CHAR_STRING_SIZE = 1_000_000;
+     
+     private final ByteBuffer buffer;
+     private Token aheadToken;
+@@ -501,6 +506,16 @@
+      */
+     private Token readCharString(int length) throws IOException
+     {
++        if (length < 0)
++        {
++            throw new IOException("Invalid negative CharString length: " + length);
++        }
++        if (length > MAX_CHAR_STRING_SIZE)
++        {
++            throw new IOException("CharString length " + length + 
++                    " exceeds maximum allowed size of " + MAX_CHAR_STRING_SIZE);
++        }
++        
+         try
+         {
+             buffer.get(); // space
+
+--- a/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/XrefParser.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/XrefParser.java
+@@ -44,6 +44,10 @@
+     private static final int X = 'x';
+     private static final char[] XREF_TABLE = { 'x', 'r', 'e', 'f' };
+     private static final char[] STARTXREF = { 's', 't', 'a', 'r', 't', 'x', 'r', 'e', 'f' };
++    
++    private static final int MAX_XREF_ENTRY_COUNT = 1_000_000;
++    private static final int MAX_XREF_SECTIONS = 1000;
++    private static final int MAX_TRAILER_SEARCH_LINES = 1000;
+ 
+     /** 
+      * Collects all Xref/trailer objects and resolves them into single
+@@ -206,12 +210,18 @@
+         long trailerOffset = source.getPosition();
+         // PDFBOX-1739 skip extra xref entries in RegisSTAR documents
+         int nextCharacter = source.peek();
++        int trailerSearchLines = 0;
+         while (nextCharacter != 't' && BaseParser.isDigit(nextCharacter))
+         {
+             if (source.getPosition() == trailerOffset)
+             {
+                 // warn only the first time
+                 LOG.warn("Expected trailer object at offset {}, keep trying", trailerOffset);
++            }
++            if (++trailerSearchLines > MAX_TRAILER_SEARCH_LINES)
++            {
++                throw new IOException("Exceeded maximum search lines (" + MAX_TRAILER_SEARCH_LINES + 
++                        ") while searching for trailer at offset " + trailerOffset);
+             }
+             parser.readLine();
+             nextCharacter = source.peek();
+@@ -598,8 +608,13 @@
+         }
+         
+         // Xref tables can have multiple sections. Each starts with a starting object id and a count.
++        int sectionsProcessed = 0;
+         while(true)
+         {
++            if (++sectionsProcessed > MAX_XREF_SECTIONS)
++            {
++                throw new IOException("Exceeded maximum xref table sections (" + MAX_XREF_SECTIONS + ")");
++            }
+             String currentLine = parser.readLine();
+             String[] splitString = currentLine.split("\\s");
+             if (splitString.length != 2)
+@@ -629,6 +644,17 @@
+             {
+                 LOG.warn("XRefTable: invalid number of objects: {}", currentLine);
+                 return false;
++            }
++            
++            if (count < 0)
++            {
++                LOG.warn("XRefTable: negative object count: {}", count);
++                return false;
++            }
++            if (count > MAX_XREF_ENTRY_COUNT)
++            {
++                throw new IOException("XRefTable: object count " + count + 
++                        " exceeds maximum allowed (" + MAX_XREF_ENTRY_COUNT + ")");
+             }
+             
+             parser.skipSpaces();

@@ -1,0 +1,28 @@
+--- a/src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java
++++ b/src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java
+@@ -93,6 +93,16 @@
+  * </ul>
+  */
+ public class ZipFile implements Closeable {
++
++    /**
++     * JVM property to opt in to comment‐based URL fetching in ZIP entries.
++     * Default is false, disabling remote fetch to prevent SSRF.
++     * Enable with -Dorg.apache.commons.compress.zip.allowCommentUrlFetch=true
++     */
++    private static final String ALLOW_COMMENT_URL_FETCH_PROPERTY =
++        "org.apache.commons.compress.zip.allowCommentUrlFetch";
++    private static final boolean ALLOW_COMMENT_URL_FETCH =
++        Boolean.getBoolean(ALLOW_COMMENT_URL_FETCH_PROPERTY);
+ 
+     /**
+      * Lock-free implementation of BoundedInputStream. The implementation uses positioned reads on the underlying archive file channel and therefore performs
+@@ -1548,7 +1558,7 @@
+             throw new EOFException();
+         }
+         String commentString = entryEncoding.decode(comment);
+-        if (commentString.startsWith("http") || commentString.startsWith("https")) {
++        if (ALLOW_COMMENT_URL_FETCH && (commentString.startsWith("http") || commentString.startsWith("https"))) {
+             try (InputStream is = new URL(commentString).openStream()) {
+                 ByteArrayOutputStream bos = new ByteArrayOutputStream();
+                 IOUtils.copy(is, bos);

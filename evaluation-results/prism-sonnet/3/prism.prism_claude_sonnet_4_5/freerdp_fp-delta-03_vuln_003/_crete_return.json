@@ -1,0 +1,14 @@
+{
+  "project_name": "freerdp",
+  "vulnerability_identifier": "freerdp_fp-delta-03_vuln_003",
+  "source_directory": "/home/qqor/crete/.cache/official-afc-freerdp",
+  "llm_usage": {
+    "total_cost": 2.366547,
+    "prompt_tokens": 666099,
+    "completion_tokens": 24550
+  },
+  "variant": "sound",
+  "diff": "--- a/libfreerdp/codec/rfx.c\n+++ b/libfreerdp/codec/rfx.c\n@@ -671,13 +671,6 @@\n \tStream_Read_UINT32(\n \t    s, frameIdx); /* frameIdx (4 bytes), if codec is in video mode, must be ignored */\n \tStream_Read_UINT16(s, numRegions); /* numRegions (2 bytes) */\n-\tif (Stream_GetRemainingLength(s) >= 8)\n-\t{\n-\t        UINT64 blockOffset = 0;\n-\t        Stream_Read_UINT64(s, blockOffset);\n-\t        Stream_Read_UINT64(s, metadataData);\n-\t        metadataBlock += blockOffset;\n-\t}\n \tWLog_Print(context->priv->log, WLOG_DEBUG,\n \t           \"RFX_FRAME_BEGIN: frameIdx: %\" PRIu32 \" numRegions: %\" PRIu16 \"\", frameIdx,\n \t           numRegions);\n@@ -725,13 +718,21 @@\n \t\treturn FALSE;\n \t}\n \n+\tif (!Stream_CheckAndLogRequiredLengthWLog(context->priv->log, s, 4))\n+\t\treturn FALSE;\n+\n \tStream_Read_UINT32(s, magic); /* magic (4 bytes), 0xCACCACCA */\n \tif (magic != WF_MAGIC)\n \t{\n \t\tWLog_Print(context->priv->log, WLOG_ERROR, \"invalid magic number 0x%08\" PRIX32 \"\", magic);\n \t\treturn FALSE;\n \t}\n-\t*(UINT64*)metadataBlock = metadataData;\n+\n+\t/* Skip any remaining metadata bytes */\n+\tStream_Seek(s, Stream_GetRemainingLength(s));\n+\n+\t*pExpectedBlockType = WBT_FRAME_END;\n+\tWLog_Print(context->priv->log, WLOG_DEBUG, \"RFX_METADATA block encountered and skipped\");\n \treturn TRUE;\n }\n \n",
+  "stdout": "",
+  "stderr": ""
+}

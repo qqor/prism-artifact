@@ -1,0 +1,36 @@
+--- a/src/main/java/org/apache/commons/compress/archivers/examples/Expander.java
++++ b/src/main/java/org/apache/commons/compress/archivers/examples/Expander.java
+@@ -484,6 +484,15 @@
+                 if (!Files.isSameFile(link.getParent(), parent)) {
+                     link = parent.relativize(link.getFileName()).normalize();
+                 }
++                // Validate final link and target paths are within extraction root
++                Path finalLink = link.toAbsolutePath().normalize();
++                Path finalTarget = target.toAbsolutePath().normalize();
++                Path normalizedRoot = targetDirectory.toAbsolutePath().normalize();
++                if (!finalLink.startsWith(normalizedRoot) || !finalTarget.startsWith(normalizedRoot)) {
++                    throw new IOException(String.format(
++                        "Zip slip or symlink escape '%s' + entry '%s' -> link '%s' target '%s'",
++                        normalizedRoot, zae.getName(), finalLink, finalTarget));
++                }
+                 if (!Files.isRegularFile(link) && !Files.isSymbolicLink(link)) {
+                     Files.createSymbolicLink(link, target);
+                 }
+@@ -498,8 +507,16 @@
+                         parent.toAbsolutePath().normalize())) {
+                     target = parent.normalize().resolve(target.getFileName());
+                 }
++                // Validate final target path is within extraction root
++                Path finalTarget = target.toAbsolutePath().normalize();
++                Path normalizedRoot = targetDirectory.toAbsolutePath().normalize();
++                if (!finalTarget.startsWith(normalizedRoot)) {
++                    throw new IOException(String.format(
++                        "Zip slip '%s' + '%s' -> '%s'",
++                        normalizedRoot, zae.getName(), finalTarget));
++                }
+                 try (InputStream is = archive.getInputStream(zae)) {
+-                    Files.copy(is, target);
++                    Files.copy(is, finalTarget);
+                 }
+             }
+         }

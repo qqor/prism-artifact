@@ -1,0 +1,45 @@
+--- a/poi-ooxml/src/main/java/org/apache/poi/xssf/extractor/XSSFEventBasedExcelExtractor.java
++++ b/poi-ooxml/src/main/java/org/apache/poi/xssf/extractor/XSSFEventBasedExcelExtractor.java
+@@ -73,7 +73,8 @@
+     implements POIXMLTextExtractor, ExcelExtractor {
+ 
+     private static final Logger LOGGER = PoiLogManager.getLogger(XSSFEventBasedExcelExtractor.class);
+-    private static final Pattern MAJOR_VERSION_PATTERN = Pattern.compile("(-?(?:\\d{1,30})*)(?:\\.(\\dc?)*)");
++    private static final Pattern MAJOR_VERSION_PATTERN = Pattern.compile("(-?\\d{1,30})");
++    private static final int MAX_APP_VERSION_LENGTH = 512;
+     protected final OPCPackage container;
+     protected final POIXMLProperties properties;
+ 
+@@ -523,21 +524,30 @@
+ 
+         private void handleAppVersion() {
+             String appVersionString = appVersionBuffer.toString();
++            // clear buffer early to release memory
++            appVersionBuffer.setLength(0);
+             if (appVersionString.isEmpty()) {
++                return;
++            }
++            if (appVersionString.length() > MAX_APP_VERSION_LENGTH) {
++                LOGGER.warn("Skipped AppVersion parse: length {} exceeds {}", appVersionString.length(), MAX_APP_VERSION_LENGTH);
+                 return;
+             }
+             Matcher m = MAJOR_VERSION_PATTERN.matcher(appVersionString);
+             if (m.find()) {
+                 text.append("MajorVersion: ").append(m.group(1)).append("\n");
+             }
+-            appVersionBuffer.setLength(0);
+         }
+ 
+         @Override
+         public void characters(char[] ch, int start, int length) throws SAXException {
+             text.append(ch, start, length);
+             if (inAppVersion) {
+-                appVersionBuffer.append(ch, start, length);
++                int remaining = MAX_APP_VERSION_LENGTH - appVersionBuffer.length();
++                if (remaining > 0) {
++                    int toAppend = Math.min(length, remaining);
++                    appVersionBuffer.append(ch, start, toAppend);
++                }
+             }
+         }
+     }

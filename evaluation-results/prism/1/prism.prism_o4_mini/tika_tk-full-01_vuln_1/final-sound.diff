@@ -1,0 +1,64 @@
+--- a/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-microsoft-module/src/main/java/org/apache/tika/parser/microsoft/rtf/RTFEmbObjHandler.java
++++ b/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-microsoft-module/src/main/java/org/apache/tika/parser/microsoft/rtf/RTFEmbObjHandler.java
+@@ -19,7 +19,10 @@
+ import java.io.IOException;
+ import java.io.InputStream;
+ import java.io.ObjectInputStream;
++import java.io.InvalidClassException;
++import java.io.ObjectStreamClass;
+ import java.nio.charset.StandardCharsets;
++import java.util.Set;
+ import java.util.concurrent.atomic.AtomicInteger;
+ 
+ import org.apache.commons.io.FilenameUtils;
+@@ -81,6 +84,28 @@
+     private Metadata metadata;
+     private EMB_STATE state = EMB_STATE.NADA;
+ 
++    /**
++     * SafeObjectInputStream restricts deserialization to a whitelist of classes.
++     */
++    private static class SafeObjectInputStream extends ObjectInputStream {
++        private static final Set<String> ALLOWED_CLASSES = Set.of(
++            "java.lang.String"
++        );
++
++        protected SafeObjectInputStream(InputStream in) throws IOException {
++            super(in);
++        }
++
++        @Override
++        protected Class<?> resolveClass(ObjectStreamClass desc) throws IOException, ClassNotFoundException {
++            String name = desc.getName();
++            if (!ALLOWED_CLASSES.contains(name)) {
++                throw new InvalidClassException("Unauthorized deserialization of " + name);
++            }
++            return super.resolveClass(desc);
++        }
++    }
++
+     protected RTFEmbObjHandler(ContentHandler handler, Metadata metadata, ParseContext context,
+                                int memoryLimitInKb) {
+         this.handler = handler;
+@@ -211,16 +236,17 @@
+             extractObj(bytes, handler, metadata);
+ 
+         } else if (state == EMB_STATE.JAVA_OBJDATA) {
+-            try {
+-                Object obj = new ObjectInputStream(
+-                        UnsynchronizedByteArrayInputStream.builder().setByteArray(bytes)
+-                                .get()).readObject();
++            try (SafeObjectInputStream ois = new SafeObjectInputStream(
++                    UnsynchronizedByteArrayInputStream.builder().setByteArray(bytes).get())) {
++                Object obj = ois.readObject();
+                 metadata.set(RTFMetadata.EMB_CLASS, obj.getClass().getName());
+                 metadata.set(TikaCoreProperties.CONTENT_TYPE_PARSER_OVERRIDE,
+                         MediaType.text("plain").toString());
+                 extractObj(obj.toString().getBytes(StandardCharsets.UTF_8), handler, metadata);
+             } catch (ClassNotFoundException e) {
+                 throw new TikaException("Not found", e);
++            } catch (IOException e) {
++                EmbeddedDocumentUtil.recordEmbeddedStreamException(e, metadata);
+             }
+         } else if (state == EMB_STATE.NADA) {
+             //swallow...no start for pict or embed?!

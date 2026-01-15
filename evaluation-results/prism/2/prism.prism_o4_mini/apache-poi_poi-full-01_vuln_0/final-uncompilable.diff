@@ -1,0 +1,52 @@
+--- a/poi-ooxml/src/main/java/org/apache/poi/xssf/usermodel/XSSFSheet.java
++++ b/poi-ooxml/src/main/java/org/apache/poi/xssf/usermodel/XSSFSheet.java
+@@ -25,6 +25,9 @@
+ import java.io.InputStream;
+ import java.io.OutputStream;
+ import java.util.*;
++
++import org.apache.poi.ooxml.POIXMLProperties;
++import org.apache.poi.util.BoundedInputStream;
+ 
+ import javax.xml.namespace.QName;
+ import javax.xml.stream.XMLStreamException;
+@@ -153,8 +156,12 @@
+     }
+ 
+     protected void read(InputStream is) throws IOException {
++        BoundedInputStream limited = BoundedInputStream.builder()
++                .setInputStream(is)
++                .setMaxCount(POIXMLProperties.getMaxSheetXmlBytes())
++                .get();
+         try {
+-            worksheet = WorksheetDocument.Factory.parse(is, DEFAULT_XML_OPTIONS).getWorksheet();
++            worksheet = WorksheetDocument.Factory.parse(limited, DEFAULT_XML_OPTIONS).getWorksheet();
+         } catch (XmlException e){
+             throw new POIXMLException(e);
+         }
+
+--- a/poi-ooxml/src/main/java/org/apache/poi/xssf/eventusermodel/ReadOnlySharedStringsTable.java
++++ b/poi-ooxml/src/main/java/org/apache/poi/xssf/eventusermodel/ReadOnlySharedStringsTable.java
+@@ -25,6 +25,9 @@
+ import java.util.List;
+ 
+ import javax.xml.parsers.ParserConfigurationException;
++
++import org.apache.poi.ooxml.POIXMLProperties;
++import org.apache.poi.util.BoundedInputStream;
+ 
+ import org.apache.poi.openxml4j.opc.OPCPackage;
+ import org.apache.poi.openxml4j.opc.PackagePart;
+@@ -186,7 +189,11 @@
+      */
+     public void readFrom(InputStream is) throws IOException, SAXException {
+         // test if the file is empty, otherwise parse it
+-        PushbackInputStream pis = new PushbackInputStream(is, 1);
++        BoundedInputStream limited = BoundedInputStream.builder()
++                .setInputStream(is)
++                .setMaxCount(POIXMLProperties.getMaxSharedStringsBytes())
++                .get();
++        PushbackInputStream pis = new PushbackInputStream(limited, 1);
+         int emptyTest = pis.read();
+         if (emptyTest > -1) {
+             pis.unread(emptyTest);

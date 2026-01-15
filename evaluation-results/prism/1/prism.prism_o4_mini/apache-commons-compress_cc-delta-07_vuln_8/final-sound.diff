@@ -1,0 +1,57 @@
+--- a/src/main/java/org/apache/commons/compress/archivers/examples/Expander.java
++++ b/src/main/java/org/apache/commons/compress/archivers/examples/Expander.java
+@@ -475,31 +475,30 @@
+         while (entries.hasMoreElements()) {
+             ZipArchiveEntry zae = entries.nextElement();
+             if (zae.isUnixSymlink()) {
+-                String targetName = IOUtils.toString(archive.getInputStream(zae),
++                String rawTargetName = IOUtils.toString(
++                        archive.getInputStream(zae),
+                         StandardCharsets.UTF_8);
+-                Path link = targetDirectory.resolve(zae.getName());
+-                Path target = targetDirectory.resolve(targetName);
+-                Path parent = createParentDirectory(targetDirectory, link);
+-
+-                if (!Files.isSameFile(link.getParent(), parent)) {
+-                    link = parent.relativize(link.getFileName()).normalize();
+-                }
+-                if (!Files.isRegularFile(link) && !Files.isSymbolicLink(link)) {
+-                    Files.createSymbolicLink(link, target);
+-                }
+-            } else if (! zae.isDirectory()) {
+-                Path target = targetDirectory.resolve(zae.getName()).normalize();
+-                if (!target.startsWith(targetDirectory)) {
+-                    throw new IOException(String.format("Zip slip '%s' + '%s' -> '%s'",
+-                            targetDirectory, zae.getName(), target));
+-                }
+-                Path parent = createParentDirectory(targetDirectory, target);
+-                if (! target.getParent().toAbsolutePath().normalize().equals(
+-                        parent.toAbsolutePath().normalize())) {
+-                    target = parent.normalize().resolve(target.getFileName());
+-                }
+-                try (InputStream is = archive.getInputStream(zae)) {
+-                    Files.copy(is, target);
++                Path linkPath = ((ArchiveEntry) zae).resolveIn(targetDirectory);
++                Path symlinkTarget = targetDirectory.resolve(rawTargetName).normalize();
++                if (!symlinkTarget.startsWith(targetDirectory)) {
++                    throw new IOException("Symlink target escapes extraction root: " + rawTargetName);
++                }
++                Path parent = linkPath.getParent();
++                if (parent != null && !Files.exists(parent)) {
++                    Files.createDirectories(parent);
++                }
++                if (!Files.exists(linkPath)) {
++                    Files.createSymbolicLink(linkPath, symlinkTarget);
++                }
++            } else if (!zae.isDirectory()) {
++                Path target = ((ArchiveEntry) zae).resolveIn(targetDirectory);
++                Path parent = target.getParent();
++                if (parent != null && !Files.exists(parent)) {
++                    Files.createDirectories(parent);
++                }
++                try (InputStream is = archive.getInputStream(zae);
++                     OutputStream os = Files.newOutputStream(target)) {
++                    IOUtils.copy(is, os);
+                 }
+             }
+         }

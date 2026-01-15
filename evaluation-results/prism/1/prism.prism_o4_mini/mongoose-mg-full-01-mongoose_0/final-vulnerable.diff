@@ -1,0 +1,58 @@
+--- a/src/json.h
++++ b/src/json.h
+@@ -5,10 +5,6 @@
+ 
+ #ifndef MG_JSON_MAX_DEPTH
+ #define MG_JSON_MAX_DEPTH 30
+-#endif
+-
+-#ifndef MG_JSON_MAX_NESTING
+-#define MG_JSON_MAX_NESTING 60
+ #endif
+ 
+ // Error return values - negative. Successful returns are >= 0
+
+--- a/src/json.c
++++ b/src/json.c
+@@ -126,6 +126,12 @@
+ int mg_json_get(struct mg_str json, const char *path, int *toklen) {
+   const char *s = json.buf;
+   int len = (int) json.len;
++  #define PUSH_NESTING(ch) do {                              \
++    if ((unsigned)(depth) >= (unsigned)MG_JSON_MAX_DEPTH)     \
++      return MG_JSON_TOO_DEEP;                                \
++    nesting[depth++] = (unsigned char)(ch);                   \
++  } while (0)
++
+   enum { S_VALUE, S_KEY, S_COLON, S_COMMA_OR_EOO } expecting = S_VALUE;
+   unsigned char nesting[MG_JSON_MAX_DEPTH];
+   int i = 0;             // Current offset in `s`
+@@ -164,16 +170,14 @@
+         // p("V %s [%.*s] %d %d %d %d\n", path, pos, path, depth, ed, ci, ei);
+         if (depth == ed) j = i;
+         if (c == '{') {
+-          if (depth > MG_JSON_MAX_NESTING) return MG_JSON_TOO_DEEP;
+           if (depth == ed && path[pos] == '.' && ci == ei) {
+             // If we start the object, reset array indices
+             ed++, pos++, ci = ei = -1;
+           }
+-          nesting[depth++] = c;
++          PUSH_NESTING(c);
+           expecting = S_KEY;
+           break;
+         } else if (c == '[') {
+-          if (depth > MG_JSON_MAX_NESTING) return MG_JSON_TOO_DEEP;
+           if (depth == ed && path[pos] == '[' && ei == ci) {
+             ed++, pos++, ci = 0;
+             for (ei = 0; path[pos] != ']' && path[pos] != '\0'; pos++) {
+@@ -182,8 +186,9 @@
+             }
+             if (path[pos] != 0) pos++;
+           }
+-          nesting[depth++] = c;
++          PUSH_NESTING(c);
+           break;
++        }
+         } else if (c == ']' && depth > 0) {  // Empty array
+           MG_EOO(']');
+         } else if (c == 't' && i + 3 < len && memcmp(&s[i], "true", 4) == 0) {

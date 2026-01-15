@@ -1,0 +1,173 @@
+--- a/poi/src/main/java/org/apache/poi/ss/formula/functions/Countif.java
++++ b/poi/src/main/java/org/apache/poi/ss/formula/functions/Countif.java
+@@ -355,6 +355,15 @@
+                 return false;
+             }
+             String testedValue = ((StringEval) x).getStringValue();
++            
++            // Validate input length to prevent excessive resource consumption
++            if (testedValue.length() > 10000) {
++                throw new IllegalArgumentException(
++                    "Input text too long for pattern matching: " + testedValue.length() + 
++                    " characters (max 10000)"
++                );
++            }
++            
+             if (testedValue.length() < 1 && _value.length() < 1) {
+                 // odd case: criteria '=' behaves differently to criteria ''
+ 
+@@ -366,7 +375,16 @@
+                 return false;
+             }
+             if (_pattern != null) {
+-                return evaluate(_pattern.matcher(testedValue).matches());
++                try {
++                    return evaluate(_pattern.matcher(testedValue).matches());
++                } catch (StackOverflowError e) {
++                    throw new IllegalStateException(
++                        "Wildcard pattern caused stack overflow during matching. " +
++                        "Pattern: '" + _value + "', input length: " + testedValue.length() + ". " +
++                        "Try simplifying the pattern or increase Java stack size with -Xss.",
++                        e
++                    );
++                }
+             }
+             // String criteria in COUNTIF are case insensitive:
+             // for example, the string "apples" and the string "APPLES" will match the same cells.
+@@ -378,20 +396,55 @@
+          */
+         public static Pattern getWildCardPattern(String value) {
+             int len = value.length();
++            
++            // Validate pattern length to prevent excessive resource consumption
++            if (len > 1000) {
++                throw new IllegalArgumentException(
++                    "Wildcard pattern too long: " + len + " characters (max 1000)"
++                );
++            }
++            
+             StringBuilder sb = new StringBuilder(len);
+             boolean hasWildCard = false;
++            int wildcardCount = 0;
++            boolean lastWasWildcardStar = false;
++            
+             for(int i=0; i<len; i++) {
+                 char ch = value.charAt(i);
+                 switch(ch) {
+                     case '?':  //Any single character
++                        if (lastWasWildcardStar) {
++                            // Skip: .*+ already matches any single character
++                            // This prevents patterns like .*+. which are redundant
++                            continue;
++                        }
+                         hasWildCard = true;
++                        wildcardCount++;
++                        if (wildcardCount > 50) {
++                            throw new IllegalArgumentException(
++                                "Wildcard pattern too complex: more than 50 wildcards"
++                            );
++                        }
+                         // match exactly one character
+                         sb.append('.');
++                        lastWasWildcardStar = false;
+                         continue;
+                     case '*': //Zero or more characters
++                        if (lastWasWildcardStar) {
++                            // Skip: consecutive * wildcards are redundant
++                            // This prevents patterns like .*+.*+ which cause deep recursion
++                            continue;
++                        }
+                         hasWildCard = true;
+-                        // match one or more occurrences of any character
+-                        sb.append(".*");
++                        wildcardCount++;
++                        if (wildcardCount > 50) {
++                            throw new IllegalArgumentException(
++                                "Wildcard pattern too complex: more than 50 wildcards"
++                            );
++                        }
++                        // Use possessive quantifier to prevent backtracking
++                        sb.append(".*+");
++                        lastWasWildcardStar = true;
+                         continue;
+                     case '~':
+                         if (i+1<len) {
+@@ -399,14 +452,17 @@
+                             switch (ch) {
+                                 case '?':
+                                 case '*':
+-                                    hasWildCard = true;
++                                    // DON'T set hasWildCard = true here!
++                                    // Escaped wildcards are literal characters, not wildcards
+                                     sb.append('[').append(ch).append(']');
+                                     i++; // Note - incrementing loop variable here
++                                    lastWasWildcardStar = false;
+                                     continue;
+                             }
+                         }
+                         // else not '~?' or '~*'
+                         sb.append('~'); // just plain '~'
++                        lastWasWildcardStar = false;
+                         continue;
+                     case '.':
+                     case '$':
+@@ -417,9 +473,11 @@
+                     case ')':
+                         // escape literal characters that would have special meaning in regex
+                         sb.append("\\").append(ch);
++                        lastWasWildcardStar = false;
+                         continue;
+                 }
+                 sb.append(ch);
++                lastWasWildcardStar = false;
+             }
+             if (hasWildCard) {
+                 return Pattern.compile(sb.toString(), Pattern.CASE_INSENSITIVE);
+
+--- a/poi-ooxml/src/main/java/org/apache/poi/xssf/extractor/XSSFEventBasedExcelExtractor.java
++++ b/poi-ooxml/src/main/java/org/apache/poi/xssf/extractor/XSSFEventBasedExcelExtractor.java
+@@ -73,7 +73,7 @@
+     implements POIXMLTextExtractor, ExcelExtractor {
+ 
+     private static final Logger LOGGER = PoiLogManager.getLogger(XSSFEventBasedExcelExtractor.class);
+-    private static final Pattern MAJOR_VERSION_PATTERN = Pattern.compile("(-?(?:\\d{1,30})*)(?:\\.(\\dc?)*)");
++    private static final Pattern MAJOR_VERSION_PATTERN = Pattern.compile("^(-?\\d+)(?:\\.(\\d+))?");
+     protected final OPCPackage container;
+     protected final POIXMLProperties properties;
+ 
+@@ -316,6 +316,10 @@
+             parser.parse(is, new ExtendedPropertiesHandler(text));
+         } catch (ParserConfigurationException | SAXException | IOException e) {
+             //swallow
++        } catch (StackOverflowError e) {
++            // Catch stack overflow from regex matching in ExtendedPropertiesHandler
++            // Log warning and continue processing (extended properties are optional)
++            LOGGER.atWarn().withThrowable(e).log("Failed to parse extended properties due to stack overflow");
+         }
+     }
+ 
+@@ -526,9 +530,21 @@
+             if (appVersionString.isEmpty()) {
+                 return;
+             }
+-            Matcher m = MAJOR_VERSION_PATTERN.matcher(appVersionString);
+-            if (m.find()) {
+-                text.append("MajorVersion: ").append(m.group(1)).append("\n");
++            // Validate length to prevent excessive resource consumption
++            if (appVersionString.length() > 200) {
++                // Just append the raw string without parsing if too long
++                text.append("AppVersion (unparsed): ").append(appVersionString.substring(0, 200)).append("...\n");
++                appVersionBuffer.setLength(0);
++                return;
++            }
++            try {
++                Matcher m = MAJOR_VERSION_PATTERN.matcher(appVersionString);
++                if (m.find()) {
++                    text.append("MajorVersion: ").append(m.group(1)).append("\n");
++                }
++            } catch (StackOverflowError e) {
++                // If regex still causes issues, just output the raw version string
++                text.append("AppVersion: ").append(appVersionString).append("\n");
+             }
+             appVersionBuffer.setLength(0);
+         }

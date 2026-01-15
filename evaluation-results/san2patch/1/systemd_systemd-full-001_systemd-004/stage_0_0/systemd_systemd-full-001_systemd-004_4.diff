@@ -1,0 +1,30 @@
+diff --git a/src/udev/net/link-config.c b/src/udev/net/link-config.c
+index 7787f66981..02195f7d20 100644
+--- a/src/udev/net/link-config.c
++++ b/src/udev/net/link-config.c
+@@ -61,7 +61,24 @@ static LinkConfig* link_config_free(LinkConfig *config) {
+         strv_free(config->dropins);
+ 
+         net_match_clear(&config->match);
+-        condition_free_list(config->conditions);
++
++        /* Goto-based safe free to demonstrate alternative traversal */
++        {
++                struct condition *cur = config->conditions;
++                struct condition *next;
++        loop_start:
++                if (!cur) {
++                        config->conditions = NULL;
++                        goto loop_end;
++                }
++                next = cur->next;
++                free(cur->match);
++                free(cur->description);
++                free(cur);
++                cur = next;
++                goto loop_start;
++        loop_end: ;
++        }
+ 
+         free(config->description);
+         strv_free(config->properties);

@@ -1,0 +1,74 @@
+--- a/poi-scratchpad/src/main/java/org/apache/poi/hmef/attribute/MAPIAttribute.java
++++ b/poi-scratchpad/src/main/java/org/apache/poi/hmef/attribute/MAPIAttribute.java
+@@ -40,10 +40,12 @@
+  */
+ public class MAPIAttribute {
+ 
+-   //arbitrarily selected; may need to increase
+    private static final int DEFAULT_MAX_RECORD_LENGTH = 1_000_000;
+-   private static int MAX_RECORD_LENGTH = 1_000_000;
++   private static int MAX_RECORD_LENGTH = DEFAULT_MAX_RECORD_LENGTH;
+    private static int MAX_RECORD_COUNT = 10_000;
++   // maximum number of MAPI values to guard against OOM via multi-valued attributes
++   private static final int MAX_MAPI_VALUES = 1024;
++   private static final int HEADER_SIZE = 8;
+ 
+    private final MAPIProperty property;
+    private final int type;
+@@ -118,10 +120,13 @@
+       }
+       try(UnsynchronizedByteArrayInputStream inp = UnsynchronizedByteArrayInputStream.builder().setByteArray(parent.getData()).get()) {
+          // First up, get the number of attributes
+-         int count = LittleEndian.readInt(inp);
+-         List<MAPIAttribute> attrs = new ArrayList<>();
+-
+-         // Now, read each one in in turn
++        int count = LittleEndian.readInt(inp);
++        if (count < 0 || count > MAX_RECORD_COUNT) {
++            throw new IOException("Corrupt TNEF: unreasonable MAPI attribute count: " + count);
++        }
++        List<MAPIAttribute> attrs = new ArrayList<>();
++        
++        // Now, read each one in in turn
+          for(int i=0; i<count; i++) {
+             int typeAndMV = LittleEndian.readUShort(inp);
+             int id = LittleEndian.readUShort(inp);
+@@ -165,10 +170,11 @@
+                } else {
+                   // Custom name was stored
+                   int mplen = LittleEndian.readInt(inp);
+-                  if (mplen < 0) {
+-                     throw new IOException("Did not expect negative value: " + mplen);
++                  if (mplen < 0 || mplen > MAX_RECORD_LENGTH) {
++                     throw new IOException("Corrupt TNEF: attribute name length " + mplen +
++                                           " out of bounds (0–" + MAX_RECORD_LENGTH + ")");
+                   }
+-                  byte[] mpdata = new byte[mplen];
++                  byte[] mpdata = IOUtils.safelyAllocate(mplen, MAX_RECORD_LENGTH);
+                   if (IOUtils.readFully(inp, mpdata) < 0) {
+                      throw new IOException("Not enough data to read " + mplen + " bytes for attribute name");
+                   }
+@@ -187,6 +193,9 @@
+             int values = 1;
+             if(isMV || isVL) {
+                values = LittleEndian.readInt(inp);
++               if (values < 0 || values > MAX_MAPI_VALUES) {
++                  throw new IOException("Corrupt TNEF: unreasonable MAPI value count: " + values);
++               }
+             }
+ 
+             if (type == Types.NULL && values > 1) {
+@@ -228,7 +237,12 @@
+           type == Types.DIRECTORY ||
+           type == Types.BINARY) {
+             // Need to read the length, as it varies
+-            return LittleEndian.readInt(inp);
++            int len = LittleEndian.readInt(inp);
++            if (len < 0 || len > MAX_RECORD_LENGTH) {
++                throw new IOException("Corrupt TNEF: declared length " + len +
++                                      " out of bounds (0–" + MAX_RECORD_LENGTH + ")");
++            }
++            return len;
+       } else {
+             throw new IllegalArgumentException("Unknown type " + type);
+       }

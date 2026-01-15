@@ -1,0 +1,245 @@
+--- a/poi/src/main/java/org/apache/poi/ss/formula/functions/Countif.java
++++ b/poi/src/main/java/org/apache/poi/ss/formula/functions/Countif.java
+@@ -306,31 +306,16 @@
+             return _value;
+         }
+     }
+-    public static final class StringMatcher extends MatcherBase {
+-
+-        private final String _value;
+-        private final Pattern _pattern;
+-
+         public StringMatcher(String value, CmpOp operator) {
+             super(operator);
+             _value = value;
+-            switch(operator.getCode()) {
+-                case CmpOp.NONE:
+-                case CmpOp.EQ:
+-                case CmpOp.NE:
+-                    _pattern = getWildCardPattern(value);
+-                    break;
+-                default:
+-                    // pattern matching is never used for < > <= =>
+-                    _pattern = null;
+-            }
++            // Don't compile regex patterns - use iterative wildcard matching instead
++            // to prevent StackOverflowError from catastrophic backtracking
++            _pattern = null;
+         }
+         @Override
+         protected String getValueText() {
+-            if (_pattern == null) {
+-                return _value;
+-            }
+-            return _pattern.pattern();
++            return _value;
+         }
+ 
+         @Override
+@@ -365,8 +350,8 @@
+                 }
+                 return false;
+             }
+-            if (_pattern != null) {
+-                return evaluate(_pattern.matcher(testedValue).matches());
++            if (hasWildcardChars(_value)) {
++                return evaluate(matchesWildcard(_value, testedValue));
+             }
+             // String criteria in COUNTIF are case insensitive:
+             // for example, the string "apples" and the string "APPLES" will match the same cells.
+@@ -376,55 +361,110 @@
+          * Translates Excel countif wildcard strings into java regex strings
+          * @return {@code null} if the specified value contains no special wildcard characters.
+          */
++        /**
++         * @deprecated This method can cause StackOverflowError for complex patterns.
++         * Use matchesWildcard() instead for safe wildcard matching.
++         * Maintained for backward compatibility but returns null to avoid regex issues.
++         */
++        @Deprecated
+         public static Pattern getWildCardPattern(String value) {
+-            int len = value.length();
+-            StringBuilder sb = new StringBuilder(len);
+-            boolean hasWildCard = false;
+-            for(int i=0; i<len; i++) {
++            return null;
++        }
++        
++        /**
++         * Checks if a string contains unescaped wildcard characters (* or ?).
++         * In Excel wildcards, ~ is an escape character only when followed by * or ?.
++         * @param value the string to check
++         * @return true if the string contains unescaped wildcards
++         */
++        /* package */ static boolean hasWildcardChars(String value) {
++            for (int i = 0; i < value.length(); i++) {
+                 char ch = value.charAt(i);
+-                switch(ch) {
+-                    case '?':  //Any single character
+-                        hasWildCard = true;
+-                        // match exactly one character
+-                        sb.append('.');
++                if (ch == '~' && i + 1 < value.length()) {
++                    char next = value.charAt(i + 1);
++                    if (next == '*' || next == '?') {
++                        i++;
+                         continue;
+-                    case '*': //Zero or more characters
+-                        hasWildCard = true;
+-                        // match one or more occurrences of any character
+-                        sb.append(".*");
+-                        continue;
+-                    case '~':
+-                        if (i+1<len) {
+-                            ch = value.charAt(i+1);
+-                            switch (ch) {
+-                                case '?':
+-                                case '*':
+-                                    hasWildCard = true;
+-                                    sb.append('[').append(ch).append(']');
+-                                    i++; // Note - incrementing loop variable here
+-                                    continue;
++                    }
++                }
++                if (ch == '*' || ch == '?') {
++                    return true;
++                }
++            }
++            return false;
++        }
++        
++        /**
++         * Matches text against an Excel wildcard pattern using iterative algorithm.
++         * Handles Excel wildcards: * (zero or more chars), ? (exactly one char), ~ (escape).
++         * This implementation avoids recursion to prevent StackOverflowError.
++         * 
++         * @param pattern The wildcard pattern (case-insensitive)
++         * @param text The text to match against
++         * @return true if text matches pattern
++         */
++        /* package */ static boolean matchesWildcard(String pattern, String text) {
++            int pi = 0;
++            int ti = 0;
++            int starIndex = -1;
++            int matchIndex = 0;
++            
++            while (ti < text.length()) {
++                if (pi < pattern.length()) {
++                    char pch = pattern.charAt(pi);
++                    
++                    if (pch == '~' && pi + 1 < pattern.length()) {
++                        char nextCh = pattern.charAt(pi + 1);
++                        if (nextCh == '*' || nextCh == '?') {
++                            pi++;
++                            pch = pattern.charAt(pi);
++                            if (Character.toLowerCase(pch) == Character.toLowerCase(text.charAt(ti))) {
++                                pi++;
++                                ti++;
++                                continue;
++                            }
++                        } else {
++                            if (Character.toLowerCase(pch) == Character.toLowerCase(text.charAt(ti))) {
++                                pi++;
++                                ti++;
++                                continue;
+                             }
+                         }
+-                        // else not '~?' or '~*'
+-                        sb.append('~'); // just plain '~'
++                    } else if (pch == '*') {
++                        starIndex = pi;
++                        matchIndex = ti;
++                        pi++;
+                         continue;
+-                    case '.':
+-                    case '$':
+-                    case '^':
+-                    case '[':
+-                    case ']':
+-                    case '(':
+-                    case ')':
+-                        // escape literal characters that would have special meaning in regex
+-                        sb.append("\\").append(ch);
++                    } else if (pch == '?') {
++                        pi++;
++                        ti++;
+                         continue;
+-                }
+-                sb.append(ch);
+-            }
+-            if (hasWildCard) {
+-                return Pattern.compile(sb.toString(), Pattern.CASE_INSENSITIVE);
+-            }
+-            return null;
++                    } else if (Character.toLowerCase(pch) == Character.toLowerCase(text.charAt(ti))) {
++                        pi++;
++                        ti++;
++                        continue;
++                    }
++                }
++                
++                if (starIndex != -1) {
++                    pi = starIndex + 1;
++                    matchIndex++;
++                    ti = matchIndex;
++                } else {
++                    return false;
++                }
++            }
++            
++            while (pi < pattern.length()) {
++                char pch = pattern.charAt(pi);
++                if (pch == '*') {
++                    pi++;
++                } else {
++                    break;
++                }
++            }
++            
++            return pi == pattern.length();
+         }
+     }
+ 
+
+--- a/poi/src/main/java/org/apache/poi/ss/formula/functions/LookupUtils.java
++++ b/poi/src/main/java/org/apache/poi/ss/formula/functions/LookupUtils.java
+@@ -397,7 +397,7 @@
+         protected StringLookupComparer(StringEval se, boolean matchExact, boolean isMatchFunction) {
+             super(se);
+             _value = se.getStringValue();
+-            _wildCardPattern = Countif.StringMatcher.getWildCardPattern(_value);
++            _wildCardPattern = null;
+             _matchExact = matchExact;
+             _isMatchFunction = isMatchFunction;
+         }
+@@ -410,10 +410,8 @@
+         @Override
+         protected CompareResult compareSameType(ValueEval other) {
+             String stringValue = convertToString(other);
+-            if (_wildCardPattern != null && (_isMatchFunction || !_matchExact)) {
+-                Matcher matcher = _wildCardPattern.matcher(stringValue);
+-                boolean matches = matcher.matches();
+-
++            if (Countif.StringMatcher.hasWildcardChars(_value) && (_isMatchFunction || !_matchExact)) {
++                boolean matches = Countif.StringMatcher.matchesWildcard(_value, stringValue);
+                 return CompareResult.valueOf(matches);
+             }
+ 
+
+--- a/poi/src/main/java/org/apache/poi/ss/formula/functions/DStarRunner.java
++++ b/poi/src/main/java/org/apache/poi/ss/formula/functions/DStarRunner.java
+@@ -352,11 +352,10 @@
+                     String valueString = value instanceof BlankEval ? "" : OperandResolver.coerceValueToString(value);
+                     final String lowerValue = valueString.toLowerCase(LocaleUtil.getUserLocale());
+                     final String lowerCondition = conditionString.toLowerCase(LocaleUtil.getUserLocale());
+-                    final Pattern pattern = Countif.StringMatcher.getWildCardPattern(lowerCondition);
+-                    if (pattern == null) {
++                    if (Countif.StringMatcher.hasWildcardChars(lowerCondition)) {
++                        return Countif.StringMatcher.matchesWildcard(lowerCondition, lowerValue);
++                    } else {
+                         return lowerValue.startsWith(lowerCondition);
+-                    } else {
+-                        return pattern.matcher(lowerValue).matches();
+                     }
+                 }
+             }

@@ -1,0 +1,23 @@
+--- a/tika-pipes/tika-emitters/tika-emitter-fs/src/main/java/org/apache/tika/pipes/emitter/fs/FileSystemEmitter.java
++++ b/tika-pipes/tika-emitters/tika-emitter-fs/src/main/java/org/apache/tika/pipes/emitter/fs/FileSystemEmitter.java
+@@ -145,12 +145,17 @@
+     @Override
+     public void emit(String path, InputStream inputStream, Metadata userMetadata, ParseContext parseContext) throws IOException, TikaEmitterException {
+         Path target = basePath.resolve(path);
++        Path normalizedTarget = target.normalize();
++        if (!normalizedTarget.startsWith(basePath.normalize())) {
++            throw new IOException("Invalid path: " + path);
++        }
++        Path finalTarget = normalizedTarget;
+ 
+-        if (!Files.isDirectory(target.getParent())) {
+-            Files.createDirectories(target.getParent());
++        if (!Files.isDirectory(finalTarget.getParent())) {
++            Files.createDirectories(finalTarget.getParent());
+         }
+         if (onExists == ON_EXISTS.REPLACE) {
+-            Files.copy(inputStream, target, StandardCopyOption.REPLACE_EXISTING);
++            Files.copy(inputStream, finalTarget, StandardCopyOption.REPLACE_EXISTING);
+         } else if (onExists == ON_EXISTS.EXCEPTION) {
+             Files.copy(inputStream, target);
+         } else if (onExists == ON_EXISTS.SKIP) {

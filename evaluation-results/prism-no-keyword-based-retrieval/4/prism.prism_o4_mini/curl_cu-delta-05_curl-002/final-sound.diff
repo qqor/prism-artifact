@@ -1,0 +1,42 @@
+--- a/lib/ftp.c
++++ b/lib/ftp.c
+@@ -2018,8 +2018,9 @@
+   *minute = twodigit(&p[10]);
+   *second = twodigit(&p[12]);
+ 
++  /* Validate date components: tighten seconds to 0–59 */
+   if((*month > 12) || (*day > 31) || (*hour > 23) || (*minute > 59) ||
+-     (*second > 60))
++     (*second > 59))
+     return FALSE;
+   return TRUE;
+ }
+@@ -2088,12 +2089,19 @@
+         time_t filetime = data->info.filetime;
+         struct tm buffer;
+         const struct tm *tm = &buffer;
++        int secidx;
+ 
+         putenv("TZ=right/UTC");
+         result = Curl_gmtime(filetime, &buffer);
+         if(result)
+           return result;
+ 
++        /* Clamp tm_sec to valid range 0–59 to avoid out-of-bounds access */
++        secidx = tm->tm_sec;
++        if(secidx < 0)
++          secidx = 0;
++        else if(secidx > 59)
++          secidx = 59;
+         /* format: "Tue, 15 Nov 1994 12:45 and twenty-six seconds" */
+         headerbuflen =
+           msnprintf(headerbuf, sizeof(headerbuf),
+@@ -2104,7 +2112,7 @@
+                     tm->tm_year + 1900,
+                     tm->tm_hour,
+                     tm->tm_min,
+-                    Curl_seconds[tm->tm_sec]);
++                    Curl_seconds[secidx]);
+         result = client_write_header(data, headerbuf, headerbuflen);
+         if(result)
+           return result;

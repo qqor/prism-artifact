@@ -1,0 +1,46 @@
+diff --git a/HTMLparser.c b/HTMLparser.c
+index 9c34e9e8..59b2ada4 100644
+--- a/HTMLparser.c
++++ b/HTMLparser.c
+@@ -4713,17 +4713,31 @@ htmlParseDocument(htmlParserCtxtPtr ctxt) {
+      * Parse possible comments and PIs before any content
+      */
+     while (CUR == '<') {
+-        if ((NXT(1) == '!') && (NXT(2) == '-') && (NXT(3) == '-')) {
+-            SKIP(4);
+-            htmlTopParseComment(ctxt, /* bogus */ 0);
+-        } else if (NXT(1) == '?') {
+-            SKIP(1);
+-            htmlTopParseComment(ctxt, /* bogus */ 1);
+-        } else {
+-            break;
+-        }
++	// FIXME: Crash CWE-787: Out-of-bounds Write
++	if ((NXT(1) == '!') && (NXT(2) == '-') && (NXT(3) == '-')) {
++		SKIP(4);
++		/* Clamp oversized comments to 500 chars */
++		{
++			size_t count = 0;
++			const xmlChar *ptr = ctxt->input->cur;
++			while (*ptr && !(ptr[0]=='-' && ptr[1]=='-' && ptr[2]=='>') && count < 500) {
++				ptr++;
++				count++;
++			}
++			if (count == 500) {
++				/* skip the rest of the comment safely */
++				while (!(CUR=='-' && NXT(1)=='-' && NXT(2)=='>')) SKIP(1);
++			}
++		}
++		htmlTopParseComment(ctxt, /* bogus */ 0);
++	} else if (NXT(1) == '?') {
++		SKIP(1);
++		htmlTopParseComment(ctxt, /* bogus */ 1);
++	} else {
++		break;
++	}
+ 	SKIP_BLANKS;
+-    }
++}
+ 
+     /*
+      * Then possibly doc type declaration(s) and more Misc

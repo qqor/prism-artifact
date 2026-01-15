@@ -1,0 +1,53 @@
+--- a/tika-app/src/main/java/org/apache/tika/cli/TikaUntar.java
++++ b/tika-app/src/main/java/org/apache/tika/cli/TikaUntar.java
+@@ -24,11 +24,15 @@
+ 
+ import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
+ import org.apache.commons.compress.archivers.tar.TarArchiveInputStream;
++import org.slf4j.Logger;
++import org.slf4j.LoggerFactory;
+ 
+ /**
+  * Super simple utility class to untar a tar file
+  */
+ public class TikaUntar {
++
++    private static final Logger LOG = LoggerFactory.getLogger(TikaUntar.class);
+ 
+     public static void main(String[] args) throws IOException {
+         Path inputFile = Paths.get(args[0]);
+@@ -40,11 +44,30 @@
+ 
+             while (tae != null) {
+                 if (tae.isFile()) {
+-                    Path target = extractDir.resolve(tae.getName()).normalize();
+-                    if (!Files.isDirectory(target.getParent())) {
+-                        Files.createDirectories(target.getParent());
++                    // Check for null bytes in entry name
++                    if (tae.getName().contains("\u0000")) {
++                        LOG.warn("Skipping entry with null byte in name: {}", tae.getName());
++                        tae = tais.getNextEntry();
++                        continue;
+                     }
+-                    Files.write(target, tais.readAllBytes());
++                    
++                    try {
++                        Path target = extractDir.resolve(tae.getName()).normalize();
++                        
++                        // Validate that the resolved path is within the extraction directory
++                        if (!target.toAbsolutePath().normalize().startsWith(extractDir.toAbsolutePath().normalize())) {
++                            LOG.warn("Skipping entry outside target directory: {}", tae.getName());
++                            tae = tais.getNextEntry();
++                            continue;
++                        }
++                        
++                        if (!Files.isDirectory(target.getParent())) {
++                            Files.createDirectories(target.getParent());
++                        }
++                        Files.write(target, tais.readAllBytes());
++                    } catch (IOException e) {
++                        LOG.warn("Failed to extract entry: {} - {}", tae.getName(), e.getMessage(), e);
++                    }
+                 }
+                 tae = tais.getNextEntry();
+             }

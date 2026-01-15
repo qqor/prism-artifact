@@ -1,0 +1,109 @@
+--- a/poi/src/main/java/org/apache/poi/poifs/dev/POIFSDump.java
++++ b/poi/src/main/java/org/apache/poi/poifs/dev/POIFSDump.java
+@@ -22,6 +22,7 @@
+ import java.io.OutputStream;
+ import java.nio.ByteBuffer;
+ import java.nio.file.Files;
++import java.nio.file.Path;
+ import java.nio.file.Paths;
+ import java.util.Iterator;
+ 
+@@ -65,13 +66,13 @@
+                 continue;
+             }
+ 
+-            try (InputStream is = Files.newInputStream(Paths.get(filename));
++            Path inputPath = Paths.get(filename);
++            try (InputStream is = Files.newInputStream(inputPath);
+                  POIFSFileSystem fs = new POIFSFileSystem(is)) {
+                 DirectoryEntry root = fs.getRoot();
+-                String filenameWithoutPath = new File(filename).getName();
+-                File dumpDir =
+-                        Paths.get(filename).getParent()
+-                                .resolve(filenameWithoutPath + "_dump").toFile();
++                String filenameWithoutPath = inputPath.getFileName().toString();
++                Path dumpDirPath = inputPath.getParent().resolve(filenameWithoutPath + "_dump");
++                File dumpDir = dumpDirPath.toFile();
+                 File file = new File(dumpDir, root.getName());
+                 if (!file.exists() && !file.mkdirs()) {
+                     throw new IOException("Could not create directory " + file);
+@@ -99,33 +100,47 @@
+     public static void dump(DirectoryEntry root, File parent) throws IOException {
+         for(Iterator<Entry> it = root.getEntries(); it.hasNext();){
+             Entry entry = it.next();
+-            if(entry instanceof DocumentNode){
++            if (entry instanceof DocumentNode) {
+                 final DocumentNode node = (DocumentNode) entry;
+                 final byte[] bytes;
+                 try (DocumentInputStream is = new DocumentInputStream(node)) {
+-                   bytes = IOUtils.toByteArray(is);
++                    bytes = IOUtils.toByteArray(is);
+                 }
+-                try (OutputStream out = Files.newOutputStream(new File(parent, node.getName().trim()).toPath())) {
++                String entryName = node.getName().trim();
++                Path baseDir = parent.toPath();
++                Path target = baseDir.resolve(entryName).normalize();
++                if (!target.startsWith(baseDir)) {
++                    throw new IOException("Invalid entry name (traversal detected): " + entryName);
++                }
++                Files.createDirectories(target.getParent());
++                try (OutputStream out = Files.newOutputStream(target)) {
+                     out.write(bytes);
+                 }
+-            } else if (entry instanceof DirectoryEntry){
+-                DirectoryEntry dir = (DirectoryEntry)entry;
+-                File file = new File(parent, entry.getName());
+-                if(!file.exists() && !file.mkdirs()) {
+-                    throw new IOException("Could not create directory " + file);
++            } else if (entry instanceof DirectoryEntry) {
++                DirectoryEntry dir = (DirectoryEntry) entry;
++                String dirName = entry.getName();
++                Path baseDir = parent.toPath();
++                Path targetDir = baseDir.resolve(dirName).normalize();
++                if (!targetDir.startsWith(baseDir)) {
++                    throw new IOException("Invalid directory name (traversal detected): " + dirName);
+                 }
+-                dump(dir, file);
++                Files.createDirectories(targetDir);
++                dump(dir, targetDir.toFile());
+             } else {
+                 System.err.println("Skipping unsupported POIFS entry: " + entry);
+             }
+         }
+     }
+     public static void dump(POIFSFileSystem fs, int startBlock, String name, File parent) throws IOException {
+-        File file = new File(parent, name);
+-        if (! Files.isDirectory(file.toPath().getParent())) {
+-            Files.createDirectories(file.toPath().getParent());
++        Path baseDir = parent.toPath();
++        Path target = baseDir.resolve(name).normalize();
++        if (!target.startsWith(baseDir)) {
++            throw new IOException("Invalid name in POIFS stream (traversal detected): " + name);
+         }
+-        try (OutputStream out = Files.newOutputStream(file.toPath())) {
++        if (!Files.isDirectory(target.getParent())) {
++            Files.createDirectories(target.getParent());
++        }
++        try (OutputStream out = Files.newOutputStream(target)) {
+             POIFSStream stream = new POIFSStream(fs, startBlock);
+ 
+             byte[] b = IOUtils.safelyAllocate(fs.getBigBlockSize(), POIFSFileSystem.getMaxRecordLength());
+
+--- a/poi/src/main/java/org/apache/poi/util/GenericRecordUtil.java
++++ b/poi/src/main/java/org/apache/poi/util/GenericRecordUtil.java
+@@ -126,10 +126,11 @@
+         for (int i=0; i<vals.length && vals[i] != null; i++) {
+             assert(sups[i] != null);
+             if ("base".equals(vals[i])) {
+-                Object baseMap = sups[i].get();
+-                assert(baseMap instanceof Map);
+-                //noinspection unchecked
+-                m.putAll((Map<String,Supplier<?>>)baseMap);
++                Object baseMapObject = sups[i].get();
++                assert(baseMapObject instanceof Map);
++                @SuppressWarnings("unchecked")
++                Map<String, Supplier<?>> baseMap = (Map<String, Supplier<?>>) baseMapObject;
++                m.putAll(baseMap);
+             } else {
+                 m.put(vals[i], sups[i]);
+             }

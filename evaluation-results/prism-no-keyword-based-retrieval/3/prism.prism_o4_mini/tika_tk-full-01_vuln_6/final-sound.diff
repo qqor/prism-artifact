@@ -1,0 +1,44 @@
+--- a/tika-app/src/main/java/org/apache/tika/cli/TikaUntar.java
++++ b/tika-app/src/main/java/org/apache/tika/cli/TikaUntar.java
+@@ -30,24 +30,29 @@
+  */
+ public class TikaUntar {
+ 
+-    public static void main(String[] args) throws IOException {
++    public static void main(String[] args) {
+         Path inputFile = Paths.get(args[0]);
+         Path extractDir = Paths.get(args[1]);
++        Path baseDir = extractDir.toAbsolutePath().normalize();
+         try (InputStream is = Files.newInputStream(inputFile);
+                 TarArchiveInputStream tais = new TarArchiveInputStream(is)) {
+-
+-            TarArchiveEntry tae = tais.getNextEntry();
+-
+-            while (tae != null) {
+-                if (tae.isFile()) {
+-                    Path target = extractDir.resolve(tae.getName()).normalize();
+-                    if (!Files.isDirectory(target.getParent())) {
+-                        Files.createDirectories(target.getParent());
+-                    }
+-                    Files.write(target, tais.readAllBytes());
++            TarArchiveEntry tae;
++            while ((tae = tais.getNextEntry()) != null) {
++                if (!tae.isFile()) {
++                    continue;
+                 }
+-                tae = tais.getNextEntry();
++                Path target = baseDir.resolve(tae.getName()).normalize();
++                if (!target.startsWith(baseDir)) {
++                    System.err.println("Skipping entry outside target dir: " + tae.getName());
++                    continue;
++                }
++                if (!Files.isDirectory(target.getParent())) {
++                    Files.createDirectories(target.getParent());
++                }
++                Files.write(target, tais.readAllBytes());
+             }
++        } catch (IOException e) {
++            System.err.println("Warning: error unpacking tar: " + e.getMessage());
+         }
+     }
+ }

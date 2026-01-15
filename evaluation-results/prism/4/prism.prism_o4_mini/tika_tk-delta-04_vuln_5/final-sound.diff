@@ -1,0 +1,22 @@
+--- a/tika-pipes/tika-emitters/tika-emitter-fs/src/main/java/org/apache/tika/pipes/emitter/fs/FileSystemEmitter.java
++++ b/tika-pipes/tika-emitters/tika-emitter-fs/src/main/java/org/apache/tika/pipes/emitter/fs/FileSystemEmitter.java
+@@ -144,11 +144,15 @@
+ 
+     @Override
+     public void emit(String path, InputStream inputStream, Metadata userMetadata, ParseContext parseContext) throws IOException, TikaEmitterException {
+-        Path target = basePath.resolve(path);
++        // Normalize and validate the embedded path to prevent path traversal
++        Path normalizedRelative = Path.of(path).normalize();
++        if (normalizedRelative.isAbsolute() || normalizedRelative.startsWith(Path.of(".."))) {
++            throw new TikaEmitterException("Unsafe embedded path: " + path);
++        }
++        Path target = basePath.resolve(normalizedRelative);
+ 
+-        if (!Files.isDirectory(target.getParent())) {
+-            Files.createDirectories(target.getParent());
+-        }
++        // Ensure parent directories exist
++        Files.createDirectories(target.getParent());
+         if (onExists == ON_EXISTS.REPLACE) {
+             Files.copy(inputStream, target, StandardCopyOption.REPLACE_EXISTING);
+         } else if (onExists == ON_EXISTS.EXCEPTION) {

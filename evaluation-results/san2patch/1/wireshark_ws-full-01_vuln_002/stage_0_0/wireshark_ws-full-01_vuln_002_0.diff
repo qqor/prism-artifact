@@ -1,0 +1,21 @@
+diff --git a/epan/dissectors/packet-telnet.c b/epan/dissectors/packet-telnet.c
+index 9f003e3e61..d1a2151610 100644
+--- a/epan/dissectors/packet-telnet.c
++++ b/epan/dissectors/packet-telnet.c
+@@ -2094,9 +2094,15 @@ telnet_sub_option(packet_info *pinfo, proto_tree *option_tree, proto_item *optio
+       if (iac_data > 0) {
+         /* Data is escaped, we have to unescape it. */
+         unescaped_tvb = unescape_and_tvbuffify_telnet_option(pinfo, tvb, start_offset, subneg_len);
+-        (*opt->dissect)(pinfo, opt->name, unescaped_tvb, 0, subneg_len - iac_data, option_tree, option_item);
++// wmem_simple_free(naws);  // defer free until after text is added
++         (*opt->dissect)(pinfo, opt->name, unescaped_tvb, 0, subneg_len - iac_data, option_tree, option_item);
++        /* Now that tvb_get_raw_bytes_as_stringz() has been called via the dissector,
++           it has copied out all bytes; we can safely free the original buffer. */
++        wmem_simple_free(naws);
+       } else {
+         (*opt->dissect)(pinfo, opt->name, tvb, start_offset, subneg_len, option_tree, option_item);
++        /* Free after dissecting non-escaped data */
++        wmem_simple_free(naws);
+       }
+     } else {
+       /* We don't have a dissector for them; just show them as data. */

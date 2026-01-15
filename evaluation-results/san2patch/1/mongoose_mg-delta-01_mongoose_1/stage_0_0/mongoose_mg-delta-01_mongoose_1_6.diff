@@ -1,0 +1,26 @@
+diff --git a/src/printf.c b/src/printf.c
+index d9998ccf..4dbf69f2 100644
+--- a/src/printf.c
++++ b/src/printf.c
+@@ -130,15 +130,18 @@ static char mg_escape(int c) {
+ 
+ static size_t qcpy(void (*out)(char, void *), void *ptr, char *buf,
+                    size_t len) {
++  /* Rationale: Use SAFE_OUT macro to wrap boundary check for each out() */
+   size_t i = 0, extra = 0;
++#define SAFE_OUT(ch) do { struct mg_iobuf_private *iob = ptr; if (iob->ptr < iob->end) out(ch, ptr); } while (0)
+   for (i = 0; i < len && buf[i] != '\0'; i++) {
+     char c = mg_escape(buf[i]);
+     if (c) {
+-      out('\\', ptr), out(c, ptr), extra++;
+-    } else {
+-      out(buf[i], ptr);
++      SAFE_OUT('\\'), SAFE_OUT(c), extra++;
++     } else {
++      SAFE_OUT(buf[i]);
+     }
+   }
++#undef SAFE_OUT
+   return i + extra;
+ }
+ 

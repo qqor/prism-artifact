@@ -1,0 +1,54 @@
+--- a/src/udev/udev-rules.c
++++ b/src/udev/udev-rules.c
+@@ -1141,11 +1141,14 @@
+         char *i, *j, *m;
+         bool is_escaped = false, is_case_insensitive = false, is_prefix_match = false;
+         int pos = 0;
++        size_t original_len;
+ 
+         assert(str);
+         assert(ret_value);
+         assert(ret_endpos);
+         assert(ret_is_case_insensitive);
++
++        original_len = strlen(str);
+ 
+         /* check if string is prefixed with:
+          * - "e" for escaped
+@@ -1185,10 +1188,16 @@
+                  * so it could be safely interpreted as nulstr.
+                  */
+                 if (is_prefix_match){
++                        /* Verify we have enough space: need to write j[0], j[1], j[2] */
++                        if ((size_t)(j - str + 2) >= original_len)
++                                return -ENOBUFS;
+                         j[0] = '*';
+                         j[1] = '\0';
+                         j[2] = '\0';
+                 } else {
++                        /* Verify we have enough space: need to write j[0], j[1] */
++                        if ((size_t)(j - str + 1) >= original_len)
++                                return -ENOBUFS;
+                         j[0] = '\0';
+                         j[1] = '\0';
+                 }
+@@ -1217,6 +1226,9 @@
+                 */
+                 if (is_prefix_match){
+                         /* need more room to make rule glob match */
++                        /* Verify we have enough space: need to write to pos + l + 1 */
++                        if ((size_t)(pos + l + 1) >= original_len)
++                                return -ENOBUFS;
+                         memcpy(str + pos - 1, unescaped, l + 1);
+                         str[pos + l - 1] = '*';
+                         str[pos + l] = '\0';
+@@ -1224,6 +1236,9 @@
+                         m = str + pos - 1;
+ 
+                 } else {
++                        /* Verify we have enough space: need to write to m + l + 1 */
++                        if ((size_t)(m - str + l + 1) >= original_len)
++                                return -ENOBUFS;
+                         memcpy(m, unescaped, l + 1);
+                         m[l] = '\0';
+                         m[l + 1] = '\0';

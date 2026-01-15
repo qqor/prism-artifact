@@ -1,0 +1,338 @@
+--- a/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/PDFObjectStreamParser.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/PDFObjectStreamParser.java
+@@ -36,9 +36,10 @@
+  */
+ public class PDFObjectStreamParser extends BaseParser
+ {
++    // resource exhaustion defense: cap maximum object stream objects
++    private static final int MAX_OBJECT_STREAM_OBJECTS = 100_000;
+     private final int numberOfObjects;
+     private final int firstObject;
+-
+     /**
+      * Constructor.
+      *
+@@ -52,6 +53,11 @@
+         this.document = document;
+         // get mandatory number of objects
+         numberOfObjects = stream.getInt(COSName.N);
++        // enforce reasonable upper bound to prevent fuzz-driven loops
++        if (numberOfObjects > MAX_OBJECT_STREAM_OBJECTS)
++        {
++            throw new IOException("Object stream /N value too large: " + numberOfObjects);
++        }
+         if (numberOfObjects == -1)
+         {
+             throw new IOException("/N entry missing in object stream");
+@@ -119,6 +125,11 @@
+      */
+     public Map<COSObjectKey, COSBase> parseAllObjects() throws IOException
+     {
++        // enforce upper bound before parsing all objects to avoid runaway loops
++        if (numberOfObjects > MAX_OBJECT_STREAM_OBJECTS)
++        {
++            throw new IOException("Refusing to parse too many objects: " + numberOfObjects);
++        }
+         Map<COSObjectKey, COSBase> allObjects = new HashMap<>();
+         try
+         {
+
+--- a/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/COSParser.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/COSParser.java
+@@ -67,8 +67,9 @@
+     private static final String PDF_DEFAULT_VERSION = "1.4";
+     private static final String FDF_DEFAULT_VERSION = "1.0";
+ 
++    // resource exhaustion defense: cap maximum page-tree entries
++    private static final int MAX_PAGE_TREE_ENTRIES = 100_000;
+     private static final char[] STARTXREF = { 's','t','a','r','t','x','r','e','f' };
+-
+     private static final byte[] ENDSTREAM = { E, N, D, S, T, R, E, A, M };
+ 
+     private static final byte[] ENDOBJ = { E, N, D, O, B, J };
+@@ -952,8 +953,13 @@
+         }
+     }
+ 
+-    private int checkPagesDictionary(COSDictionary pagesDict, Set<COSObject> set)
+-    {
++    private int checkPagesDictionary(COSDictionary pagesDict, Set<COSObject> set) throws IOException
++    {
++        // abort on too large page tree
++        if (set.size() > MAX_PAGE_TREE_ENTRIES)
++        {
++            throw new IOException("Page tree exceeds maximum allowed entries: " + set.size());
++        }
+         // check for kids
+         COSArray kidsArray = pagesDict.getCOSArray(COSName.KIDS);
+         int numberOfPages = 0;
+
+--- a/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/XrefParser.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/XrefParser.java
+@@ -598,6 +598,7 @@
+         }
+         
+         // Xref tables can have multiple sections. Each starts with a starting object id and a count.
++        int accumulatedEntries = 0;
+         while(true)
+         {
+             String currentLine = parser.readLine();
+@@ -630,7 +631,13 @@
+                 LOG.warn("XRefTable: invalid number of objects: {}", currentLine);
+                 return false;
+             }
+-            
++            // resource exhaustion defense: cap xref entries
++            if (count < 0 || count > 100_000 || (long) accumulatedEntries + count > 100_000)
++            {
++                throw new IOException("Xref table section too large: count=" + count);
++            }
++            accumulatedEntries += count;
++
+             parser.skipSpaces();
+             for(int i = 0; i < count; i++)
+             {
+
+--- a/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/PDFXrefStreamParser.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/PDFXrefStreamParser.java
+@@ -119,8 +119,13 @@
+     public void parse(XrefTrailerResolver resolver) throws IOException
+     {
+         byte[] currLine = new byte[w[0] + w[1] + w[2]];
++        int processedEntries = 0;
+         while (!source.isEOF() && objectNumbers.hasNext())
+         {
++            if (++processedEntries > 100_000)
++            {
++                throw new IOException("Too many XRef stream entries: " + processedEntries);
++            }
+             readNextValue(currLine);
+             // get the current objID
+             long objID = objectNumbers.next();
+
+--- a/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/PDFStreamParser.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/PDFStreamParser.java
+@@ -78,10 +78,16 @@
+     public List<Object> parse() throws IOException
+     {
+         List<Object> streamObjects = new ArrayList<>(100);
++        final int MAX_STREAM_TOKENS = 100_000;
++        int tokenCount = 0;
+         Object token;
+-        while( (token = parseNextToken()) != null )
+-        {
+-            streamObjects.add( token );
++        while ((token = parseNextToken()) != null)
++        {
++            if (++tokenCount > MAX_STREAM_TOKENS)
++            {
++                throw new IOException("Too many tokens in content stream: " + tokenCount);
++            }
++            streamObjects.add(token);
+         }
+         return streamObjects;
+     }
+@@ -95,11 +101,17 @@
+      */
+     public Object parseNextToken() throws IOException
+     {
++        long startPosition = source.getPosition();
+         if (source.isClosed())
+         {
+             return null;
+         }
+         skipSpaces();
++        if (source.getPosition() == startPosition)
++        {
++            int b = source.peek();
++            throw new IOException("Cannot advance in content stream at position: " + startPosition + ", byte: " + b);
++        }
+         if (source.isEOF())
+         {
+             close();
+
+--- a/pdfbox/src/main/java/org/apache/pdfbox/filter/FlateFilterDecoderStream.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/filter/FlateFilterDecoderStream.java
+@@ -68,51 +68,66 @@
+             bytesDecoded = 0;
+             return false;
+         }
+-        if (inflater.needsInput())
+-        {
+-            int bytesRead = in.read(buffer);
+-            if (bytesRead > -1)
+-            {
+-                inflater.setInput(buffer, 0, bytesRead);
+-            }
+-            else
+-            {
+-                isEOF = true;
+-                return false;
+-            }
+-        }
+-        try
+-        {
+-            // overwrite formerly read bytes
+-            if (bytesDecoded > 0)
+-            {
+-                Arrays.fill(decodedData, 0, bytesDecoded, (byte) 0);
+-            }
+-            bytesDecoded = inflater.inflate(decodedData);
+-        }
+-        catch (DataFormatException exception)
+-        {
+-            isEOF = true;
+-            // check if some bytes could be read at all
+-            int countZeros = 0;
+-            for (int i = 0; i < decodedData.length; i++)
+-            {
+-                if (decodedData[i] == 0)
++        while (true)
++        {
++            if (inflater.needsInput())
++            {
++                int bytesRead = in.read(buffer);
++                if (bytesRead > -1)
+                 {
+-                    countZeros++;
++                    inflater.setInput(buffer, 0, bytesRead);
+                 }
+                 else
+                 {
+-                    countZeros = 0;
++                    isEOF = true;
++                    return false;
+                 }
+             }
+-            bytesDecoded = decodedData.length - countZeros;
+-            // don't throw an exception, use the already read data or an empty stream
+-            LOG.warn("FlateFilter: premature end of stream due to a DataFormatException = {}",
+-                    exception.getMessage());
+-            return bytesDecoded > 0;
+-        }
+-        return true;
++            try
++            {
++                // attempt to inflate data
++                bytesDecoded = inflater.inflate(decodedData);
++            }
++            catch (DataFormatException exception)
++            {
++                isEOF = true;
++                // check if some bytes could be read at all
++                int countZeros = 0;
++                for (int i = 0; i < decodedData.length; i++)
++                {
++                    if (decodedData[i] == 0)
++                    {
++                        countZeros++;
++                    }
++                    else
++                    {
++                        countZeros = 0;
++                    }
++                }
++                bytesDecoded = decodedData.length - countZeros;
++                // don't throw an exception, use the already read data or an empty stream
++                LOG.warn("FlateFilter: premature end of stream due to a DataFormatException = {}",
++                        exception.getMessage());
++                return bytesDecoded > 0;
++            }
++            if (bytesDecoded > 0)
++            {
++                return true;
++            }
++            if (inflater.finished())
++            {
++                isEOF = true;
++                bytesDecoded = 0;
++                return false;
++            }
++            // no progress and not finished => stall
++            if (!inflater.needsInput())
++            {
++                throw new IOException("Flate decoder stalled, aborting");
++            }
++            // otherwise loop to feed more input
++        }
++    }
+     }
+ 
+     /**
+
+--- a/pdfbox/src/main/java/org/apache/pdfbox/filter/ASCIIHexFilter.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/filter/ASCIIHexFilter.java
+@@ -61,15 +61,20 @@
+       /* 230 */  -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+       /* 240 */  -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+       /* 250 */  -1, -1, -1, -1, -1, -1
+-    };
++    private static final int MAX_HEX_CHARS = 1_000_000;
+ 
+     @Override
+     public DecodeResult decode(InputStream encoded, OutputStream decoded,
+                                          COSDictionary parameters, int index) throws IOException
+     {
+         int value, firstByte, secondByte;
++        int processedChars = 0;
+         while ((firstByte = encoded.read()) != -1)
+         {
++            if (++processedChars > MAX_HEX_CHARS)
++            {
++                throw new IOException("ASCIIHexFilter: too many characters without end marker: " + processedChars);
++            }
+             // always after first char
+             while (isWhitespace(firstByte))
+             {
+
+--- a/pdfbox/src/main/java/org/apache/pdfbox/filter/RunLengthDecodeFilter.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/filter/RunLengthDecodeFilter.java
+@@ -32,6 +32,9 @@
+ final class RunLengthDecodeFilter extends Filter
+ {
+     private static final int RUN_LENGTH_EOD = 128;
++    // resource exhaustion defense: cap run-length segments and output size
++    private static final int MAX_RUNLENGTH_SEGMENTS = 100_000;
++    private static final int MAX_DECODED_BYTES = 10_000_000;
+ 
+     @Override
+     public DecodeResult decode(InputStream encoded, OutputStream decoded,
+@@ -39,8 +42,14 @@
+     {
+         int dupAmount;
+         byte[] buffer = new byte[128];
++        int segmentCount = 0;
++        long totalDecodedBytes = 0;
+         while ((dupAmount = encoded.read()) != -1 && dupAmount != RUN_LENGTH_EOD)
+         {
++            if (++segmentCount > MAX_RUNLENGTH_SEGMENTS)
++            {
++                throw new IOException("RunLengthDecodeFilter: too many segments: " + segmentCount);
++            }
+             if (dupAmount <= 127)
+             {
+                 int amountToCopy = dupAmount + 1;
+@@ -53,6 +62,11 @@
+                     {
+                         break;
+                     }
++                    totalDecodedBytes += compressedRead;
++                    if (totalDecodedBytes > MAX_DECODED_BYTES)
++                    {
++                        throw new IOException("RunLengthDecodeFilter: decoded data too large: " + totalDecodedBytes);
++                    }
+                     decoded.write(buffer, 0, compressedRead);
+                     amountToCopy -= compressedRead;
+                 }
+@@ -67,6 +81,11 @@
+                 }
+                 for (int i = 0; i < 257 - dupAmount; i++)
+                 {
++                    totalDecodedBytes++;
++                    if (totalDecodedBytes > MAX_DECODED_BYTES)
++                    {
++                        throw new IOException("RunLengthDecodeFilter: decoded data too large: " + totalDecodedBytes);
++                    }
+                     decoded.write(dupByte);
+                 }
+             }

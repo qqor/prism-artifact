@@ -1,0 +1,50 @@
+--- a/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-text-module/src/main/java/org/apache/tika/parser/csv/CellFormatter.java
++++ b/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-text-module/src/main/java/org/apache/tika/parser/csv/CellFormatter.java
+@@ -32,6 +32,7 @@
+ 
+     //this intentionally limits integer precision and fraction formats to a reasonable
+     //size to limit excessive computation
++    private static final int MAX_DENOM_LENGTH = 4;
+     private static final Pattern FRACTION_FORMAT =
+             Pattern.compile("([+-])?(\\d{0,20}(?:\\.\\d{0,20})?) " +
+             "&fraction_format=\"(?:(#{1,20}) )?(#{1,20})/(#{1,20})\"");
+@@ -61,15 +62,33 @@
+         double decPart = Math.abs(val) - wholePart;
+         int denomLength = denomFormat.length();
+ 
+-        double minVal = 1.0;
+-        double currDenom = Math.pow(10, denomLength) - 1d;
++        // 1) If there's no fractional component, simply format the whole part.
++        if (decPart == 0.0d) {
++            String safeSign = (sign == null) ? "" : sign;
++            String safeWholeFormat = (wholeFormat == null) ? "#" : wholeFormat;
++            NumberFormat wf = new DecimalFormat(safeWholeFormat, new DecimalFormatSymbols(Locale.US));
++            return safeSign + wf.format(wholePart);
++        }
++        // 2) Reject overly large denominators to bound runtime.
++        if (denomLength > MAX_DENOM_LENGTH) {
++            return cell;
++        }
++
++        int maxDenom = (int) Math.pow(10, denomLength) - 1;
++        double minVal = 1.0d;
++        double currDenom = maxDenom;
+         double currNum = 0;
+-        for (int i = (int)(Math.pow(10, denomLength) - 1d); i > 0; i--) {
+-            for (int i2 = (int)(Math.pow(10, denomLength) - 1d); i2 >= 0; i2--) {
+-                if (minVal >= Math.abs((double)i2 / (double)i - decPart)) {
++outer:
++        for (int i = maxDenom; i > 0; i--) {
++            for (int i2 = maxDenom; i2 >= 0; i2--) {
++                double diff = Math.abs((double) i2 / (double) i - decPart);
++                if (diff < minVal) {
+                     currDenom = i;
+                     currNum = i2;
+-                    minVal = Math.abs((double) i2 / (double) i - decPart);
++                    minVal = diff;
++                    if (diff == 0.0d) {
++                        break outer;
++                    }
+                 }
+             }
+         }

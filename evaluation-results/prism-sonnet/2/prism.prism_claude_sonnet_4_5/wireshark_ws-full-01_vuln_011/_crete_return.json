@@ -1,0 +1,14 @@
+{
+  "project_name": "wireshark",
+  "vulnerability_identifier": "wireshark_ws-full-01_vuln_011",
+  "source_directory": "/home/qqor/crete/.cache/official-afc-wireshark",
+  "llm_usage": {
+    "total_cost": 2.603181,
+    "prompt_tokens": 787557,
+    "completion_tokens": 16034
+  },
+  "variant": "sound",
+  "diff": "--- a/epan/dissectors/packet-aim.c\n+++ b/epan/dissectors/packet-aim.c\n@@ -582,13 +582,23 @@\n aim_get_buddyname(wmem_allocator_t *pool, uint8_t **name, tvbuff_t *tvb, int offset)\n {\n \tuint16_t buddyname_length;\n-\n-\t*name = wmem_alloc(pool, 256);\n+\tuint16_t clamped_length;\n \n \tbuddyname_length = tvb_get_ntohs(tvb, offset);\n \n-\tif (pool)\n-\t\tmemcpy(*name, tvb_get_ptr(tvb,offset,1), buddyname_length);\n+\t/* Clamp to maximum safe size (matching dissect_aim_buddyname uint8_t behavior) */\n+\tclamped_length = MIN(buddyname_length, 255);\n+\n+\t/* Allocate buffer with room for null terminator */\n+\t*name = (uint8_t *)wmem_alloc(pool, clamped_length + 1);\n+\n+\tif (pool && clamped_length > 0) {\n+\t\t/* Copy from offset+2 to skip the 2-byte length field, using safe tvb API */\n+\t\ttvb_memcpy(tvb, *name, offset + 2, clamped_length);\n+\t\t(*name)[clamped_length] = '\\0';\n+\t} else if (pool) {\n+\t\t(*name)[0] = '\\0';\n+\t}\n \n \treturn buddyname_length;\n }\n",
+  "stdout": "",
+  "stderr": ""
+}

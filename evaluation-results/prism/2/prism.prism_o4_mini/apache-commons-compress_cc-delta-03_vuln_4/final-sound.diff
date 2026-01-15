@@ -1,0 +1,34 @@
+--- a/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java
++++ b/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java
+@@ -219,7 +219,7 @@
+      * </p>
+      */
+     private static final Pattern PAX_EXTENDED_HEADER_FILE_TIMES_PATTERN =
+-            Pattern.compile("-?\\d{1,19}(?:\\.\\d*)?");
++            Pattern.compile("-?\\d{1,19}(?:\\.\\d{1,9})?");
+ 
+     private static FileTime fileTimeFromOptionalSeconds(final long seconds) {
+         return seconds <= 0 ? null : FileTimes.fromUnixTime(seconds);
+@@ -271,8 +271,20 @@
+         if (!PAX_EXTENDED_HEADER_FILE_TIMES_PATTERN.matcher(value).matches()) {
+             throw new IOException("Corrupted PAX header. Time field value is invalid '" + value + "'");
+         }
+-
+-        final BigDecimal epochSeconds = new BigDecimal(value);
++        
++        // Truncate fractional part to nanosecond precision to prevent oversized BigDecimal scales
++        String canonical = value;
++        int dot = canonical.indexOf('.');
++        if (dot >= 0) {
++            String intPart = canonical.substring(0, dot);
++            String frac = canonical.substring(dot + 1);
++            if (frac.length() > 9) {
++                frac = frac.substring(0, 9);
++            }
++            canonical = intPart + "." + frac;
++        }
++
++        final BigDecimal epochSeconds = new BigDecimal(canonical);
+         final long seconds = epochSeconds.longValue();
+         final long nanos = epochSeconds.remainder(BigDecimal.ONE).movePointRight(9).longValue();
+         try {

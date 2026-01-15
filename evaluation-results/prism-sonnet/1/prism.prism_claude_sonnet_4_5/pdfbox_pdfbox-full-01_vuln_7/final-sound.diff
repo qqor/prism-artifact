@@ -1,0 +1,177 @@
+--- a/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/XrefParser.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/XrefParser.java
+@@ -22,6 +22,7 @@
+ import java.util.HashSet;
+ import java.util.Map;
+ import java.util.Optional;
++import java.util.Set;
+ import java.util.Map.Entry;
+ 
+ import org.apache.logging.log4j.LogManager;
+@@ -98,17 +99,32 @@
+         }
+         document.setStartXref(startXrefOffset);
+         long prev = startXrefOffset;
+-        //lastPrev prevents potential infinite loops in crafted files
+-        long lastPrev = -1;
++        // prevSet prevents potential infinite loops in crafted files
++        Set<Long> prevSet = new HashSet<>();
+         // ---- parse whole chain of xref tables/object streams using PREV reference
+         COSDictionary trailer = null;
+-        while (prev > 0 && prev != lastPrev)
+-        {
+-            lastPrev = prev;
++        while (prev > 0)
++        {
++            // Check for cycle
++            if (prevSet.contains(prev))
++            {
++                throw new IOException("Circular reference detected in xref chain at offset " + prev);
++            }
++            prevSet.add(prev);
++            
+             // seek to xref table
+             source.seek(prev);
+             // skip white spaces
+             parser.skipSpaces();
++            
++            // Also track position after skipping spaces to detect subtle loops
++            long currentPos = source.getPosition();
++            if (prevSet.contains(currentPos))
++            {
++                throw new IOException("Circular reference detected at position " + currentPos);
++            }
++            prevSet.add(currentPos);
++            
+             // -- parse xref
+             if (source.peek() == X)
+             {
+@@ -170,10 +186,6 @@
+                     trailer.setLong(COSName.PREV, prev);
+                 }
+             }
+-            if (prev == lastPrev)
+-            {
+-                throw new IOException("/Prev loop at offset " + prev);
+-            }
+         }
+         // ---- build valid xrefs out of the xref chain
+         xrefTrailerResolver.setStartxref(startXrefOffset);
+
+--- a/fontbox/src/main/java/org/apache/fontbox/type1/Type1Parser.java
++++ b/fontbox/src/main/java/org/apache/fontbox/type1/Type1Parser.java
+@@ -43,6 +43,11 @@
+     // constants for encryption
+     private static final int EEXEC_KEY = 55665;
+     private static final int CHARSTRING_KEY = 4330;
++    
++    /**
++     * Maximum number of subroutines allowed.
++     */
++    private static final int MAX_SUBRS_COUNT = 10_000;
+ 
+     // state
+     private Type1Lexer lexer;
+@@ -219,7 +224,10 @@
+                             || lexer.peekToken().getText().equals("readonly")
+                             || lexer.peekToken().getText().equals("def"))))
+             {
+-                lexer.nextToken();
++                if (lexer.nextToken() == null)
++                {
++                    throw new IOException("Premature EOF: expected dup, readonly, or def");
++                }
+             }
+             
+             Map<Integer, String> codeToName = new HashMap<>();
+@@ -559,7 +567,10 @@
+             // for a more thorough validation, the presence of "begin" before Private
+             // determines how code before and following charstrings should look
+             // it is not currently checked anyway
+-            lexer.nextToken();
++            if (lexer.nextToken() == null)
++            {
++                throw new IOException("Premature EOF: expected Private token");
++            }
+             peekToken = lexer.peekToken();
+         }
+         if (peekToken == null)
+@@ -640,7 +651,10 @@
+         while (!(lexer.peekKind(Token.LITERAL)
+                 && lexer.peekToken().getText().equals("CharStrings")))
+         {
+-            lexer.nextToken();
++            if (lexer.nextToken() == null)
++            {
++                throw new IOException("Premature EOF: expected CharStrings token");
++            }
+         }
+ 
+         // CharStrings dict
+@@ -707,6 +721,13 @@
+     {
+         // allocate size (array indexes may not be in-order)
+         int length = read(Token.INTEGER).intValue();
++        
++        if (length < 0 || length > MAX_SUBRS_COUNT)
++        {
++            throw new IOException("Invalid subrs count: " + length + 
++                    " (max: " + MAX_SUBRS_COUNT + ")");
++        }
++        
+         for (int i = 0; i < length; i++)
+         {
+             font.subrs.add(null);
+
+--- a/fontbox/src/main/java/org/apache/fontbox/type1/Type1Lexer.java
++++ b/fontbox/src/main/java/org/apache/fontbox/type1/Type1Lexer.java
+@@ -48,6 +48,11 @@
+      * Log instance.
+      */
+     private static final Logger LOG = LogManager.getLogger(Type1Lexer.class);
++    
++    /**
++     * Maximum size for a CharString in bytes.
++     */
++    private static final int MAX_CHAR_STRING_SIZE = 1_000_000;
+     
+     private final ByteBuffer buffer;
+     private Token aheadToken;
+@@ -501,6 +506,11 @@
+      */
+     private Token readCharString(int length) throws IOException
+     {
++        if (length < 0 || length > MAX_CHAR_STRING_SIZE)
++        {
++            throw new DamagedFontException("CharString length is invalid: " + length + 
++                    " (max: " + MAX_CHAR_STRING_SIZE + ")");
++        }
+         try
+         {
+             buffer.get(); // space
+
+--- a/fontbox/src/main/java/org/apache/fontbox/pfb/PfbParser.java
++++ b/fontbox/src/main/java/org/apache/fontbox/pfb/PfbParser.java
+@@ -158,9 +158,9 @@
+             size += in.read() << 16;
+             size += in.read() << 24;
+             LOG.debug("record type: {}, segment size: {}", recordType, size);
+-            long newTotal = total + size;
++            long newTotal = (long)total + (long)size;
+             if (newTotal > MAX_LENGTH) {
+-                throw new IOException("record size would be too large: " + newTotal);
++                throw new IOException("Record size would exceed maximum: " + newTotal);
+             }
+ 
+             byte[] ar = new byte[size];
+
+--- a/pdfbox/src/main/java/org/apache/pdfbox/pdmodel/PDPageTree.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/pdmodel/PDPageTree.java
+@@ -180,6 +180,7 @@
+     private final class PageIterator implements Iterator<PDPage>
+     {
+         private final Queue<COSDictionary> queue = new ArrayDeque<>();
++        private final Set<COSDictionary> seen = new HashSet<>();
+ 
+         private PageIterator(COSDictionary node)
+         {

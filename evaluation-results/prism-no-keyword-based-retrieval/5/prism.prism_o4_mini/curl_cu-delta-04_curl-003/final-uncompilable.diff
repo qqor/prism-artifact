@@ -1,0 +1,57 @@
+--- a/lib/doh.h
++++ b/lib/doh.h
+@@ -92,6 +92,7 @@
+   struct curl_slist *req_hds;
+   struct doh_probe probe[DOH_SLOT_COUNT];
+   unsigned int pending; /* still outstanding probes */
++  bool cleaned_up;      /* true if cleanup was performed */
+   int port;
+   const char *host;
+ };
+
+--- a/lib/doh.c
++++ b/lib/doh.c
+@@ -427,6 +427,8 @@
+   dohp = data->req.doh = calloc(1, sizeof(struct doh_probes));
+   if(!dohp)
+     return NULL;
++  /* initialize cleanup flag */
++  dohp->cleaned_up = false;
+ 
+   for(i = 0; i < DOH_SLOT_COUNT; ++i) {
+     dohp->probe[i].easy_mid = -1;
+@@ -1401,8 +1403,11 @@
+ 
+ void Curl_doh_close(struct Curl_easy *data)
+ {
++  if(!data || !data->req.doh)
++    return;
+   struct doh_probes *doh = data->req.doh;
+-  if(doh && data->multi) {
++  if(doh->cleaned_up || !data->multi)
++    return;
+     struct Curl_easy *probe_data;
+     curl_off_t mid;
+     size_t slot;
+@@ -1433,6 +1438,8 @@
+   struct doh_probes *doh = data->req.doh;
+   if(doh) {
+     Curl_doh_close(data);
++    /* mark as cleaned to prevent re-entry */
++    doh->cleaned_up = true;
+     curl_slist_free_all(doh->req_hds);
+     data->req.doh->req_hds = NULL;
+     Curl_safefree(data->req.doh);
+
+--- a/lib/request.c
++++ b/lib/request.c
+@@ -105,7 +105,8 @@
+     (void)req_flush(data);
+   Curl_client_reset(data);
+ #ifndef CURL_DISABLE_DOH
+-  Curl_doh_close(data);
++  if(data->req.doh)
++    Curl_doh_cleanup(data);
+ #endif
+   return CURLE_OK;
+ }

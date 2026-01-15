@@ -1,0 +1,54 @@
+--- a/src/main/java/org/apache/commons/compress/compressors/CompressorStreamFactory.java
++++ b/src/main/java/org/apache/commons/compress/compressors/CompressorStreamFactory.java
+@@ -195,6 +195,8 @@
+     private static final String YOU_NEED_ZSTD_JNI = youNeed("Zstd JNI", "https://github.com/luben/zstd-jni");
+ 
+     private static final Set<String> ALL_NAMES = Sets.newHashSet(BZIP2, GZIP, PACK200, SNAPPY_FRAMED, Z, DEFLATE, XZ, LZMA, LZ4_FRAMED, ZSTANDARD);
++    // kb
++    private static final int DEFAULT_Z_MEMORY_LIMIT_IN_KB = 64 * 1024; // 64 MiB
+ 
+     private static Iterable<CompressorStreamProvider> archiveStreamProviderIterable() {
+         return ServiceLoader.load(CompressorStreamProvider.class, ClassLoader.getSystemClassLoader());
+@@ -428,7 +430,7 @@
+      */
+     private volatile boolean decompressConcatenated;
+ 
+-    private final int memoryLimitInKb;
++    private int memoryLimitInKb;
+ 
+     /**
+      * Constructs an instance with the decompress Concatenated option set to false.
+@@ -438,6 +440,20 @@
+         this.memoryLimitInKb = -1;
+     }
+ 
++    /**
++     * Sets the soft memory limit (in KiB) for LZW (.Z) decompression.
++     * Must be greater than zero. By default, a safe cap DEFAULT_Z_MEMORY_LIMIT_IN_KB is used.
++     *
++     * @param memoryLimitInKb memory cap in KiB
++     * @return this factory for chaining
++     */
++    public CompressorStreamFactory setMemoryLimitInKb(int memoryLimitInKb) {
++        if (memoryLimitInKb <= 0) {
++            throw new IllegalArgumentException("memoryLimitInKb must be > 0");
++        }
++        this.memoryLimitInKb = memoryLimitInKb;
++        return this;
++    }
+     /**
+      * Constructs an instance with the provided decompress Concatenated option.
+      *
+@@ -559,7 +575,11 @@
+                 return new FramedSnappyCompressorInputStream(in);
+             }
+             if (Z.equalsIgnoreCase(name)) {
+-                return new ZCompressorInputStream(in, memoryLimitInKb);
++                // if user did not set a limit, fall back to a safe default
++                int effectiveLimit = memoryLimitInKb > 0
++                    ? memoryLimitInKb
++                    : DEFAULT_Z_MEMORY_LIMIT_IN_KB;
++                return new ZCompressorInputStream(in, effectiveLimit);
+             }
+             if (DEFLATE.equalsIgnoreCase(name)) {
+                 return new DeflateCompressorInputStream(in);

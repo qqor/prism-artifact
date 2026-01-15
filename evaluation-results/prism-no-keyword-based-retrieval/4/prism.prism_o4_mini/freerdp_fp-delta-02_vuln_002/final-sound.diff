@@ -1,0 +1,37 @@
+--- a/libfreerdp/crypto/x509_utils.c
++++ b/libfreerdp/crypto/x509_utils.c
+@@ -448,22 +448,18 @@
+         GENERAL_NAME *gen_name = sk_GENERAL_NAME_value(san_names, i);
+ 
+         if (gen_name->type == GEN_DNS) {
+-			// Allocate string length + 1 for security
+-			dns_name = malloc( strlen((char *)ASN1_STRING_get0_data(gen_name->d.dNSName)) + 1);
+-
+-			if (dns_name == NULL)
+-				goto end;
+-			
+-			memcpy(dns_name, (char *)ASN1_STRING_get0_data(gen_name->d.dNSName),  
+-				ASN1_STRING_length(gen_name->d.dNSName)) ;
+-			
+-            if (!verify_san(dns_name)) {
+-				free(dns_name);
+-				result = FALSE;
+-				goto end;
+-            } else {
+-				free(dns_name);
+-            }
++			{
++				unsigned char* utf8_name = NULL;
++				int san_len = ASN1_STRING_to_UTF8(&utf8_name, gen_name->d.dNSName);
++				if (san_len < 0 || !utf8_name)
++					goto end;
++				if (!verify_san((char*)utf8_name)) {
++					OPENSSL_free(utf8_name);
++					result = FALSE;
++					goto end;
++				}
++				OPENSSL_free(utf8_name);
++			}
+         }
+     }
+ 

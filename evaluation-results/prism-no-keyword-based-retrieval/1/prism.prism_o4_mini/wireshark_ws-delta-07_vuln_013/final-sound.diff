@@ -1,0 +1,48 @@
+--- a/epan/dissectors/packet-gvcp.c
++++ b/epan/dissectors/packet-gvcp.c
+@@ -980,10 +980,14 @@
+ {
+ 	uint32_t value = 0;
+ 	
+-	value = tvb_get_letohl(tvb, offset);
+-	gvcp_register_number[gvcp_register_count] = addr;
+-	gvcp_register_value[gvcp_register_count++] = value;
+-
++    value = tvb_get_letohl(tvb, offset);
++    if (gvcp_register_count < GVCP_MAX_REGISTER_COUNT) {
++        gvcp_register_number[gvcp_register_count] = addr;
++        gvcp_register_value[gvcp_register_count++] = value;
++    } else {
++        /* drop extra write to prevent overflow */
++        return 0;
++    }
+ 	switch (addr)
+ 	{
+ 	case GVCP_VERSION:
+@@ -1773,15 +1777,19 @@
+ 
+ static void dissect_writereg_cmd(proto_tree *gvcp_telegram_tree, tvbuff_t *tvb, packet_info *pinfo, int startoffset, int length, gvcp_conv_info_t *gvcp_info, gvcp_transaction_t* gvcp_trans)
+ {
+-	int offset = startoffset;
+-	int i;
+-	proto_item *item = NULL;
+-	uint32_t addr = 0;
+-	uint32_t value = 0;
++    int offset = startoffset;
++    int i;
++    proto_item *item = NULL;
++    uint32_t addr = 0;
++    uint32_t value = 0;
++    /* Reset global write index for this transaction */
++    gvcp_register_count = 0;
+ 	const char *address_string = NULL;
+ 	bool is_custom_register = false;
+-	int num_registers = length / 8; /* divide by 8 because we are counting register-value pairs */
+-	proto_tree *subtree = NULL;
++    int num_registers = length / 8; /* divide by 8 because we are counting register-value pairs */
++    if (num_registers > GVCP_MAX_REGISTER_COUNT)
++        num_registers = GVCP_MAX_REGISTER_COUNT;
++    proto_tree *subtree = NULL;
+ 
+ 	if (gvcp_trans)
+ 	{

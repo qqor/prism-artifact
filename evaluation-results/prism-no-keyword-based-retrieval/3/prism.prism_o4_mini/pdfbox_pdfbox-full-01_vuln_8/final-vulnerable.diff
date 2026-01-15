@@ -1,0 +1,53 @@
+--- a/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/XrefParser.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/XrefParser.java
+@@ -23,7 +23,7 @@
+ import java.util.Map;
+ import java.util.Optional;
+ import java.util.Map.Entry;
+-
++import java.util.regex.Pattern;
+ import org.apache.logging.log4j.LogManager;
+ import org.apache.logging.log4j.Logger;
+ import org.apache.pdfbox.cos.COSDictionary;
+@@ -40,7 +40,10 @@
+ public class XrefParser
+ {
+     private static final Logger LOG = LogManager.getLogger(XrefParser.class);
+-
++    // Reusable regex to split on one or more whitespace characters
++    private static final Pattern WHITESPACE = Pattern.compile("\\s+");
++    // Maximum number of XRef entries to process in one table section
++    private static final int MAX_XREF_ENTRIES = 1_000_000;
+     private static final int X = 'x';
+     private static final char[] XREF_TABLE = { 'x', 'r', 'e', 'f' };
+     private static final char[] STARTXREF = { 's', 't', 'a', 'r', 't', 'x', 'r', 'e', 'f' };
+@@ -601,7 +604,7 @@
+         while(true)
+         {
+             String currentLine = parser.readLine();
+-            String[] splitString = currentLine.split("\\s");
++            String[] splitString = WHITESPACE.split(currentLine);
+             if (splitString.length != 2)
+             {
+                 LOG.warn("Unexpected XRefTable Entry: {}", currentLine);
+@@ -630,7 +633,10 @@
+                 LOG.warn("XRefTable: invalid number of objects: {}", currentLine);
+                 return false;
+             }
+-            
++            if (count < 0 || count > MAX_XREF_ENTRIES) {
++                LOG.warn("XRefTable: entry count out of bounds ({} > {}), aborting parse", count, MAX_XREF_ENTRIES);
++                return false;
++            }
+             parser.skipSpaces();
+             for(int i = 0; i < count; i++)
+             {
+@@ -645,7 +651,7 @@
+                 }
+                 //Ignore table contents
+                 currentLine = parser.readLine();
+-                splitString = currentLine.split("\\s");
++                splitString = WHITESPACE.split(currentLine);
+                 if (splitString.length < 3)
+                 {
+                     LOG.warn("invalid xref line: {}", currentLine);

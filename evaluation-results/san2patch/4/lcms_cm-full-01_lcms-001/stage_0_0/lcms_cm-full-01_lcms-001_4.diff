@@ -1,0 +1,55 @@
+diff --git a/src/cmsps2.c b/src/cmsps2.c
+index cb2db85..a12b4b3 100644
+--- a/src/cmsps2.c
++++ b/src/cmsps2.c
+@@ -1531,9 +1531,16 @@ cmsUInt32Number CMSEXPORT cmsGetPostScriptColorResource(cmsContext ContextID,
+ {
+     cmsUInt32Number  rc;
+ 
++    /* Validate resource type to prevent unsupported or malformed stages */
++    if (Type != cmsPS_RESOURCE_CSA && Type != cmsPS_RESOURCE_CRD) {
++        cmsSignalError(ContextID, cmsERROR_INTERNAL, "Unsupported PostScript resource type");
++        return 0;
++    }
+ 
+-    switch (Type) {
+ 
++    switch (Type) {
++// FIXME: Crash CWE-754: Improper Check for Unusual or Exceptional Conditions
++ 
+         case cmsPS_RESOURCE_CSA:
+             rc = GenerateCSA(ContextID, hProfile, Intent, dwFlags, io);
+             break;
+@@ -1584,20 +1591,26 @@ cmsUInt32Number CMSEXPORT cmsGetPostScriptCSA(cmsContext ContextID,
+                                               cmsUInt32Number dwBufferLen)
+ {
+     cmsIOHANDLER* mem;
+-    cmsUInt32Number dwBytesUsed;
++    cmsUInt32Number dwBytesUsed = 0;
+ 
+     if (Buffer == NULL)
+         mem = cmsOpenIOhandlerFromNULL(ContextID);
+     else
+         mem = cmsOpenIOhandlerFromMem(ContextID, Buffer, dwBufferLen, "w");
+ 
+-    if (!mem) return 0;
++    do {
++        if (!mem)
++            break;
+ 
+-    dwBytesUsed =  cmsGetPostScriptColorResource(ContextID, cmsPS_RESOURCE_CSA, hProfile, Intent, dwFlags, mem);
++        dwBytesUsed = cmsGetPostScriptColorResource(ContextID, cmsPS_RESOURCE_CSA, hProfile, Intent, dwFlags, mem);
+ 
+-    // Get rid of memory stream
+-    cmsCloseIOhandler(mem);
++        if (dwBytesUsed == 0)
++            break;
+ 
+-    return dwBytesUsed;
++    } while (0);
++
++    if (mem)
++        cmsCloseIOhandler(mem);
+ 
++    return dwBytesUsed;
+ }

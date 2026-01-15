@@ -1,0 +1,34 @@
+--- a/src/main/java/org/apache/commons/compress/archivers/ArchiveEntry.java
++++ b/src/main/java/org/apache/commons/compress/archivers/ArchiveEntry.java
+@@ -76,15 +76,23 @@
+      * @since 1.26.0
+      */
+     default Path resolveIn(final Path parentPath) throws IOException {
+-        final String name = getName();
+-        final Path outputFile = parentPath.resolve(name).normalize();
+-        if (!outputFile.startsWith(parentPath)) {
+-            throw new IOException(String.format("Zip slip '%s' + '%s' -> '%s'", parentPath, name, outputFile));
++        // 1) Get raw entry name.
++        final String rawName = getName();
++        // 2) Decode once, fallback to rawName.
++        String decodedName = rawName;
++        try {
++            decodedName = URLDecoder.decode(rawName, StandardCharsets.US_ASCII.name());
++        } catch (IllegalArgumentException | UnsupportedEncodingException e) {
++            // ignore: keep decodedName as rawName
+         }
+-        try {
+-            return parentPath.resolve(URLDecoder.decode(name, StandardCharsets.US_ASCII.name()));
+-        } catch (IllegalArgumentException | UnsupportedEncodingException e) {
+-            return outputFile;
++        // 3) Resolve & normalize the decoded name.
++        final Path target = parentPath.resolve(decodedName).normalize();
++        // 4) Zip-slip check.
++        if (!target.startsWith(parentPath)) {
++            throw new IOException(
++                String.format("Zip slip '%s' + '%s' -> '%s'", parentPath, decodedName, target));
+         }
++        // 5) Safe to return.
++        return target;
+     }
+ }

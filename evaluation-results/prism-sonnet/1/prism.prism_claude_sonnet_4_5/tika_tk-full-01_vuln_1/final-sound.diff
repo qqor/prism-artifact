@@ -1,0 +1,106 @@
+--- a/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-microsoft-module/src/main/java/org/apache/tika/parser/microsoft/rtf/RTFEmbObjHandler.java
++++ b/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-microsoft-module/src/main/java/org/apache/tika/parser/microsoft/rtf/RTFEmbObjHandler.java
+@@ -18,7 +18,6 @@
+ 
+ import java.io.IOException;
+ import java.io.InputStream;
+-import java.io.ObjectInputStream;
+ import java.nio.charset.StandardCharsets;
+ import java.util.concurrent.atomic.AtomicInteger;
+ 
+@@ -99,11 +98,6 @@
+         metadata = new Metadata();
+     }
+ 
+-    protected void startJavaObjData() {
+-        state = EMB_STATE.JAVA_OBJDATA;
+-        metadata = new Metadata();
+-    }
+-
+     protected void startSN() {
+         sb.setLength(0);
+         sb.append(RTFMetadata.RTF_PICT_META_PREFIX);
+@@ -210,18 +204,6 @@
+             }
+             extractObj(bytes, handler, metadata);
+ 
+-        } else if (state == EMB_STATE.JAVA_OBJDATA) {
+-            try {
+-                Object obj = new ObjectInputStream(
+-                        UnsynchronizedByteArrayInputStream.builder().setByteArray(bytes)
+-                                .get()).readObject();
+-                metadata.set(RTFMetadata.EMB_CLASS, obj.getClass().getName());
+-                metadata.set(TikaCoreProperties.CONTENT_TYPE_PARSER_OVERRIDE,
+-                        MediaType.text("plain").toString());
+-                extractObj(obj.toString().getBytes(StandardCharsets.UTF_8), handler, metadata);
+-            } catch (ClassNotFoundException e) {
+-                throw new TikaException("Not found", e);
+-            }
+         } else if (state == EMB_STATE.NADA) {
+             //swallow...no start for pict or embed?!
+         }
+@@ -280,7 +262,6 @@
+     private enum EMB_STATE {
+         PICT, //recording pict data
+         OBJDATA, //recording objdata
+-        JAVA_OBJDATA, //recording java obj data
+         NADA
+     }
+ }
+
+--- a/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-microsoft-module/src/main/java/org/apache/tika/parser/microsoft/rtf/GroupState.java
++++ b/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-microsoft-module/src/main/java/org/apache/tika/parser/microsoft/rtf/GroupState.java
+@@ -35,8 +35,6 @@
+     public Charset fontCharset;
+     //in objdata
+     public boolean objdata;
+-    //in javaobjdata
+-    public boolean javaobjdata;
+     //depth in pict, 1 = at pict level
+     public int pictDepth;
+     //in picprop key/value pair
+@@ -64,7 +62,6 @@
+         fontCharset = other.fontCharset;
+         depth = 1 + other.depth;
+         pictDepth = other.pictDepth > 0 ? other.pictDepth + 1 : 0;
+-        javaobjdata = other.javaobjdata;
+         //do not inherit object, sn, sv, sp or annotation
+ 
+     }
+
+--- a/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-microsoft-module/src/main/java/org/apache/tika/parser/microsoft/rtf/TextExtractor.java
++++ b/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-microsoft-module/src/main/java/org/apache/tika/parser/microsoft/rtf/TextExtractor.java
+@@ -484,8 +484,7 @@
+                     // parsed document closing brace
+                     break;
+                 }
+-            } else if (groupState.objdata == true || groupState.javaobjdata == true
+-                    || groupState.pictDepth == 1) {
++            } else if (groupState.objdata == true || groupState.pictDepth == 1) {
+                 embObjHandler.writeHexChar(b);
+             } else if (b != '\r' && b != '\n' &&
+                     (!groupState.ignore || nextMetaData != null || groupState.sn == true ||
+@@ -1271,9 +1270,6 @@
+         } else if (equals("objdata")) {
+             groupState.objdata = true;
+             embObjHandler.startObjData();
+-        } else if (equals("javaobjdata")) {
+-            groupState.javaobjdata = true;
+-            embObjHandler.startJavaObjData();
+         } else if (equals("pict")) {
+             pushText();
+             // TODO: create img tag?  but can that support
+@@ -1470,13 +1466,6 @@
+             }
+             groupState.objdata = false;
+ 
+-        } else if (groupState.javaobjdata == true) {
+-            try {
+-                embObjHandler.handleCompletedObject();
+-            } catch (TikaException | IOException e) {
+-                EmbeddedDocumentUtil.recordException(e, metadata);
+-            }
+-            groupState.javaobjdata = false;
+         } else if (groupState.pictDepth > 0) {
+             if (groupState.sn == true) {
+                 embObjHandler.endSN();

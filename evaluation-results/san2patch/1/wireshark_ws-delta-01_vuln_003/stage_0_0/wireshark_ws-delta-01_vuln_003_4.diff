@@ -1,0 +1,23 @@
+diff --git a/epan/dissectors/packet-ber.c b/epan/dissectors/packet-ber.c
+index ce979681ee..af48f73f8f 100644
+--- a/epan/dissectors/packet-ber.c
++++ b/epan/dissectors/packet-ber.c
+@@ -878,7 +878,18 @@ try_dissect_unknown_ber(packet_info *pinfo, tvbuff_t *tvb, volatile int offset,
+             case BER_UNI_TAG_BITSTRING:
+                 offset = dissect_ber_bitstring(false, &asn1_ctx, tree, tvb, start_offset, NULL, 0, hf_ber_unknown_BITSTRING, -1, NULL);
+                 break;
++            case BER_UNI_TAG_GeneralString:
++            {
++                /* Explicitly null-terminate after safe copy in dissect_ber_GeneralString */
++                uint32_t gen_len = len;
++                if (gen_len > 79)
++                    gen_len = 79;
++                offset = dissect_ber_GeneralString(false, &asn1_ctx, tree, tvb, start_offset, hf_ber_unknown_GeneralString, gen_len);
++                /* dissect_ber_GeneralString will ensure name_string[gen_len] = '\0'; */
++            }
++                break;
+             case BER_UNI_TAG_ENUMERATED:
++// FIXME: Crash CWE-787: Out-of-bounds Write
+                 offset = dissect_ber_integer(false, &asn1_ctx, tree, tvb, start_offset, hf_ber_unknown_ENUMERATED, NULL);
+                 break;
+             case BER_UNI_TAG_GraphicString:

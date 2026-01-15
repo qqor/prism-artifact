@@ -1,0 +1,82 @@
+--- a/poi-ooxml/src/main/java/org/apache/poi/xssf/streaming/SXSSFWorkbook.java
++++ b/poi-ooxml/src/main/java/org/apache/poi/xssf/streaming/SXSSFWorkbook.java
+@@ -55,6 +55,11 @@
+ import org.apache.poi.ss.usermodel.CellStyle;
+ import org.apache.poi.ss.usermodel.CreationHelper;
+ import org.apache.poi.ss.usermodel.DataFormat;
++import org.apache.poi.ooxml.POIXMLException;
++import org.apache.poi.openxml4j.exceptions.OpenXML4JException;
++import org.apache.xmlbeans.XmlException;
++import java.util.zip.ZipException;
++import org.apache.commons.compress.archivers.ArchiveException;
+ import org.apache.poi.ss.usermodel.Font;
+ import org.apache.poi.ss.usermodel.Name;
+ import org.apache.poi.ss.usermodel.PictureData;
+@@ -922,12 +927,9 @@
+     public void close() throws IOException {
+         // ensure that any lingering writer is closed
+         for (SXSSFSheet sheet : _xFromSxHash.values()) {
+-            try {
+-                SheetDataWriter _writer = sheet.getSheetDataWriter();
+-                if (_writer != null) _writer.close();
+-            } catch (IOException e) {
+-                LOG.atWarn().withThrowable(e).log("An exception occurred while closing sheet data writer for sheet {}.", sheet.getSheetName());
+-            }
++            SheetDataWriter _writer = sheet.getSheetDataWriter();
++            if (_writer != null) _writer.close();
++        }
+         }
+ 
+         // Dispose of any temporary files backing this workbook on disk
+@@ -946,28 +948,32 @@
+      */
+     @Override
+     public void write(OutputStream stream) throws IOException {
+-        flushSheets();
+-
+-        //Save the template
+-        File tmplFile = TempFile.createTempFile("poi-sxssf-template", ".xlsx");
+-        boolean deleted;
+         try {
+-            try (OutputStream os = Files.newOutputStream(tmplFile.toPath())) {
+-                _wb.write(os);
++            flushSheets();
++
++            //Save the template
++            File tmplFile = TempFile.createTempFile("poi-sxssf-template", ".xlsx");
++            boolean deleted;
++            try {
++                try (OutputStream os = Files.newOutputStream(tmplFile.toPath())) {
++                    _wb.write(os);
++                }
++
++                //Substitute the template entries with the generated sheet data files
++                try (
++                        ZipSecureFile zf = new ZipSecureFile(tmplFile);
++                        ZipFileZipEntrySource source = new ZipFileZipEntrySource(zf)
++                ) {
++                    injectData(source, stream);
++                }
++            } finally {
++                deleted = tmplFile.delete();
+             }
+-
+-            //Substitute the template entries with the generated sheet data files
+-            try (
+-                    ZipSecureFile zf = new ZipSecureFile(tmplFile);
+-                    ZipFileZipEntrySource source = new ZipFileZipEntrySource(zf)
+-            ) {
+-                injectData(source, stream);
++            if (!deleted) {
++                throw new IOException("Could not delete temporary file after processing: " + tmplFile);
+             }
+-        } finally {
+-            deleted = tmplFile.delete();
+-        }
+-        if (!deleted) {
+-            throw new IOException("Could not delete temporary file after processing: " + tmplFile);
++        } catch (OpenXML4JException | XmlException | ZipException | ArchiveException e) {
++            throw new POIXMLException(e);
+         }
+     }
+ 

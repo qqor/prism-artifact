@@ -1,0 +1,52 @@
+--- a/src/udev/udev-rules.c
++++ b/src/udev/udev-rules.c
+@@ -1146,6 +1146,9 @@
+         assert(ret_value);
+         assert(ret_endpos);
+         assert(ret_is_case_insensitive);
++        /* Save original buffer end to check capacity */
++        char *orig = str;
++        char *orig_end = orig + strlen(orig);
+ 
+         /* check if string is prefixed with:
+          * - "e" for escaped
+@@ -1184,7 +1187,13 @@
+                  * The return value must be terminated by two subsequent NULs
+                  * so it could be safely interpreted as nulstr.
+                  */
+-                if (is_prefix_match){
++                {
++                        size_t suffix_len = is_prefix_match ? 3 : 2;
++                        /* Ensure we do not write past original buffer end */
++                        if (j + suffix_len - 1 > orig_end)
++                                return -ENOMEM;
++                }
++                if (is_prefix_match) {
+                         j[0] = '*';
+                         j[1] = '\0';
+                         j[2] = '\0';
+@@ -1215,14 +1224,22 @@
+                 * The return value must be terminated by two subsequent NULs
+                 * so it could be safely interpreted as nulstr.
+                 */
+-                if (is_prefix_match){
++                {
++                        char *write_base = is_prefix_match ? str + pos - 1 : m;
++                        size_t mem_bytes = l + 1;
++                        size_t suffix_len = is_prefix_match ? 3 : 2;
++                        char *highest = write_base + (mem_bytes - 1) + (suffix_len - 1);
++                        /* Ensure we do not write past original buffer end */
++                        if (highest > orig_end)
++                                return -ENOMEM;
++                }
++                if (is_prefix_match) {
+                         /* need more room to make rule glob match */
+                         memcpy(str + pos - 1, unescaped, l + 1);
+                         str[pos + l - 1] = '*';
+                         str[pos + l] = '\0';
+                         str[pos + l + 1] = '\0';
+                         m = str + pos - 1;
+-
+                 } else {
+                         memcpy(m, unescaped, l + 1);
+                         m[l] = '\0';

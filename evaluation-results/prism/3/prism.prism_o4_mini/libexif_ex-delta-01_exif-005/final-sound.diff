@@ -1,0 +1,26 @@
+--- a/libexif/apple/exif-mnote-data-apple.c
++++ b/libexif/apple/exif-mnote-data-apple.c
+@@ -82,13 +82,20 @@
+         return;
+     }
+ 
++    /* Ensure we can read the 2-byte count at buf+ofs+14 */
++    if (buf_size < ofs + 14 + 2) {
++        exif_log(md->log, EXIF_LOG_CODE_CORRUPT_DATA,
++                 "ExifMnoteDataApple", "MakerNote too small for entry count");
++        return;
++    }
+     tcount = (unsigned int) exif_get_short(buf + ofs + 14, d->order);
+ 
+-    /* Sanity check the offset */
+-    if (buf_size < 6 + 16 + tcount * 6 + 4) {
++    /* Sanity check the offset:
++       6 bytes initial header, 2 bytes for entry count,
++       12 bytes per entry, plus 4 bytes for next-IFD offset */
++    if (buf_size < 6 + 2 + tcount * 12 + 4) {
+         exif_log(md->log, EXIF_LOG_CODE_CORRUPT_DATA,
+                  "ExifMnoteDataApple", "Short MakerNote");
+-        /*printf("%s(%d)\n", __FUNCTION__, __LINE__);*/
+         return;
+     }
+ 

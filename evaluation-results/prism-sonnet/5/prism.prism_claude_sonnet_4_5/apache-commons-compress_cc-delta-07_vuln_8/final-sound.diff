@@ -1,0 +1,38 @@
+--- a/src/main/java/org/apache/commons/compress/archivers/examples/Expander.java
++++ b/src/main/java/org/apache/commons/compress/archivers/examples/Expander.java
+@@ -477,8 +477,16 @@
+             if (zae.isUnixSymlink()) {
+                 String targetName = IOUtils.toString(archive.getInputStream(zae),
+                         StandardCharsets.UTF_8);
+-                Path link = targetDirectory.resolve(zae.getName());
+-                Path target = targetDirectory.resolve(targetName);
++                Path link = targetDirectory.resolve(zae.getName()).normalize();
++                if (!link.startsWith(targetDirectory)) {
++                    throw new IOException(String.format("Zip slip '%s' + '%s' -> '%s'",
++                            targetDirectory, zae.getName(), link));
++                }
++                Path target = targetDirectory.resolve(targetName).normalize();
++                if (!target.startsWith(targetDirectory)) {
++                    throw new IOException(String.format("Zip slip '%s' + '%s' -> '%s'",
++                            targetDirectory, targetName, target));
++                }
+                 Path parent = createParentDirectory(targetDirectory, link);
+ 
+                 if (!Files.isSameFile(link.getParent(), parent)) {
+@@ -513,7 +521,15 @@
+         for (Path p : relative) {
+             current = current.resolve(p);
+             if (Files.isSymbolicLink(current)) {
+-                current = Files.readSymbolicLink(current);
++                Path symlinkTarget = Files.readSymbolicLink(current);
++                if (!symlinkTarget.isAbsolute()) {
++                    current = current.getParent().resolve(symlinkTarget).normalize();
++                } else {
++                    current = symlinkTarget.normalize();
++                }
++                if (!current.normalize().startsWith(root.normalize())) {
++                    throw new IOException(String.format("Symlink points outside target directory: '%s'", current));
++                }
+             }
+             if (! Files.isDirectory(current)) {
+                 Files.createDirectory(current);

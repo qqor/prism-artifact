@@ -1,0 +1,35 @@
+--- a/libexif/exif-data.c
++++ b/libexif/exif-data.c
+@@ -167,6 +167,13 @@
+ {
+ 	unsigned int s, doff;
+ 
++	/* Validate that the 12-byte entry structure is within buffer bounds */
++	if (CHECKOVERFLOW(offset, size, 12)) {
++		exif_log (data->priv->log, EXIF_LOG_CODE_CORRUPT_DATA, "ExifData",
++			  "Tag data past end of buffer (%u+12 > %u)", offset, size);
++		return 0;
++	}
++
+ 	entry->tag        = exif_get_short (d + offset + 0, data->priv->order);
+ 	entry->format     = exif_get_short (d + offset + 2, data->priv->order);
+ 	entry->components = exif_get_long  (d + offset + 4, data->priv->order);
+@@ -210,7 +217,17 @@
+ 	entry->data = exif_data_alloc (data, s);
+ 	if (entry->data) {
+ 		entry->size = s;
+-		memcpy (entry->data, d + doff, s);
++		/* Use boundary-safe copy when near buffer end to prevent SIMD over-reads */
++		if (size - doff < 16 && s > 0) {
++			/* Near buffer boundary: use byte-by-byte copy to prevent over-read */
++			unsigned int i;
++			for (i = 0; i < s; i++) {
++				entry->data[i] = d[doff + i];
++			}
++		} else {
++			/* Sufficient space: use optimized memcpy */
++			memcpy (entry->data, d + doff, s);
++		}
+ 	} else {
+ 		EXIF_LOG_NO_MEMORY(data->priv->log, "ExifData", s);
+ 		return 0;

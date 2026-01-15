@@ -1,0 +1,14 @@
+{
+  "project_name": "freerdp",
+  "vulnerability_identifier": "freerdp_fp-full-01_vuln_004",
+  "source_directory": "/home/qqor/crete/.cache/official-afc-freerdp",
+  "llm_usage": {
+    "total_cost": 0.33045650000000004,
+    "prompt_tokens": 171995,
+    "completion_tokens": 32105
+  },
+  "variant": "sound",
+  "diff": "--- a/libfreerdp/core/gcc.c\n+++ b/libfreerdp/core/gcc.c\n@@ -1854,13 +1854,13 @@\n \tif (blockLength < 4)\n \t\treturn FALSE;\n \n-\tStream_Read_UINT8(s, mcs->channelCount); /* channelCount */\n-\n-\tif (blockLength < 4 + (UINT8)mcs->channelCount * 12)\n-\t\treturn FALSE;\n-\n-\tif (mcs->channelCount > CHANNEL_MAX_COUNT)\n-\t\treturn FALSE;\n+    Stream_Read_UINT8(s, mcs->channelCount); /* channelCount */\n+\n+    /* Compute expected minimum size: channelCount byte + per-channel size */\n+    UINT32 perChannelSize = CHANNEL_NAME_LEN + 1 + sizeof(UINT32);\n+    UINT32 expectedMin = 1 + (UINT32)mcs->channelCount * perChannelSize;\n+    if ((UINT8)mcs->channelCount > CHANNEL_MAX_COUNT || blockLength < expectedMin)\n+        return FALSE;\n \n \t/* channelDefArray */\n \tfor (UINT32 i = 0; i < mcs->channelCount; i++)\n@@ -1871,22 +1871,30 @@\n \t\t *   of seven ANSI characters that uniquely identify the channel.\n \t\t * - options: a 32-bit, unsigned integer. Channel option flags\n \t\t */\n-\t\trdpMcsChannel* channel = &mcs->channels[i];\n-\t\tStream_Read(s, channel->Name, CHANNEL_NAME_LEN + 1); /* name (8 bytes) */\n-\n-\t\tif (!memchr(channel->Name, 0, CHANNEL_NAME_LEN + 1))\n-\t\t{\n-\t\t\tWLog_ERR(\n-\t\t\t    TAG,\n-\t\t\t    \"protocol violation: received a static channel name with missing null-termination\");\n-\t\t\treturn FALSE;\n-\t\t}\n-\n-\t\tStream_Read_UINT32(s, channel->options); /* options (4 bytes) */\n+        rdpMcsChannel* channel = &mcs->channels[i];\n+        /* Ensure sufficient data for channel name */\n+        if (!Stream_CheckAndLogRequiredLength(TAG, s, CHANNEL_NAME_LEN + 1))\n+            return FALSE;\n+        Stream_Read(s, channel->Name, CHANNEL_NAME_LEN + 1); /* name (8 bytes) */\n+\n+        if (!memchr(channel->Name, 0, CHANNEL_NAME_LEN + 1))\n+        {\n+            WLog_ERR(\n+                TAG,\n+                \"protocol violation: received a static channel name with missing null-termination\");\n+            return FALSE;\n+        }\n+\n+        /* Ensure sufficient data for channel options */\n+        if (!Stream_CheckAndLogRequiredLength(TAG, s, sizeof(UINT32)))\n+            return FALSE;\n+        Stream_Read_UINT32(s, channel->options); /* options (4 bytes) */\n \t\tchannel->ChannelId = mcs->baseChannelId++;\n-\t}\n-\n-\treturn TRUE;\n+    }\n+    /* Skip any trailing unused bytes in network data block */\n+    if (blockLength > expectedMin)\n+        Stream_Seek(s, blockLength - expectedMin);\n+    return TRUE;\n }\n \n /**\n",
+  "stdout": "",
+  "stderr": ""
+}

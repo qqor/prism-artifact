@@ -1,0 +1,44 @@
+diff --git a/epan/dissectors/packet-netbios.c b/epan/dissectors/packet-netbios.c
+index 5ea85c7df4..08837b0c51 100644
+--- a/epan/dissectors/packet-netbios.c
++++ b/epan/dissectors/packet-netbios.c
+@@ -295,8 +295,6 @@ process_netbios_name(const unsigned char *name_ptr, char *name_ret, int name_ret
+ 			if (--name_ret_len > 0)
+ 				*name_ret++ = name_char;
+ 		} else {
+-			/* It's not printable; show it as <XX>, where
+-			   XX is the value in hex. */
+ 			if (--name_ret_len > 0)
+ 				*name_ret++ = '<';
+ 			if (--name_ret_len > 0)
+@@ -309,16 +307,21 @@ process_netbios_name(const unsigned char *name_ptr, char *name_ret, int name_ret
+ 	}
+ 	*name_ret = '\0';
+ 
+-	/* Remove trailing space characters from name. */
+-
+-	name_ret--;
+-
+-	while (name_ret >= name_ret_orig) {
+-		if (*name_ret != ' ') {
+-			*(name_ret + 1) = 0;
+-			break;
+-		}
++	/* Only trim if there is at least one character before the terminator */
++	if (name_ret > name_ret_orig) {
+ 		name_ret--;
++		while (name_ret >= name_ret_orig) {
++			if (*name_ret != ' ') {
++				*(name_ret + 1) = '\0';
++				return name_type;
++			}
++			if (name_ret == name_ret_orig) {
++				/* All spaces: clear the buffer */
++				*name_ret = '\0';
++				return name_type;
++			}
++			name_ret--;
++		}
+ 	}
+ 
+ 	return name_type;

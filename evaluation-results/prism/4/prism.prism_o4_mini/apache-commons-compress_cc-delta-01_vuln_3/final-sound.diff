@@ -1,0 +1,81 @@
+--- a/src/main/java/org/apache/commons/compress/changes/ChangeSet.java
++++ b/src/main/java/org/apache/commons/compress/changes/ChangeSet.java
+@@ -22,7 +22,7 @@
+ import java.util.Iterator;
+ import java.util.LinkedHashSet;
+ import java.util.Set;
+-import java.util.regex.Pattern;
++// import java.util.regex.Pattern;
+ 
+ import org.apache.commons.compress.archivers.ArchiveEntry;
+ import org.apache.commons.compress.changes.Change.ChangeType;
+@@ -100,8 +100,8 @@
+             return;
+         }
+         final String source = deleteChange.getTargetFileName();
+-        final Pattern pattern = Pattern.compile(source + "/.*");
+-        if (source != null && !changes.isEmpty()) {
++        final String prefix = source + "/";
++        if (!changes.isEmpty()) {
+             for (final Iterator<Change<E>> it = changes.iterator(); it.hasNext();) {
+                 final Change<E> change = it.next();
+                 if (change.getType() == ChangeType.ADD && change.getEntry() != null) {
+@@ -109,8 +109,8 @@
+                     if (target == null) {
+                         continue;
+                     }
+-                    if (ChangeType.DELETE == deleteChange.getType() && source.equals(target)
+-                            || ChangeType.DELETE_DIR == deleteChange.getType() && pattern.matcher(target).matches()) {
++                    if ((ChangeType.DELETE == deleteChange.getType() && source.equals(target))
++                            || (ChangeType.DELETE_DIR == deleteChange.getType() && target.startsWith(prefix))) {
+                         it.remove();
+                     }
+                 }
+
+--- a/src/main/java/org/apache/commons/compress/archivers/zip/ZipSplitReadOnlySeekableByteChannel.java
++++ b/src/main/java/org/apache/commons/compress/archivers/zip/ZipSplitReadOnlySeekableByteChannel.java
+@@ -101,10 +101,28 @@
+         final String fileBaseName = FileNameUtils.getBaseName(lastSegmentPath);
+         final ArrayList<Path> splitZipSegments;
+         // ZIP split segments should be like z01,z02....z(n-1) based on the ZIP specification
+-        final Pattern pattern = Pattern.compile(Pattern.quote(fileBaseName) + ".[zZ][0-9]+");
++        final String prefix = fileBaseName + ".";
+         try (Stream<Path> walk = Files.walk(parent, 1)) {
+-            splitZipSegments = walk.filter(Files::isRegularFile).filter(path -> pattern.matcher(path.getFileName().toString()).matches())
+-                    .sorted(new ZipSplitSegmentComparator()).collect(Collectors.toCollection(ArrayList::new));
++            splitZipSegments = walk.filter(Files::isRegularFile).filter(path -> {
++                String name = path.getFileName().toString();
++                if (!name.startsWith(prefix)) {
++                    return false;
++                }
++                String suffix = name.substring(prefix.length());
++                if (suffix.length() < 2) {
++                    return false;
++                }
++                char z = suffix.charAt(0);
++                if (z != 'z' && z != 'Z') {
++                    return false;
++                }
++                for (int i = 1; i < suffix.length(); i++) {
++                    if (!Character.isDigit(suffix.charAt(i))) {
++                        return false;
++                    }
++                }
++                return true;
++            }).sorted(new ZipSplitSegmentComparator()).collect(Collectors.toCollection(ArrayList::new));
+         }
+         return forPaths(lastSegmentPath, splitZipSegments);
+     }
+
+--- a/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java
++++ b/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java
+@@ -219,8 +219,7 @@
+      * Since they are parsed into long values, maximum length of each is the same as Long.MAX_VALUE which is 19 digits.
+      * </p>
+      */
+-    private static final Pattern PAX_EXTENDED_HEADER_FILE_TIMES_PATTERN = Pattern.compile(
+-            "(-?(?:\\d{1,19}|(?:.|\\d)*))(?:\\.\\d{1,19})?");
++    private static final Pattern PAX_EXTENDED_HEADER_FILE_TIMES_PATTERN = Pattern.compile("-?\\d{1,19}(?:\\.\\d{1,19})?");
+ 
+     private static FileTime fileTimeFromOptionalSeconds(final long seconds) {
+         return seconds <= 0 ? null : FileTimes.fromUnixTime(seconds);

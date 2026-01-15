@@ -1,0 +1,56 @@
+--- a/libexif/fuji/exif-mnote-data-fuji.c
++++ b/libexif/fuji/exif-mnote-data-fuji.c
+@@ -163,16 +163,22 @@
+ 			  "ExifMnoteDataFuji", "Short MakerNote");
+ 		return;
+ 	}
+-	if (CHECKOVERFLOW(n->offset, buf_size, 6+8+4)) {
+-		exif_log (en->log, EXIF_LOG_CODE_CORRUPT_DATA,
+-			  "ExifMnoteDataFuji", "Short MakerNote");
+-		return;
+-	}
+-	datao = 6 + n->offset;
+-
+-	n->order = EXIF_BYTE_ORDER_INTEL;
+-
+-	datao += exif_get_long (buf + datao + 8, EXIF_BYTE_ORDER_INTEL);
++    if (CHECKOVERFLOW(n->offset, buf_size, 6+8+4)) {
++        exif_log (en->log, EXIF_LOG_CODE_CORRUPT_DATA,
++              "ExifMnoteDataFuji", "Short MakerNote");
++        return;
++    }
++    datao = 6 + n->offset;
++
++    n->order = EXIF_BYTE_ORDER_INTEL;
++
++    /* Ensure buffer is large enough to read the first entry offset */
++    if (CHECKOVERFLOW(datao + 8, buf_size, 4)) {
++        exif_log (en->log, EXIF_LOG_CODE_CORRUPT_DATA,
++              "ExifMnoteDataFuji", "Short MakerNote");
++        return;
++    }
++    datao += exif_get_long (buf + datao + 8, EXIF_BYTE_ORDER_INTEL);
+ 	if (CHECKOVERFLOW(datao, buf_size, 2)) {
+ 		exif_log (en->log, EXIF_LOG_CODE_CORRUPT_DATA,
+ 			  "ExifMnoteDataFuji", "Short MakerNote");
+@@ -238,10 +244,16 @@
+ 		s = exif_format_get_size (n->entries[tcount].format) * n->entries[tcount].components;
+ 		n->entries[tcount].size = s;
+ 		if (s) {
+-			size_t dataofs = o + 8;
+-			if (s > 4)
+-				/* The data in this case is merely a pointer */
+-				dataofs = exif_get_long (buf + dataofs, n->order) + 6 + n->offset;
++            size_t dataofs = o + 8;
++            if (s > 4) {
++                /* The data in this case is merely a pointer */
++                if (CHECKOVERFLOW(dataofs, buf_size, 4)) {
++                    exif_log (en->log, EXIF_LOG_CODE_CORRUPT_DATA,
++                              "ExifMnoteDataFuji", "Short MakerNote");
++                    break;
++                }
++                dataofs = exif_get_long (buf + dataofs, n->order) + 6 + n->offset;
++            }
+ 
+ 			if (CHECKOVERFLOW(dataofs, buf_size, s)) {
+ 				exif_log (en->log, EXIF_LOG_CODE_CORRUPT_DATA,

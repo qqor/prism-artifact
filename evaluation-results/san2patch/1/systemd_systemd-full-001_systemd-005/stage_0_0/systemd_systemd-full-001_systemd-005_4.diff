@@ -1,0 +1,40 @@
+diff --git a/src/shared/parse-argument.c b/src/shared/parse-argument.c
+index e6159c1482..23a39e733a 100644
+--- a/src/shared/parse-argument.c
++++ b/src/shared/parse-argument.c
+@@ -55,18 +55,18 @@ int parse_json_argument(const char *s, sd_json_format_flags_t *ret) {
+ int parse_path_argument(const char *path, bool suppress_root, char **arg) {
+         char *p;
+         int r;
+-
+         /*
+          * This function is intended to be used in command line parsers, to handle paths that are passed
+          * in. It makes the path absolute, and reduces it to NULL if omitted or root (the latter optionally).
+          *
+          * NOTE THAT THIS WILL FREE THE PREVIOUS ARGUMENT POINTER ON SUCCESS!
+          * Hence, do not pass in uninitialized pointers.
+-         */
+-
++ */
++// FIXME: Crash CWE-415: Double Free
++        
+         if (isempty(path)) {
+-                *arg = mfree(*arg);
+-                return 0;
++                /* Consolidate free and clear into a helper label */
++                goto do_clear;
+         }
+ 
+         r = path_make_absolute_cwd(path, &p);
+@@ -78,6 +78,11 @@ int parse_path_argument(const char *path, bool suppress_root, char **arg) {
+                 p = mfree(p);
+ 
+         return free_and_replace(*arg, p);
++
++do_clear:
++        mfree(*arg);
++        *arg = NULL;
++        return 0;
+ }
+ 
+ int parse_signal_argument(const char *s, int *ret) {

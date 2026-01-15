@@ -1,0 +1,42 @@
+diff --git a/libfreerdp/core/freerdp.c b/libfreerdp/core/freerdp.c
+index 594a1a2b8..1601f160d 100644
+--- a/libfreerdp/core/freerdp.c
++++ b/libfreerdp/core/freerdp.c
+@@ -1428,12 +1428,20 @@ fail:
+ 
+ BOOL freerdp_is_valid_mcs_create_request(const BYTE* data, size_t size)
+ {
++	const size_t MIN_HEADER_SIZE = 4;
++	if (!data || size < MIN_HEADER_SIZE)
++	{
++		WLog_ERR(TAG, "Invalid MCS Create Request header");
++		return FALSE;
++	}
+ 
+ 	wStream sbuffer = { 0 };
+ 	wStream* s = Stream_StaticConstInit(&sbuffer, data, size);
+-
+-	WINPR_ASSERT(data || (size == 0));
+-	WINPR_ASSERT(s);
++	if (!s || Stream_GetRemainingLength(s) < MIN_HEADER_SIZE)
++	{
++		WLog_ERR(TAG, "Stream buffer too small for MCS header");
++		return FALSE;
++	}
+ 
+ 	rdpMcs* mcs = test_mcs_new();
+ 	WINPR_ASSERT(mcs);
+@@ -1449,7 +1457,12 @@ BOOL freerdp_is_valid_mcs_create_response(const BYTE* data, size_t size)
+ 	wStream sbuffer = { 0 };
+ 	wStream* s = Stream_StaticConstInit(&sbuffer, data, size);
+ 
+-	WINPR_ASSERT(data || (size == 0));
++	// Validate data pointer, stream creation, and remaining length
++	if (!data || !s || Stream_GetRemainingLength(s) < 6) {
++		WLog_ERR(TAG, "Invalid or truncated MCS Create Response");
++		return FALSE;
++	}
++
+ 	WINPR_ASSERT(s);
+ 
+ 	rdpMcs* mcs = test_mcs_new();

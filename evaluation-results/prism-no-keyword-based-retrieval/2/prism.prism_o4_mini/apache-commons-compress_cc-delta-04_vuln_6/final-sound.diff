@@ -1,0 +1,32 @@
+--- a/src/main/java/org/apache/commons/compress/archivers/examples/Expander.java
++++ b/src/main/java/org/apache/commons/compress/archivers/examples/Expander.java
+@@ -70,20 +70,24 @@
+         final Path targetDirPath = nullTarget ? null : targetDirectory.normalize();
+         T nextEntry = supplier.get();
+         while (nextEntry != null) {
+-            final Path targetPath = nullTarget ? null : nextEntry.resolveIn(targetDirPath);
++            Path rawTargetPath = nullTarget ? null : nextEntry.resolveIn(targetDirPath);
++            Path normalizedTargetPath = nullTarget ? null : rawTargetPath.normalize();
++            if (!nullTarget && !normalizedTargetPath.startsWith(targetDirPath)) {
++                throw new IOException("Entry is outside the target directory: " + nextEntry.getName());
++            }
+             if (nextEntry.isDirectory()) {
+-                if (!nullTarget && !Files.isDirectory(targetPath) && Files.createDirectories(targetPath) == null) {
+-                    throw new IOException("Failed to create directory " + targetPath);
++                if (!nullTarget && !Files.isDirectory(normalizedTargetPath) && Files.createDirectories(normalizedTargetPath) == null) {
++                    throw new IOException("Failed to create directory " + normalizedTargetPath);
+                 }
+             } else {
+-                final Path parent = nullTarget ? null : targetPath.getParent();
++                final Path parent = nullTarget ? null : normalizedTargetPath.getParent();
+                 if (!nullTarget && !Files.isDirectory(parent) && Files.createDirectories(parent) == null) {
+                     throw new IOException("Failed to create directory " + parent);
+                 }
+                 if (nullTarget) {
+                     writer.accept(nextEntry, NullOutputStream.INSTANCE);
+                 } else {
+-                    try (OutputStream outputStream = Files.newOutputStream(targetPath)) {
++                    try (OutputStream outputStream = Files.newOutputStream(normalizedTargetPath)) {
+                         writer.accept(nextEntry, outputStream);
+                     }
+                 }

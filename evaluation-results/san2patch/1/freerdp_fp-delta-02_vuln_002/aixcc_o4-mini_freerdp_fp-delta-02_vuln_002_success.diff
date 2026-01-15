@@ -1,0 +1,45 @@
+diff --git a/libfreerdp/crypto/x509_utils.c b/libfreerdp/crypto/x509_utils.c
+index 7a24a353e..412296eaa 100644
+--- a/libfreerdp/crypto/x509_utils.c
++++ b/libfreerdp/crypto/x509_utils.c
+@@ -444,25 +444,26 @@ BOOL x509_validate_subject_aternative_names(const X509* cert) {
+ 
+     count = sk_GENERAL_NAME_num(san_names);
+ 
+-    for (i = 0; i < count; i++) {
++    // Rationale: Use OPENSSL_strndup with a length check to safely duplicate and null-terminate the ASN1 string
++for (i = 0; i < count; i++) {
+         GENERAL_NAME *gen_name = sk_GENERAL_NAME_value(san_names, i);
+ 
+-        if (gen_name->type == GEN_DNS) {
+-			// Allocate string length + 1 for security
+-			dns_name = malloc( strlen((char *)ASN1_STRING_get0_data(gen_name->d.dNSName)) + 1);
++// FIXME: Crash CWE-787: Out-of-bounds Write
++         if (gen_name->type == GEN_DNS) {
++            // Duplicate SAN string safely
++            size_t len = ASN1_STRING_length(gen_name->d.dNSName);
++            if (len > 255) goto end;
++            dns_name = OPENSSL_strndup((char *)ASN1_STRING_get0_data(gen_name->d.dNSName), len);
+ 
+-			if (dns_name == NULL)
+-				goto end;
+-			
+-			memcpy(dns_name, (char *)ASN1_STRING_get0_data(gen_name->d.dNSName),  
+-				ASN1_STRING_length(gen_name->d.dNSName)) ;
+-			
++            if (dns_name == NULL)
++                goto end;
++            
+             if (!verify_san(dns_name)) {
+-				free(dns_name);
+-				result = FALSE;
+-				goto end;
++                free(dns_name);
++                result = FALSE;
++                goto end;
+             } else {
+-				free(dns_name);
++                free(dns_name);
+             }
+         }
+     }

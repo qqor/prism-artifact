@@ -1,0 +1,92 @@
+--- a/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-microsoft-module/src/main/java/org/apache/tika/parser/microsoft/rtf/RTFParser.java
++++ b/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-microsoft-module/src/main/java/org/apache/tika/parser/microsoft/rtf/RTFParser.java
+@@ -55,6 +55,8 @@
+     private int memoryLimitInKb = EMB_OBJ_MAX_BYTES / 1024;
+     @Field
+     private boolean ignoreListMarkup = false;
++    @Field
++    private boolean allowEmbeddedJavaObjects = false;
+ 
+     public Set<MediaType> getSupportedTypes(ParseContext context) {
+         return SUPPORTED_TYPES;
+@@ -90,7 +92,7 @@
+     public void parseInline(InputStream is, ContentHandler handler, Metadata metadata, ParseContext context)
+             throws TikaException, IOException, SAXException {
+         RTFEmbObjHandler embObjHandler =
+-                new RTFEmbObjHandler(handler, metadata, context, getMemoryLimitInKb());
++                new RTFEmbObjHandler(handler, metadata, context, getMemoryLimitInKb(), allowEmbeddedJavaObjects);
+         final TextExtractor ert = new TextExtractor(handler, metadata, embObjHandler);
+         ert.setIgnoreListMarkup(ignoreListMarkup);
+         ert.extract(is);
+@@ -112,4 +114,13 @@
+         this.memoryLimitInKb = memoryLimitInKb;
+         USE_STATIC = false;
+     }
++
++    @Field
++    public void setAllowEmbeddedJavaObjects(boolean allowEmbeddedJavaObjects) {
++        this.allowEmbeddedJavaObjects = allowEmbeddedJavaObjects;
++    }
++
++    public boolean getAllowEmbeddedJavaObjects() {
++        return allowEmbeddedJavaObjects;
++    }
+ }
+
+--- a/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-microsoft-module/src/main/java/org/apache/tika/parser/microsoft/rtf/RTFEmbObjHandler.java
++++ b/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-microsoft-module/src/main/java/org/apache/tika/parser/microsoft/rtf/RTFEmbObjHandler.java
+@@ -67,6 +67,7 @@
+     private final EmbeddedDocumentUtil embeddedDocumentUtil;
+     private final UnsynchronizedByteArrayOutputStream os;
+     private final int memoryLimitInKb;
++    private final boolean allowJavaDeserialization;
+ 
+     private boolean isPictBitmap = false;
+     //high hex cached for writing hexpair chars (data)
+@@ -82,11 +83,12 @@
+     private EMB_STATE state = EMB_STATE.NADA;
+ 
+     protected RTFEmbObjHandler(ContentHandler handler, Metadata metadata, ParseContext context,
+-                               int memoryLimitInKb) {
++                               int memoryLimitInKb, boolean allowJavaDeserialization) {
+         this.handler = handler;
+         this.embeddedDocumentUtil = new EmbeddedDocumentUtil(context);
+         os = UnsynchronizedByteArrayOutputStream.builder().get();
+         this.memoryLimitInKb = memoryLimitInKb;
++        this.allowJavaDeserialization = allowJavaDeserialization;
+     }
+ 
+     protected void startPict() {
+@@ -211,16 +213,22 @@
+             extractObj(bytes, handler, metadata);
+ 
+         } else if (state == EMB_STATE.JAVA_OBJDATA) {
+-            try {
+-                Object obj = new ObjectInputStream(
+-                        UnsynchronizedByteArrayInputStream.builder().setByteArray(bytes)
+-                                .get()).readObject();
+-                metadata.set(RTFMetadata.EMB_CLASS, obj.getClass().getName());
+-                metadata.set(TikaCoreProperties.CONTENT_TYPE_PARSER_OVERRIDE,
+-                        MediaType.text("plain").toString());
+-                extractObj(obj.toString().getBytes(StandardCharsets.UTF_8), handler, metadata);
+-            } catch (ClassNotFoundException e) {
+-                throw new TikaException("Not found", e);
++            if (!allowJavaDeserialization) {
++                TikaException e = new TikaException(
++                        "Embedded Java object deserialization is disabled for security");
++                EmbeddedDocumentUtil.recordException(e, metadata);
++            } else {
++                try {
++                    Object obj = new ObjectInputStream(
++                            UnsynchronizedByteArrayInputStream.builder().setByteArray(bytes)
++                                    .get()).readObject();
++                    metadata.set(RTFMetadata.EMB_CLASS, obj.getClass().getName());
++                    metadata.set(TikaCoreProperties.CONTENT_TYPE_PARSER_OVERRIDE,
++                            MediaType.text("plain").toString());
++                    extractObj(obj.toString().getBytes(StandardCharsets.UTF_8), handler, metadata);
++                } catch (ClassNotFoundException e) {
++                    throw new TikaException("Not found", e);
++                }
+             }
+         } else if (state == EMB_STATE.NADA) {
+             //swallow...no start for pict or embed?!

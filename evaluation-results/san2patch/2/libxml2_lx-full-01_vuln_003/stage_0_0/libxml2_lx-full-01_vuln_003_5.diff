@@ -1,0 +1,84 @@
+diff --git a/parser.c b/parser.c
+index 836b4a4f..9899db92 100644
+--- a/parser.c
++++ b/parser.c
+@@ -4053,31 +4053,38 @@ xmlExpandPEsInEntityValue(xmlParserCtxtPtr ctxt, xmlSBuf *buf,
+  *
+  * Returns the EntityValue parsed with reference substituted or NULL
+  */
++/*
++ * Rationale: Replace xmlSBuf with xmlBufferPtr to use a dynamically growing buffer (SEI CERT STR31-C).
++ */
+ xmlChar *
+ xmlParseEntityValue(xmlParserCtxtPtr ctxt, xmlChar **orig) {
+     unsigned maxLength = (ctxt->options & XML_PARSE_HUGE) ?
+                          XML_MAX_HUGE_LENGTH :
+                          XML_MAX_TEXT_LENGTH;
+-    xmlSBuf buf;
++    xmlBufferPtr buf;
+     const xmlChar *start;
+     int quote, length;
+ 
+-    xmlSBufInit(&buf, maxLength);
++    /* create a dynamic buffer instead of fixed xmlSBuf */
++    buf = xmlBufferCreate();
++    if (buf == NULL) {
++        xmlErrMemory(ctxt);
++        return(NULL);
++    }
+ 
+     GROW;
+ 
+     quote = CUR;
+     if ((quote != '"') && (quote != '\'')) {
+-	xmlFatalErr(ctxt, XML_ERR_ATTRIBUTE_NOT_STARTED, NULL);
+-	return(NULL);
++        xmlFatalErr(ctxt, XML_ERR_ATTRIBUTE_NOT_STARTED, NULL);
++        xmlBufferFree(buf);
++        return(NULL);
+     }
+     CUR_PTR++;
+ 
+     length = 0;
+ 
+-    /*
+-     * Copy raw content of the entity into a buffer
+-     */
++    /* Copy raw content of the entity into a buffer */
+     while (1) {
+         int c;
+ 
+@@ -4101,9 +4108,6 @@ xmlParseEntityValue(xmlParserCtxtPtr ctxt, xmlChar **orig) {
+         NEXTL(1);
+         length += 1;
+ 
+-        /*
+-         * TODO: Check growth threshold
+-         */
+         if (ctxt->input->end - CUR_PTR < 10)
+             GROW;
+     }
+@@ -4116,14 +4120,20 @@ xmlParseEntityValue(xmlParserCtxtPtr ctxt, xmlChar **orig) {
+             xmlErrMemory(ctxt);
+     }
+ 
+-    xmlExpandPEsInEntityValue(ctxt, &buf, start, length, ctxt->inputNr);
++    /* expand PEs into our dynamic xmlBuffer */
++    xmlExpandPEsInEntityValue(ctxt, buf, start, length, ctxt->inputNr);
+ 
+     NEXTL(1);
+ 
+-    return(xmlSBufFinish(&buf, NULL, ctxt, "entity length too long"));
++    /* detach and return the content, free buffer */
++    {
++        xmlChar *ret = xmlBufferDetach(buf);
++        xmlBufferFree(buf);
++        return(ret);
++    }
+ 
+ error:
+-    xmlSBufCleanup(&buf, ctxt, "entity length too long");
++    xmlBufferFree(buf);
+     return(NULL);
+ }
+ 

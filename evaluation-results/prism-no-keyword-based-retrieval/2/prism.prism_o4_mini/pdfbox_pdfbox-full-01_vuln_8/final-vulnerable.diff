@@ -1,0 +1,56 @@
+--- a/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/COSParser.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/COSParser.java
+@@ -95,6 +95,13 @@
+      * How many trailing bytes to read for EOF marker.
+      */
+     private static final int DEFAULT_TRAIL_BYTECOUNT = 2048;
++
++    // how many bytes to scan for header markers
++    public static final String SYSPROP_HEADER_LOOKUP_RANGE =
++            "org.apache.pdfbox.pdfparser.headerLookupRange";
++    private static final long DEFAULT_HEADER_LOOKUP_RANGE = 1024L;
++    private long headerLookupRange = DEFAULT_HEADER_LOOKUP_RANGE;
++
+     /**
+      * EOF-marker.
+      */
+@@ -1074,22 +1081,35 @@
+     private boolean parseHeader(String headerMarker, String defaultVersion) throws IOException
+     {
+         // read first line
++        long startPos = source.getPosition();
++        long previousPos = startPos;
+         String header = readLine();
++        long scanned = source.getPosition() - startPos;
+         // some pdf-documents are broken and the pdf-version is in one of the following lines
+         if (!header.contains(headerMarker))
+         {
++            // read second line and begin scanning
++            previousPos = source.getPosition();
+             header = readLine();
+-            while (!header.contains(headerMarker))
++            scanned = source.getPosition() - startPos;
++            while (!header.contains(headerMarker) && scanned < headerLookupRange)
+             {
+                 // if a line starts with a digit, it has to be the first one with data in it
+                 if ((!header.isEmpty()) && (Character.isDigit(header.charAt(0))))
+                 {
+                     break;
+                 }
++                long currentPos = source.getPosition();
++                // break on EOF or non-advancing read
++                if (currentPos <= previousPos)
++                {
++                    break;
++                }
++                previousPos = currentPos;
+                 header = readLine();
+-            }
+-        }
+-    
++                scanned = source.getPosition() - startPos;
++            }
++        }
+         // nothing found
+         if (!header.contains(headerMarker))
+         {

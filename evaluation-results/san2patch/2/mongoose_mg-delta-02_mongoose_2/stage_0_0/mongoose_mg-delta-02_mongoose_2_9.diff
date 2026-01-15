@@ -1,0 +1,34 @@
+diff --git a/src/net_builtin.c b/src/net_builtin.c
+index 793874f4..6ee8f2b5 100644
+--- a/src/net_builtin.c
++++ b/src/net_builtin.c
+@@ -877,6 +877,9 @@ void mg_tcpip_rx(struct mg_tcpip_if *ifp, void *buf, size_t len) {
+     pkt.ip6 = (struct ip6 *) (pkt.eth + 1);
+     if (pkt.raw.len < sizeof(*pkt.eth) + sizeof(*pkt.ip6)) return;  // Truncated
+     if ((pkt.ip6->ver >> 4) != 0x6) return;                         // Not IP
++    // Also ensure IPv6 packet has some payload
++    size_t ipv6_payload = pkt.raw.len - (sizeof(*pkt.eth) + sizeof(*pkt.ip6));
++    if (ipv6_payload == 0) return;
+     mkpay(&pkt, pkt.ip6 + 1);
+     rx_ip6(ifp, &pkt);
+   } else if (pkt.eth->type == mg_htons(0x800)) {
+@@ -888,11 +891,14 @@ void mg_tcpip_rx(struct mg_tcpip_if *ifp, void *buf, size_t len) {
+     }
+     if (pkt.raw.len < sizeof(*pkt.eth) + sizeof(*pkt.ip)) return;  // Truncated
+     if ((pkt.ip->ver >> 4) != 4) return;                           // Not IP
+-    if ((pkt.ip->ver & 0xF) > 5)                                   // Handle IPv4 options
+-        mkpay(&pkt, (char *)(pkt.ip) + ((pkt.ip->ver & 0xF)*4));
+-    else
+-        mkpay(&pkt, pkt.ip + 1);
+-
++    // Compute header length and derive payload information
++    size_t ihl = (pkt.ip->ver & 0xF) * 4;
++    if (ihl < sizeof(*pkt.ip)) ihl = sizeof(*pkt.ip);
++    char *payload = (char *)pkt.ip + ihl;
++    size_t payload_len = pkt.raw.len - (sizeof(*pkt.eth) + ihl);
++    // Ensure at least one byte before calling mkpay
++    if (payload_len == 0) return;
++    mkpay(&pkt, payload);
+     rx_ip(ifp, &pkt);
+   } else {
+     MG_DEBUG(("Unknown eth type %x", mg_htons(pkt.eth->type)));

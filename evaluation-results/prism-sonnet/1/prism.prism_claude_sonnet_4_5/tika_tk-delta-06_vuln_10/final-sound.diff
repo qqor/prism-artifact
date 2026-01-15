@@ -1,0 +1,39 @@
+--- a/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-text-module/src/main/java/org/apache/tika/parser/csv/CellFormatter.java
++++ b/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-text-module/src/main/java/org/apache/tika/parser/csv/CellFormatter.java
+@@ -36,6 +36,13 @@
+             Pattern.compile("([+-])?(\\d{0,20}(?:\\.\\d{0,20})?) " +
+             "&fraction_format=\"(?:(#{1,20}) )?(#{1,20})/(#{1,20})\"");
+ 
++    // Maximum denominator format length to prevent excessive computation
++    // The nested loop algorithm has O(n²) complexity where n = 10^MAX_DENOM_LENGTH - 1
++    // MAX_DENOM_LENGTH=3: ~1M iterations (milliseconds, safe for production)
++    // MAX_DENOM_LENGTH=4: ~100M iterations (seconds, absolute maximum)
++    // Pattern allows up to 20 hash symbols but must limit computation for performance
++    private static final int MAX_DENOM_LENGTH = 3;
++
+     private final Matcher fractionFormatMatcher = FRACTION_FORMAT.matcher("");
+     String format(String cell) {
+         if (cell == null) {
+@@ -59,7 +66,7 @@
+ 
+         double wholePart = Math.floor(Math.abs(val));
+         double decPart = Math.abs(val) - wholePart;
+-        int denomLength = denomFormat.length();
++        int denomLength = Math.min(denomFormat.length(), MAX_DENOM_LENGTH);
+ 
+         double minVal = 1.0;
+         double currDenom = Math.pow(10, denomLength) - 1d;
+@@ -70,7 +77,13 @@
+                     currDenom = i;
+                     currNum = i2;
+                     minVal = Math.abs((double) i2 / (double) i - decPart);
++                    if (minVal == 0.0) {
++                        break;
++                    }
+                 }
++            }
++            if (minVal == 0.0) {
++                break;
+             }
+         }
+         sign = (sign == null) ? "" : sign;

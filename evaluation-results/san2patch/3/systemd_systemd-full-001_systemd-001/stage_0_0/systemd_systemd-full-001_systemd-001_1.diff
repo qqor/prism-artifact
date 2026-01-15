@@ -1,0 +1,23 @@
+diff --git a/src/udev/fuzz-udev-rule-parse-value.c b/src/udev/fuzz-udev-rule-parse-value.c
+index 57951bd461..11d7699a7d 100644
+--- a/src/udev/fuzz-udev-rule-parse-value.c
++++ b/src/udev/fuzz-udev-rule-parse-value.c
+@@ -13,11 +13,16 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
+         char *endpos = UINT_TO_PTR(0x87654321U);
+         bool is_case_sensitive;
+ 
+-        fuzz_setup_logging();
++        // Prevent integer overflow on size+1 and extremely large allocations
++         fuzz_setup_logging();
+ 
++        if (size >= SIZE_MAX - 1) {
++                // avoid overflow in malloc(size + 1)
++                return 0;
++        }
+         assert_se(str = malloc(size + 1));
+         memcpy(str, data, size);
+-        str[size] = '\0';
++        str[size] = '\0';  // safe termination with explicit bounds check
+ 
+         r = udev_rule_parse_value(str, &value, &endpos, &is_case_sensitive);
+         if (r < 0) {

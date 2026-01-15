@@ -1,0 +1,14 @@
+{
+  "project_name": "systemd",
+  "vulnerability_identifier": "systemd_systemd-full-001_systemd-004",
+  "source_directory": "/home/qqor/crete/.cache/official-afc-systemd",
+  "llm_usage": {
+    "total_cost": 3.3063569999999998,
+    "prompt_tokens": 944349,
+    "completion_tokens": 31554
+  },
+  "variant": "sound",
+  "diff": "--- a/src/shared/condition.c\n+++ b/src/shared/condition.c\n@@ -97,13 +97,23 @@\n }\n \n Condition* condition_free_list_type(Condition *head, ConditionType type) {\n-        LIST_FOREACH(conditions, c, head)\n-                if (type < 0 || c->type == type) {\n+        /* When type < 0, free all conditions */\n+        if (type < 0) {\n+                Condition *c;\n+                while ((c = LIST_POP(conditions, head)))\n+                        condition_free(c);\n+                return NULL;  /* List is now empty */\n+        }\n+        \n+        /* When type >= 0, free only conditions matching the specific type */\n+        LIST_FOREACH_WITH_NEXT(conditions, c, next, head) {\n+                if (c->type == type) {\n+                        LIST_REMOVE(conditions, head, c);\n                         condition_free(c);\n                 }\n-\n-        assert(type >= 0 || !head);\n-        return head;\n+        }\n+        \n+        return head;  /* Return updated head (may be different if first node was removed) */\n }\n \n static int condition_test_kernel_command_line(Condition *c, char **env) {\n",
+  "stdout": "",
+  "stderr": ""
+}

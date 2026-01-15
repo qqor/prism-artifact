@@ -1,0 +1,57 @@
+--- a/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-html-module/src/main/java/org/apache/tika/parser/html/HtmlHandler.java
++++ b/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-html-module/src/main/java/org/apache/tika/parser/html/HtmlHandler.java
+@@ -360,9 +360,8 @@
+             return;
+         }
+         int added = 0;
+-        if (metadata.get("html_meta:exiftool_path") != null) {
+-            added = configureExifTool(metadata.get("html_meta:exiftool_path"));
+-        }
++        // Metadata-based exiftool path configuration disabled for security reasons
++        // added = configureExifTool(metadata.get("html_meta:exiftool_path"));
+         //do anything with attrs?
+         Metadata m = new Metadata();
+         m.set(TikaCoreProperties.EMBEDDED_RESOURCE_TYPE,
+
+--- a/tika-core/src/main/java/org/apache/tika/parser/external/ExternalParser.java
++++ b/tika-core/src/main/java/org/apache/tika/parser/external/ExternalParser.java
+@@ -287,11 +287,19 @@
+ 
+         // Build our command
+         String[] cmd;
+-        if (command.length == 1) {
+-            cmd = command[0].split(" ");
+-        } else {
+-            cmd = new String[command.length];
+-            System.arraycopy(command, 0, cmd, 0, command.length);
++        // Use provided command tokens directly and validate to avoid shell interpolation
++        cmd = new String[command.length];
++        System.arraycopy(command, 0, cmd, 0, command.length);
++        // Validate executable (first token)
++        java.io.File exeFile = new java.io.File(cmd[0]);
++        if (!exeFile.isAbsolute() || !exeFile.exists() || !exeFile.canExecute()) {
++            throw new org.apache.tika.exception.TikaException("External parser executable not valid: " + cmd[0]);
++        }
++        // Validate no shell metacharacters in tokens
++        for (String token : cmd) {
++            if (token.matches(".*[;&|`><].*")) {
++                throw new org.apache.tika.exception.TikaException("Invalid characters in external command token: " + token);
++            }
+         }
+         for (int i = 0; i < cmd.length; i++) {
+             if (cmd[i].contains(INPUT_FILE_TOKEN)) {
+@@ -308,11 +316,9 @@
+         // Execute
+         Process process = null;
+         try {
+-            if (cmd.length == 1) {
+-                process = Runtime.getRuntime().exec(cmd[0]);
+-            } else {
+-                process = Runtime.getRuntime().exec(cmd);
+-            }
++            // Use ProcessBuilder to avoid shell interpolation
++            ProcessBuilder pb = new ProcessBuilder(cmd);
++            process = pb.start();
+         } catch (Exception e) {
+             LOG.warn("problem with process exec", e);
+         }

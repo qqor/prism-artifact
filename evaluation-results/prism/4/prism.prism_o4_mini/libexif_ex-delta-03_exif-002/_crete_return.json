@@ -1,0 +1,14 @@
+{
+  "project_name": "libexif",
+  "vulnerability_identifier": "libexif_ex-delta-03_exif-002",
+  "source_directory": "/home/qqor/crete/.cache/official-afc-libexif",
+  "llm_usage": {
+    "total_cost": 0.19875240000000002,
+    "prompt_tokens": 79372,
+    "completion_tokens": 25328
+  },
+  "variant": "sound",
+  "diff": "--- a/libexif/exif-data.c\n+++ b/libexif/exif-data.c\n@@ -918,14 +918,37 @@\n \t\t\tLOG_TOO_SMALL;\n \t\t\treturn;\n \t\t}\n-\t\td++;\n-\t\tds--;\n-\t\tlen = (((unsigned int)d[0]) << 8) | d[1];\n-\t\texif_log (data->priv->log, EXIF_LOG_CODE_DEBUG, \"ExifData\",\n-\t\t\t  \"We have to deal with %i byte(s) of EXIF data.\",\n-\t\t\t  len);\n-\t\td += 2;\n-\t\tds = len - 2;\t/* we do not want the full rest size, but only the size of the tag */\n+\t\t{\n+\t\t\tunsigned int orig_ds = ds;\n+\t\t\t/* We must have at least 1 marker byte + 2 length bytes */\n+\t\t\tif (orig_ds < 3) {\n+\t\t\t\t/* too short to contain a valid APP1 segment; skip */\n+\t\t\t\treturn;\n+\t\t\t}\n+\t\t\t/* skip the marker byte */\n+\t\t\td++;\n+\t\t\tds--;\n+\t\t\t/* read the 16-bit segment length */\n+\t\t\tlen = (((unsigned int)d[0]) << 8) | d[1];\n+\t\t\texif_log (data->priv->log, EXIF_LOG_CODE_DEBUG, \"ExifData\",\n+\t\t\t\t  \"We have to deal with %u byte(s) of EXIF data.\", len);\n+\t\t\t/* skip the length bytes */\n+\t\t\td += 2;\n+\t\t\t/* clamp payload to actual buffer */\n+\t\t\t{\n+\t\t\t\tunsigned int payload = (len >= 2) ? len - 2 : 0;\n+\t\t\t\tunsigned int remain = orig_ds - 3;\n+\t\t\t\tif (payload > remain) {\n+\t\t\t\t\texif_log (data->priv->log, EXIF_LOG_CODE_DEBUG, \"ExifData\",\n+\t\t\t\t\t\t  \"APP1 segment length (%u) past end of buffer (%u)\",\n+\t\t\t\t\t\t  payload, remain);\n+\t\t\t\t\tpayload = remain;\n+\t\t\t\t}\n+\t\t\t\tif (payload > 0xfffe)\n+\t\t\t\t\tpayload = 0xfffe;\n+\t\t\t\tds = payload;\n+\t\t\t}\n+\t\t}\n \t}\n \n \t/*\n",
+  "stdout": "",
+  "stderr": ""
+}

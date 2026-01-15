@@ -1,0 +1,14 @@
+{
+  "project_name": "curl",
+  "vulnerability_identifier": "curl_cu-delta-05_curl-002",
+  "source_directory": "/home/qqor/crete/.cache/official-afc-curl",
+  "llm_usage": {
+    "total_cost": 0.7967278000000001,
+    "prompt_tokens": 469138,
+    "completion_tokens": 63790
+  },
+  "variant": "sound",
+  "diff": "--- a/lib/ftp.c\n+++ b/lib/ftp.c\n@@ -2018,8 +2018,9 @@\n   *minute = twodigit(&p[10]);\n   *second = twodigit(&p[12]);\n \n+  /* Validate date components: tighten seconds to 0–59 */\n   if((*month > 12) || (*day > 31) || (*hour > 23) || (*minute > 59) ||\n-     (*second > 60))\n+     (*second > 59))\n     return FALSE;\n   return TRUE;\n }\n@@ -2088,12 +2089,19 @@\n         time_t filetime = data->info.filetime;\n         struct tm buffer;\n         const struct tm *tm = &buffer;\n+        int secidx;\n \n         putenv(\"TZ=right/UTC\");\n         result = Curl_gmtime(filetime, &buffer);\n         if(result)\n           return result;\n \n+        /* Clamp tm_sec to valid range 0–59 to avoid out-of-bounds access */\n+        secidx = tm->tm_sec;\n+        if(secidx < 0)\n+          secidx = 0;\n+        else if(secidx > 59)\n+          secidx = 59;\n         /* format: \"Tue, 15 Nov 1994 12:45 and twenty-six seconds\" */\n         headerbuflen =\n           msnprintf(headerbuf, sizeof(headerbuf),\n@@ -2104,7 +2112,7 @@\n                     tm->tm_year + 1900,\n                     tm->tm_hour,\n                     tm->tm_min,\n-                    Curl_seconds[tm->tm_sec]);\n+                    Curl_seconds[secidx]);\n         result = client_write_header(data, headerbuf, headerbuflen);\n         if(result)\n           return result;\n",
+  "stdout": "",
+  "stderr": ""
+}

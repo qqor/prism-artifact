@@ -1,0 +1,43 @@
+--- a/src/cmspack.c
++++ b/src/cmspack.c
+@@ -105,6 +105,13 @@
+     cmsUInt32Number Extra      = T_EXTRA(info -> InputFormat);
+     cmsUInt32Number Premul     = T_PREMUL(info->InputFormat);
+ 
++    // Always use the any-words unroller for multi-byte non-planar formats
++    if (T_BYTES(info->InputFormat) > 1 && !T_PLANAR(info->InputFormat)) {
++        if (Premul)
++            return UnrollAnyWordsPremul(info, wIn, accum, Stride);
++        else
++            return UnrollAnyWords(info, wIn, accum, Stride);
++    }
+     cmsUInt32Number ExtraFirst = DoSwap ^ SwapFirst;
+     cmsUInt32Number v;
+     cmsUInt32Number i;  
+
+--- a/src/cmsvirt.c
++++ b/src/cmsvirt.c
+@@ -1069,6 +1069,7 @@
+     _cmsTRANSFORM* v = (_cmsTRANSFORM*) xform;
+     cmsHPROFILE hICC = NULL;
+     cmsUInt32Number i, nColors;
++    cmsUInt16Number idx;
+     cmsNAMEDCOLORLIST *nc2 = NULL, *Original = NULL;
+ 
+     // Create an empty placeholder
+@@ -1098,9 +1099,14 @@
+         FLOAT_SH(0) | COLORSPACE_SH(_cmsLCMScolorSpace(v ->ExitColorSpace))
+         | BYTES_SH(2) | CHANNELS_SH(cmsChannelsOfColorSpace(v ->ExitColorSpace)));
+ 
++    // Rebuild formatters after changing buffer formats to pick correct unroller
++    xform->FromInput = _cmsGetStockInputFormatter(xform->InputFormat, xform->Flags);
++    xform->ToOutput  = _cmsGetStockOutputFormatter(xform->OutputFormat, xform->Flags);
++
+     // Apply the transfor to colorants.
+     for (i=0; i < nColors; i++) {
+-        cmsDoTransform(xform, &i, nc2 ->List[i].DeviceColorant, 1);
++        idx = (cmsUInt16Number) i;
++        cmsDoTransform(xform, &idx, nc2 ->List[i].DeviceColorant, 1);
+     }
+ 
+     if (!cmsWriteTag(hICC, cmsSigNamedColor2Tag, (void*) nc2)) goto Error;

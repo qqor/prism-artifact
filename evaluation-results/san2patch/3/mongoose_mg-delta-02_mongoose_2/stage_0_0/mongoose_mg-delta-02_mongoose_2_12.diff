@@ -1,0 +1,23 @@
+diff --git a/src/net_builtin.c b/src/net_builtin.c
+index 793874f4..e9964828 100644
+--- a/src/net_builtin.c
++++ b/src/net_builtin.c
+@@ -380,11 +380,15 @@ static void rx_arp(struct mg_tcpip_if *ifp, struct pkt *pkt) {
+ }
+ 
+ static void rx_icmp(struct mg_tcpip_if *ifp, struct pkt *pkt) {
+-  // MG_DEBUG(("ICMP %d", (int) len));
++  // FIXME: Crash CWE-125: Out-of-bounds Read
++   // MG_DEBUG(("ICMP %d", (int) len));
+   if (pkt->icmp->type == 8 && pkt->ip != NULL && pkt->ip->dst == ifp->ip) {
+     size_t hlen = sizeof(struct eth) + sizeof(struct ip) + sizeof(struct icmp);
+-    size_t space = ifp->tx.len - hlen, plen = pkt->pay.len;
+-    if (plen > space) plen = space;
++    /* Rationale: determine true maximum copy length */
++    size_t avail = pkt->total_len > hlen ? pkt->total_len - hlen : 0;
++    size_t tx_space = ifp->tx.len - hlen;
++    size_t max_copy = avail < tx_space ? avail : tx_space;
++    size_t plen = pkt->pay.len > max_copy ? max_copy : pkt->pay.len;
+     struct ip *ip = tx_ip(ifp, pkt->eth->src, 1, ifp->ip, pkt->ip->src,
+                           sizeof(struct icmp) + plen);
+     struct icmp *icmp = (struct icmp *) (ip + 1);

@@ -1,0 +1,35 @@
+--- a/epan/dissectors/packet-aim.c
++++ b/epan/dissectors/packet-aim.c
+@@ -581,16 +581,22 @@
+ static int
+ aim_get_buddyname(wmem_allocator_t *pool, uint8_t **name, tvbuff_t *tvb, int offset)
+ {
+-	uint16_t buddyname_length;
+-
+-	*name = wmem_alloc(pool, 256);
+-
+-	buddyname_length = tvb_get_ntohs(tvb, offset);
+-
+-	if (pool)
+-		memcpy(*name, tvb_get_ptr(tvb,offset,1), buddyname_length);
+-
+-	return buddyname_length;
++	uint16_t orig_len;
++	gint avail;
++	gint copy_len;
++
++	orig_len = tvb_get_ntohs(tvb, offset);
++	avail = tvb_reported_length_remaining(tvb, offset + 2);
++	copy_len = orig_len;
++	if (copy_len > avail)
++		copy_len = avail;
++	if (copy_len > 255)
++		copy_len = 255;
++	*name = wmem_alloc(pool, copy_len + 1);
++	if (copy_len > 0)
++		memcpy(*name, tvb_get_ptr(tvb, offset + 2, copy_len), copy_len);
++	(*name)[copy_len] = '\0';
++	return copy_len;
+ }
+ 
+ 

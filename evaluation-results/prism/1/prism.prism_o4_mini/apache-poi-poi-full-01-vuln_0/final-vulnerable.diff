@@ -1,0 +1,72 @@
+--- a/poi-scratchpad/src/main/java/org/apache/poi/hslf/dev/PPTXMLDump.java
++++ b/poi-scratchpad/src/main/java/org/apache/poi/hslf/dev/PPTXMLDump.java
+@@ -47,6 +47,11 @@
+     private static final int PICT_HEADER_SIZE = 25; //size of the picture header
+     private static final String PICTURES_ENTRY = "Pictures";
+     private static final String CR = System.getProperty("line.separator");
++    private static final int MAX_DUMP = 1024;
++    private static final int MAX_RECORDS = 1000;
++    private static final int MAX_PICTURES = 1000;
++    private int recordCount = 0;
++    private int pictureCount = 0;
+ 
+     private Writer out;
+     private final byte[] docstream;
+@@ -80,6 +85,8 @@
+      */
+     public void dump(Writer outWriter) throws IOException {
+         this.out = outWriter;
++        this.recordCount = 0;
++        this.pictureCount = 0;
+ 
+         int padding = 0;
+         write(out, "<Presentation>" + CR, padding);
+@@ -111,7 +118,14 @@
+      */
+     public void dump(byte[] data, int offset, int length, int padding) throws IOException {
+         int pos = offset;
+-        while (pos <= (offset + length - HEADER_SIZE)){
++        while (pos <= (offset + length - HEADER_SIZE)) {
++            if (++recordCount > MAX_RECORDS) {
++                break;
++            }
++            int remainingBytes = offset + length - pos;
++            if (remainingBytes < HEADER_SIZE) {
++                break;
++            }
+             if (pos < 0) {
+                 break;
+             }
+@@ -145,8 +159,10 @@
+                 //continue to dump child records
+                 dump(data, pos, size, padding);
+             } else {
+-                //dump first 100 bytes of the atom data
+-                dump(out, data, pos, Math.min(size, data.length-pos), padding, true);
++                //dump first MAX_DUMP bytes of the atom data
++                dump(out, data, pos,
++                     Math.min(size, Math.min(data.length-pos, MAX_DUMP)),
++                     padding, true);
+             }
+             padding--;
+             write(out, "</"+recname + ">" + CR, padding);
+@@ -165,7 +181,10 @@
+     public void dumpPictures(byte[] data, int padding) throws IOException {
+         int pos = 0;
+         while (pos < data.length) {
+-            if(data.length - pos < PICT_HEADER_SIZE) {
++            if (++pictureCount > MAX_PICTURES) {
++                break;
++            }
++            if (data.length - pos < PICT_HEADER_SIZE) {
+                 // corrupt file, cannot read header
+                 return;
+             }
+@@ -254,6 +273,7 @@
+      *  dump binary data to {@code out} with the specified padding
+      */
+     private static void dump(Writer out, byte[] data, int offset, int length, int padding, boolean nl) throws IOException {
++        length = Math.min(length, MAX_DUMP);
+         int linesize = 25;
+         for (int i = 0; i < padding; i++) out.write("  ");
+         int i;

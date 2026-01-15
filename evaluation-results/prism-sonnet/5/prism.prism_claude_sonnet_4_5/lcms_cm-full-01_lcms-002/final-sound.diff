@@ -1,0 +1,38 @@
+--- a/src/cmsvirt.c
++++ b/src/cmsvirt.c
+@@ -1069,6 +1069,7 @@
+     _cmsTRANSFORM* v = (_cmsTRANSFORM*) xform;
+     cmsHPROFILE hICC = NULL;
+     cmsUInt32Number i, nColors;
++    cmsUInt16Number namedColorIndex;
+     cmsNAMEDCOLORLIST *nc2 = NULL, *Original = NULL;
+ 
+     // Create an empty placeholder
+@@ -1094,13 +1095,16 @@
+     nc2 ->ColorantCount = cmsPipelineOutputChannels(v ->Lut);
+ 
+     // Make sure we have proper formatters
+-    cmsChangeBuffersFormat(xform, TYPE_NAMED_COLOR_INDEX,
++    if (!cmsChangeBuffersFormat(xform, TYPE_NAMED_COLOR_INDEX,
+         FLOAT_SH(0) | COLORSPACE_SH(_cmsLCMScolorSpace(v ->ExitColorSpace))
+-        | BYTES_SH(2) | CHANNELS_SH(cmsChannelsOfColorSpace(v ->ExitColorSpace)));
++        | BYTES_SH(2) | CHANNELS_SH(cmsChannelsOfColorSpace(v ->ExitColorSpace)))) {
++        goto Error;
++    }
+ 
+     // Apply the transfor to colorants.
+     for (i=0; i < nColors; i++) {
+-        cmsDoTransform(xform, &i, nc2 ->List[i].DeviceColorant, 1);
++        namedColorIndex = (cmsUInt16Number)i;
++        cmsDoTransform(xform, &namedColorIndex, nc2 ->List[i].DeviceColorant, 1);
+     }
+ 
+     if (!cmsWriteTag(hICC, cmsSigNamedColor2Tag, (void*) nc2)) goto Error;
+@@ -1109,6 +1113,7 @@
+     return hICC;
+ 
+ Error:
++    if (nc2 != NULL) cmsFreeNamedColorList(nc2);
+     if (hICC != NULL) cmsCloseProfile(hICC);
+     return NULL;
+ }

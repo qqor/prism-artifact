@@ -1,0 +1,34 @@
+--- a/tika-app/src/main/java/org/apache/tika/cli/TikaUntar.java
++++ b/tika-app/src/main/java/org/apache/tika/cli/TikaUntar.java
+@@ -32,7 +32,7 @@
+ 
+     public static void main(String[] args) throws IOException {
+         Path inputFile = Paths.get(args[0]);
+-        Path extractDir = Paths.get(args[1]);
++        Path extractDir = Paths.get(args[1]).toAbsolutePath().normalize();
+         try (InputStream is = Files.newInputStream(inputFile);
+                 TarArchiveInputStream tais = new TarArchiveInputStream(is)) {
+ 
+@@ -40,11 +40,18 @@
+ 
+             while (tae != null) {
+                 if (tae.isFile()) {
+-                    Path target = extractDir.resolve(tae.getName()).normalize();
+-                    if (!Files.isDirectory(target.getParent())) {
+-                        Files.createDirectories(target.getParent());
++                    try {
++                        Path target = extractDir.resolve(tae.getName()).normalize();
++                        if (!target.startsWith(extractDir)) {
++                            throw new IOException("Entry is outside of the target dir: " + tae.getName());
++                        }
++                        if (!Files.isDirectory(target.getParent())) {
++                            Files.createDirectories(target.getParent());
++                        }
++                        Files.write(target, tais.readAllBytes());
++                    } catch (IOException e) {
++                        System.err.println("Warning: ignoring entry '" + tae.getName() + "': " + e.getMessage());
+                     }
+-                    Files.write(target, tais.readAllBytes());
+                 }
+                 tae = tais.getNextEntry();
+             }

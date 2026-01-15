@@ -1,0 +1,26 @@
+diff --git a/src/cmspack.c b/src/cmspack.c
+index 3e9d23f..1b2b5da 100644
+--- a/src/cmspack.c
++++ b/src/cmspack.c
+@@ -407,7 +407,20 @@ cmsUInt8Number* UnrollALabV2_8(CMSREGISTER _cmsTRANSFORM* info,
+                                CMSREGISTER cmsUInt32Number Stride)
+ {
+     accum++;  // A
+-    wIn[0] = FomLabV2ToLabV4(FROM_8_TO_16(*accum)); accum++;     // L
++    // Rationale: Safely unpack available channels and zero-fill the rest
++    if (Stride < 4) {
++        cmsUInt32Number i;
++        for (i = 0; i < Stride && i < 3; ++i) {
++             wIn[i] = FomLabV2ToLabV4(FROM_8_TO_16(*accum)); accum++;
++        }
++        for (; i < 3; ++i) {
++            wIn[i] = 0;
++        }
++        return accum;
++    }
++    // Default path for Stride >= 4
++// FIXME: Crash CWE-125: Out-of-bounds Read
++     wIn[0] = FomLabV2ToLabV4(FROM_8_TO_16(*accum)); accum++;     // L
+     wIn[1] = FomLabV2ToLabV4(FROM_8_TO_16(*accum)); accum++;     // a
+     wIn[2] = FomLabV2ToLabV4(FROM_8_TO_16(*accum)); accum++;     // b
+ 

@@ -1,0 +1,93 @@
+--- a/core/src/main/java/org/apache/logging/log4j/core/lookup/JndiLookup.java
++++ b/core/src/main/java/org/apache/logging/log4j/core/lookup/JndiLookup.java
+@@ -19,8 +19,11 @@
+ import javax.naming.InitialContext;
+ import javax.naming.NamingException;
+ 
++import org.apache.logging.log4j.Logger;
+ import org.apache.logging.log4j.core.LogEvent;
+ import org.apache.logging.log4j.core.config.plugins.Plugin;
++import org.apache.logging.log4j.status.StatusLogger;
++import org.apache.logging.log4j.util.PropertiesUtil;
+ 
+ /**
+  * Looks up keys from JNDI resources.
+@@ -28,7 +31,10 @@
+ @Plugin(name = "jndi", category = "Lookup")
+ public class JndiLookup implements StrLookup {
+ 
+-    private static boolean ENABLE_JNDI = true;
++    private static final Logger LOGGER = StatusLogger.getLogger();
++
++    private static final boolean ENABLE_JNDI = PropertiesUtil.getProperties()
++        .getBooleanProperty("log4j2.enableJndi", false);
+ 
+     /** JNDI resourcce path prefix used in a J2EE container */
+     static final String CONTAINER_JNDI_RESOURCE_PATH_PREFIX = "java:comp/env/";
+@@ -51,7 +57,12 @@
+      */
+     @Override
+     public String lookup(final LogEvent event, final String key) {
+-        if (key == null || ! ENABLE_JNDI) {
++        if (key == null || !ENABLE_JNDI) {
++            return null;
++        }
++
++        if (!isAllowedJndiUrl(key)) {
++            LOGGER.warn("Invalid JNDI URI - {}", key);
+             return null;
+         }
+ 
+@@ -64,6 +75,23 @@
+     }
+ 
+     /**
++     * Validates that the JNDI name is allowed for lookup.
++     * Only allows local Java JNDI resources, blocks remote URLs.
++     * 
++     * @param jndiName The JNDI name to validate
++     * @return true if the JNDI name is allowed, false otherwise
++     */
++    private boolean isAllowedJndiUrl(String jndiName) {
++        if (jndiName.contains("://")) {
++            return false;
++        }
++        if (jndiName.contains(":") && !jndiName.startsWith("java:")) {
++            return false;
++        }
++        return true;
++    }
++
++    /**
+      * Convert the given JNDI name to the actual JNDI name to use.
+      * Default implementation applies the "java:comp/env/" prefix
+      * unless other scheme like "java:" is given.
+@@ -71,7 +99,8 @@
+      * @return The fully qualified name to look up.
+      */
+     private String convertJndiName(String jndiName) {
+-        if (!jndiName.startsWith(CONTAINER_JNDI_RESOURCE_PATH_PREFIX) && jndiName.indexOf(':') == -1) {
++        if (!jndiName.startsWith(CONTAINER_JNDI_RESOURCE_PATH_PREFIX) && 
++            !jndiName.startsWith("java:")) {
+             jndiName = CONTAINER_JNDI_RESOURCE_PATH_PREFIX + jndiName;
+         }
+ 
+@@ -79,7 +108,6 @@
+     }
+ 
+     public static void setEnableJndi(boolean enableJndi) {
+-        ENABLE_JNDI = enableJndi;
+     }
+ 
+     public static boolean isEnableJndi() {
+
+--- a/core/src/main/java/org/apache/logging/log4j/core/lookup/Interpolator.java
++++ b/core/src/main/java/org/apache/logging/log4j/core/lookup/Interpolator.java
+@@ -63,7 +63,6 @@
+         this.defaultLookup = new MapLookup(new HashMap<String, String>());
+         lookups.put("sys", new SystemPropertiesLookup());
+         lookups.put("env", new EnvironmentLookup());
+-        lookups.put("jndi", new JndiLookup());
+     }
+ 
+      /**

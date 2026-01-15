@@ -1,0 +1,58 @@
+--- a/src/net_builtin.c
++++ b/src/net_builtin.c
+@@ -147,8 +147,13 @@
+ static void send_syn(struct mg_connection *c);
+ 
+ static void mkpay(struct pkt *pkt, void *p) {
+-  pkt->pay =
+-      mg_str_n((char *) p, (size_t) (&pkt->raw.buf[pkt->raw.len] - (char *) p));
++  char *raw_start = pkt->raw.buf;
++  char *raw_end = raw_start + pkt->raw.len;
++  char *start = (char *) p;
++  /* Clamp payload pointer within raw buffer */
++  if (start < raw_start) start = raw_start;
++  if (start > raw_end) start = raw_end;
++  pkt->pay = mg_str_n(start, (size_t)(raw_end - start));
+ }
+ 
+ static uint32_t csumup(uint32_t sum, const void *buf, size_t len) {
+@@ -880,18 +885,27 @@
+     mkpay(&pkt, pkt.ip6 + 1);
+     rx_ip6(ifp, &pkt);
+   } else if (pkt.eth->type == mg_htons(0x800)) {
+-    pkt.ip = (struct ip *) (pkt.eth + 1);
+-    if (pkt.raw.len < sizeof(*pkt.eth) + sizeof(*pkt.ip)) return;  // Truncated
+-    // Truncate frame to what IP header tells us
+-    if ((size_t) mg_ntohs(pkt.ip->len) + sizeof(struct eth) < pkt.raw.len) {
+-      pkt.raw.len = (size_t) mg_ntohs(pkt.ip->len) + sizeof(struct eth);
+-    }
+-    if (pkt.raw.len < sizeof(*pkt.eth) + sizeof(*pkt.ip)) return;  // Truncated
+-    if ((pkt.ip->ver >> 4) != 4) return;                           // Not IP
+-    if ((pkt.ip->ver & 0xF) > 5)                                   // Handle IPv4 options
+-        mkpay(&pkt, (char *)(pkt.ip) + ((pkt.ip->ver & 0xF)*4));
+-    else
+-        mkpay(&pkt, pkt.ip + 1);
++    pkt.ip = (struct ip *)(pkt.eth + 1);
++    /* Minimum: Ethernet + IPv4 base header */
++    if (pkt.raw.len < sizeof(*pkt.eth) + sizeof(*pkt.ip)) return;
++    {
++      uint8_t ver_ihl = pkt.ip->ver;
++      uint8_t version = ver_ihl >> 4, ihl = ver_ihl & 0x0F;
++      /* Validate IPv4 version and IHL */
++      if (version != 4 || ihl < 5) return;
++      size_t ip_hlen = (size_t) ihl * 4;
++      /* Ensure entire IP header is within frame */
++      if (pkt.raw.len < sizeof(*pkt.eth) + ip_hlen) return;
++      uint16_t total_len = mg_ntohs(pkt.ip->len);
++      /* Total length must at least cover header */
++      if (total_len < ip_hlen) return;
++      /* Truncate to declared total length */
++      size_t frame_len = (size_t) total_len + sizeof(*pkt.eth);
++      if (frame_len < pkt.raw.len) pkt.raw.len = frame_len;
++      /* Compute payload start and set pkt->pay safely */
++      uint8_t *payload = (uint8_t *) pkt.ip + ip_hlen;
++      mkpay(&pkt, payload);
++    }
+ 
+     rx_ip(ifp, &pkt);
+   } else {

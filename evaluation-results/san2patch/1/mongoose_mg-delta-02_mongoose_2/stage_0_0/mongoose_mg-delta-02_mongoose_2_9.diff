@@ -1,0 +1,80 @@
+diff --git a/src/net_builtin.c b/src/net_builtin.c
+index 793874f4..2e8eedbe 100644
+--- a/src/net_builtin.c
++++ b/src/net_builtin.c
+@@ -851,49 +851,51 @@ static void rx_ip6(struct mg_tcpip_if *ifp, struct pkt *pkt) {
+   }
+ }
+ 
++/* Rationale: Always derive payload length by subtracting the data pointer from the buffer end, ensuring no negative or out-of-bounds values. */
+ void mg_tcpip_rx(struct mg_tcpip_if *ifp, void *buf, size_t len) {
+   struct pkt pkt;
+   memset(&pkt, 0, sizeof(pkt));
+   pkt.raw.buf = (char *) buf;
+   pkt.raw.len = len;
+   pkt.eth = (struct eth *) buf;
+-  // mg_hexdump(buf, len > 16 ? 16: len);
+-  if (pkt.raw.len < sizeof(*pkt.eth)) return;  // Truncated - runt?
++  if (pkt.raw.len < sizeof(*pkt.eth)) return;
+   if (ifp->enable_mac_check &&
+       memcmp(pkt.eth->dst, ifp->mac, sizeof(pkt.eth->dst)) != 0 &&
+       memcmp(pkt.eth->dst, broadcast, sizeof(pkt.eth->dst)) != 0)
+     return;
+   if (ifp->enable_crc32_check && len > 4) {
+-    len -= 4;  // TODO(scaprile): check on bigendian
++    len -= 4;
+     uint32_t crc = mg_crc32(0, (const char *) buf, len);
+     if (memcmp((void *) ((size_t) buf + len), &crc, sizeof(crc))) return;
+   }
+-  if (pkt.eth->type == mg_htons(0x806)) {
+-    pkt.arp = (struct arp *) (pkt.eth + 1);
+-    if (sizeof(*pkt.eth) + sizeof(*pkt.arp) > pkt.raw.len) return;  // Truncated
+-    mg_tcpip_call(ifp, MG_TCPIP_EV_ARP, &pkt.raw);
+-    rx_arp(ifp, &pkt);
+-  } else if (pkt.eth->type == mg_htons(0x86dd)) {
++  if (pkt.eth->type == mg_htons(0x86dd)) {
+     pkt.ip6 = (struct ip6 *) (pkt.eth + 1);
+-    if (pkt.raw.len < sizeof(*pkt.eth) + sizeof(*pkt.ip6)) return;  // Truncated
+-    if ((pkt.ip6->ver >> 4) != 0x6) return;                         // Not IP
+-    mkpay(&pkt, pkt.ip6 + 1);
++    if (pkt.raw.len < sizeof(*pkt.eth) + sizeof(*pkt.ip6)) return;
++    if ((pkt.ip6->ver >> 4) != 0x6) return;
++    {
++      char *payload = (char *)(pkt.ip6 + 1);
++      char *buf_end = pkt.raw.buf + pkt.raw.len;
++      size_t payload_len = (payload < buf_end ? buf_end - payload : 0);
++      mkpay(&pkt, payload, payload_len);
++    }
+     rx_ip6(ifp, &pkt);
+   } else if (pkt.eth->type == mg_htons(0x800)) {
+     pkt.ip = (struct ip *) (pkt.eth + 1);
+-    if (pkt.raw.len < sizeof(*pkt.eth) + sizeof(*pkt.ip)) return;  // Truncated
+-    // Truncate frame to what IP header tells us
+-    if ((size_t) mg_ntohs(pkt.ip->len) + sizeof(struct eth) < pkt.raw.len) {
+-      pkt.raw.len = (size_t) mg_ntohs(pkt.ip->len) + sizeof(struct eth);
+-    }
+-    if (pkt.raw.len < sizeof(*pkt.eth) + sizeof(*pkt.ip)) return;  // Truncated
+-    if ((pkt.ip->ver >> 4) != 4) return;                           // Not IP
+-    if ((pkt.ip->ver & 0xF) > 5)                                   // Handle IPv4 options
+-        mkpay(&pkt, (char *)(pkt.ip) + ((pkt.ip->ver & 0xF)*4));
+-    else
+-        mkpay(&pkt, pkt.ip + 1);
+-
++    if (pkt.raw.len < sizeof(*pkt.eth) + sizeof(*pkt.ip)) return;
++    size_t total = (size_t)mg_ntohs(pkt.ip->len) + sizeof(struct eth);
++    if (total < pkt.raw.len) pkt.raw.len = total;
++    if ((pkt.ip->ver >> 4) != 4) return;
++    size_t ihl = ((pkt.ip->ver & 0xF) > 5 ? (pkt.ip->ver & 0xF) * 4 : sizeof(*pkt.ip));
++    char *payload = (char *)pkt.ip + ihl;
++    char *buf_end = pkt.raw.buf + pkt.raw.len;
++    size_t payload_len = (payload < buf_end ? buf_end - payload : 0);
++    mkpay(&pkt, payload, payload_len);
+     rx_ip(ifp, &pkt);
++  } else if (pkt.eth->type == mg_htons(0x806)) {
++    pkt.arp = (struct arp *) (pkt.eth + 1);
++    if (sizeof(*pkt.eth) + sizeof(*pkt.arp) > pkt.raw.len) return;
++    mg_tcpip_call(ifp, MG_TCPIP_EV_ARP, &pkt.raw);
++    rx_arp(ifp, &pkt);
+   } else {
+     MG_DEBUG(("Unknown eth type %x", mg_htons(pkt.eth->type)));
+     if (mg_log_level >= MG_LL_VERBOSE) mg_hexdump(buf, len >= 32 ? 32 : len);

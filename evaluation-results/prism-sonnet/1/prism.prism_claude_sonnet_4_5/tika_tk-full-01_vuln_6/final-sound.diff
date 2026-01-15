@@ -1,0 +1,41 @@
+--- a/tika-app/src/main/java/org/apache/tika/cli/TikaUntar.java
++++ b/tika-app/src/main/java/org/apache/tika/cli/TikaUntar.java
+@@ -40,11 +40,34 @@
+ 
+             while (tae != null) {
+                 if (tae.isFile()) {
+-                    Path target = extractDir.resolve(tae.getName()).normalize();
+-                    if (!Files.isDirectory(target.getParent())) {
+-                        Files.createDirectories(target.getParent());
++                    try {
++                        Path target = extractDir.resolve(tae.getName()).normalize();
++                        
++                        // Validation 1: Check for null bytes
++                        if (tae.getName().contains("\u0000")) {
++                            throw new IOException("Invalid entry name contains null byte: " + tae.getName());
++                        }
++                        
++                        // Validation 2: Check for absolute paths
++                        Path entryPath = Paths.get(tae.getName());
++                        if (entryPath.isAbsolute()) {
++                            throw new IOException("Cannot extract entry with absolute path: " + tae.getName());
++                        }
++                        
++                        // Validation 3: Validate descendant relationship
++                        Path normalizedExtractDir = extractDir.normalize().toAbsolutePath();
++                        Path normalizedTarget = target.toAbsolutePath();
++                        if (!normalizedTarget.startsWith(normalizedExtractDir)) {
++                            throw new IOException("Entry is outside of the extraction directory: " + tae.getName());
++                        }
++                        
++                        if (!Files.isDirectory(target.getParent())) {
++                            Files.createDirectories(target.getParent());
++                        }
++                        Files.write(target, tais.readAllBytes());
++                    } catch (IOException e) {
++                        System.err.println("Skipping entry '" + tae.getName() + "': " + e.getMessage());
+                     }
+-                    Files.write(target, tais.readAllBytes());
+                 }
+                 tae = tais.getNextEntry();
+             }

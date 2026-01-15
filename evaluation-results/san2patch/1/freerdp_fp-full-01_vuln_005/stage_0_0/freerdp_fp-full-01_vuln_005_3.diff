@@ -1,0 +1,77 @@
+diff --git a/libfreerdp/core/freerdp.c b/libfreerdp/core/freerdp.c
+index 594a1a2b8..5eec40846 100644
+--- a/libfreerdp/core/freerdp.c
++++ b/libfreerdp/core/freerdp.c
+@@ -1428,17 +1428,36 @@ fail:
+ 
+ BOOL freerdp_is_valid_mcs_create_request(const BYTE* data, size_t size)
+ {
++	if (!data)
++	{
++		WLog_ERR(TAG, "Null data pointer");
++		return FALSE;
++	}
+ 
+ 	wStream sbuffer = { 0 };
+ 	wStream* s = Stream_StaticConstInit(&sbuffer, data, size);
+-
+-	WINPR_ASSERT(data || (size == 0));
+-	WINPR_ASSERT(s);
++	if (!s)
++	{
++		WLog_ERR(TAG, "Failed to create stream");
++		return FALSE;
++	}
+ 
+ 	rdpMcs* mcs = test_mcs_new();
+-	WINPR_ASSERT(mcs);
++	if (!mcs)
++	{
++		WLog_ERR(TAG, "Failed to allocate MCS context");
++		return FALSE;
++	}
+ 
+-	BOOL result = mcs_recv_connect_initial(mcs, s);
++	BOOL result = FALSE;
++	if (!mcs_recv_connect_initial(mcs, s))
++	{
++		WLog_ERR(TAG, "MCS connect initial failed");
++	}
++	else
++	{
++		result = TRUE;
++	}
+ 	test_mcs_free(mcs);
+ 	return result;
+ }
+@@ -1446,14 +1465,28 @@ BOOL freerdp_is_valid_mcs_create_request(const BYTE* data, size_t size)
+ BOOL freerdp_is_valid_mcs_create_response(const BYTE* data, size_t size)
+ {
+ 
++	// Null check must come first
++	if (!data) {
++		WLog_ERR(TAG, "Invalid MCS Create Response: data is NULL");
++		return FALSE;
++	}
++	// Enforce minimum header length
++	if (size < 6) {
++		WLog_ERR(TAG, "Invalid MCS Create Response: size = %zu is too small", size);
++		return FALSE;
++	}
++
+ 	wStream sbuffer = { 0 };
+ 	wStream* s = Stream_StaticConstInit(&sbuffer, data, size);
+ 
+-	WINPR_ASSERT(data || (size == 0));
+ 	WINPR_ASSERT(s);
+ 
+ 	rdpMcs* mcs = test_mcs_new();
+-	WINPR_ASSERT(mcs);
++	// Check allocation
++	if (!mcs) {
++		WLog_ERR(TAG, "Failed to allocate rdpMcs");
++		return FALSE;
++	}
+ 
+ 	BOOL result = mcs_recv_connect_response(mcs, s);
+ 	test_mcs_free(mcs);

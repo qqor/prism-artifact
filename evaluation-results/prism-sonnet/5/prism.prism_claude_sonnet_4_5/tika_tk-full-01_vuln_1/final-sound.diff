@@ -1,0 +1,31 @@
+--- a/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-microsoft-module/src/main/java/org/apache/tika/parser/microsoft/rtf/RTFEmbObjHandler.java
++++ b/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-microsoft-module/src/main/java/org/apache/tika/parser/microsoft/rtf/RTFEmbObjHandler.java
+@@ -211,17 +211,17 @@
+             extractObj(bytes, handler, metadata);
+ 
+         } else if (state == EMB_STATE.JAVA_OBJDATA) {
+-            try {
+-                Object obj = new ObjectInputStream(
+-                        UnsynchronizedByteArrayInputStream.builder().setByteArray(bytes)
+-                                .get()).readObject();
+-                metadata.set(RTFMetadata.EMB_CLASS, obj.getClass().getName());
+-                metadata.set(TikaCoreProperties.CONTENT_TYPE_PARSER_OVERRIDE,
+-                        MediaType.text("plain").toString());
+-                extractObj(obj.toString().getBytes(StandardCharsets.UTF_8), handler, metadata);
+-            } catch (ClassNotFoundException e) {
+-                throw new TikaException("Not found", e);
+-            }
++            // Skip Java object deserialization for security reasons (RCE vulnerability)
++            // Record that Java serialized object data was encountered but do not deserialize
++            metadata.set(RTFMetadata.EMB_CLASS, "application/x-java-serialized-object");
++            metadata.add(TikaCoreProperties.TIKA_META_EXCEPTION_WARNING,
++                    "Java object deserialization skipped for security reasons. " +
++                    "Embedded Java serialized objects in RTF documents are not processed to prevent " +
++                    "potential remote code execution vulnerabilities.");
++            metadata.set(TikaCoreProperties.CONTENT_TYPE_PARSER_OVERRIDE,
++                    MediaType.text("plain").toString());
++            // Extract empty content instead of deserializing the object
++            extractObj(new byte[0], handler, metadata);
+         } else if (state == EMB_STATE.NADA) {
+             //swallow...no start for pict or embed?!
+         }

@@ -1,0 +1,53 @@
+--- a/epan/dissectors/packet-gvcp.c
++++ b/epan/dissectors/packet-gvcp.c
+@@ -980,10 +980,14 @@
+ {
+ 	uint32_t value = 0;
+ 	
+-	value = tvb_get_letohl(tvb, offset);
+-	gvcp_register_number[gvcp_register_count] = addr;
+-	gvcp_register_value[gvcp_register_count++] = value;
+-
++    value = tvb_get_letohl(tvb, offset);
++    if (gvcp_register_count < GVCP_MAX_REGISTER_COUNT) {
++        gvcp_register_number[gvcp_register_count] = addr;
++        gvcp_register_value[gvcp_register_count++] = value;
++    } else {
++        /* Extra entries beyond GVCP_MAX_REGISTER_COUNT are dropped */
++        return 0;
++    }
+ 	switch (addr)
+ 	{
+ 	case GVCP_VERSION:
+@@ -1778,15 +1782,22 @@
+ 	proto_item *item = NULL;
+ 	uint32_t addr = 0;
+ 	uint32_t value = 0;
+-	const char *address_string = NULL;
+-	bool is_custom_register = false;
+-	int num_registers = length / 8; /* divide by 8 because we are counting register-value pairs */
+-	proto_tree *subtree = NULL;
+-
+-	if (gvcp_trans)
+-	{
+-		gvcp_trans->addr_count = num_registers;
+-	}
++    const char *address_string = NULL;
++    bool is_custom_register = false;
++    int num_registers = length / 8; /* divide by 8 because we are counting register-value pairs */
++    proto_tree *subtree = NULL;
++
++    /* Reset the global-write register buffers for this command */
++    gvcp_register_count = 0;
++    if (num_registers > GVCP_MAX_REGISTER_COUNT) {
++        /* Too many register/value pairs in packet; truncate to avoid overflow */
++        num_registers = GVCP_MAX_REGISTER_COUNT;
++    }
++
++    if (gvcp_trans)
++    {
++        gvcp_trans->addr_count = num_registers;
++    }
+ 
+ 	addr = tvb_get_ntohl(tvb, offset);    /* first register address to be read from WRITEREG_CMD */
+ 	value = tvb_get_ntohl(tvb, offset+4);

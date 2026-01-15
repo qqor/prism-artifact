@@ -1,0 +1,31 @@
+--- a/tika-app/src/main/java/org/apache/tika/cli/TikaCLI.java
++++ b/tika-app/src/main/java/org/apache/tika/cli/TikaCLI.java
+@@ -1099,6 +1099,17 @@
+             }
+             outputFile = getOutputFile(name, metadata, contentType);
+ 
++            // Validate that the output file is within the extraction directory
++            // This prevents path traversal attacks as a defense-in-depth measure
++            try {
++                Path outputPath = outputFile.toPath().toAbsolutePath().normalize();
++                Path extractPath = extractDir.toPath().toAbsolutePath().normalize();
++                if (!outputPath.startsWith(extractPath)) {
++                    throw new IOException("Security: Path traversal attempt detected in entry name: " + name);
++                }
++            } catch (SecurityException e) {
++                throw new IOException("Failed to validate output path for entry: " + name, e);
++            }
+ 
+             File parent = outputFile.getParentFile();
+             if (!parent.exists()) {
+@@ -1138,7 +1149,9 @@
+             //defensively do this so that we don't get an exception
+             //from FilenameUtils.normalize
+             name = name.replaceAll("\u0000", " ");
+-            String normalizedName = FilenameUtils.normalize(name);
++            // First extract just the filename to prevent path traversal attacks
++            // like "../../../malicious.txt" or "q/r/s/t/../../traversal"
++            String normalizedName = FilenameUtils.normalize(FilenameUtils.getName(name));
+ 
+             if (normalizedName == null) {
+                 normalizedName = FilenameUtils.getName(name);

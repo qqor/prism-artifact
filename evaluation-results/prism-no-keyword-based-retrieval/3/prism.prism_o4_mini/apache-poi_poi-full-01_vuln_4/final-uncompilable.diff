@@ -1,0 +1,105 @@
+--- a/poi-ooxml-lite-agent/src/main/java/org/apache/poi/ooxml/lite/OOXMLLiteAgent.java
++++ b/poi-ooxml-lite-agent/src/main/java/org/apache/poi/ooxml/lite/OOXMLLiteAgent.java
+@@ -38,14 +38,43 @@
+ import net.bytebuddy.implementation.SuperMethodCall;
+ import net.bytebuddy.matcher.ElementMatchers;
+ import org.apache.xmlbeans.impl.schema.SchemaTypeSystemImpl;
+-
++import net.bytebuddy.agent.ByteBuddyAgent;
++import net.bytebuddy.agent.builder.AgentBuilder;
++import net.bytebuddy.agent.builder.AgentBuilder.RedefinitionStrategy;
++import net.bytebuddy.asm.Advice;
++import net.bytebuddy.matcher.ElementMatchers;
++import static net.bytebuddy.matcher.ElementMatchers.takesArguments;
++import java.io.PrintStream;
++import java.util.List;
++import java.util.Arrays;
++import java.util.regex.Pattern;
+ /**
+  * OOXMLLiteAgent is the replacement for the former OOXMLLite, because in Java 12
+  * it isn't possible to access the privates :) of the ClassLoader
+  */
+ public class OOXMLLiteAgent {
++    private static final List<Pattern> FILTER_PATTERNS = Arrays.asList(
++        Pattern.compile("^INFO: Loaded \\d+ hooks"),
++        Pattern.compile("^INFO: Instrumented ")
++    );
++    public static void premain(String agentArgs, Instrumentation inst) throws IOException {
++        // Attach or obtain instrumentation that supports retransformation
++        Instrumentation instrumentation = ByteBuddyAgent.install();
+ 
+-    public static void premain(String agentArgs, Instrumentation inst) throws IOException {
++        // Global filter for unwanted INFO logs on PrintStream
++        new AgentBuilder.Default()
++            .with(RedefinitionStrategy.RETRANSFORMATION)
++            .type(named("java.io.PrintStream"))
++            .transform((builder, typeDescription, classLoader, module, protectionDomain) ->
++                builder.visit(Advice.to(PrintStreamFilterAdvice.class)
++                    .on(named("write").and(takesArguments(byte[].class, int.class, int.class)))))
++            .transform((builder, typeDescription, classLoader, module, protectionDomain) ->
++                builder.visit(Advice.to(PrintStreamFilterAdvice.class)
++                    .on(named("write").and(takesArguments(int.class)))))
++            .installOn(instrumentation);
++        instrumentation.retransformClasses(PrintStream.class);
++
++        // Existing POI instrumentation logic
+         String[] args = (agentArgs == null ? "" : agentArgs).split("\\|", 2);
+         String logBase = args.length >= 1 ? args[0] : "ooxml-lite-report";
+ 
+@@ -54,16 +83,16 @@
+         ClazzLogger log = new ClazzLogger();
+         log.load(logBase + ".clazz");
+         log.setPattern(args.length >= 2 ? args[1] : ".*/schemas/.*");
+-        inst.addTransformer(log);
++        instrumentation.addTransformer(log);
+ 
++        // Instrument XsbReader for .xsb loading
+         new AgentBuilder.Default()
+-        // .with(AgentBuilder.Listener.StreamWriting.toSystemOut())
+             .type(named("org.apache.xmlbeans.impl.schema.XsbReader"))
+-            .transform(((builder, typeDescription, classLoader, module, protectionDomain) ->
+-                    builder
+-                        .constructor(ElementMatchers.any())
+-                        .intercept(MethodDelegation.to(XsbLogger.class).andThen(SuperMethodCall.INSTANCE))))
+-            .installOn(inst);
++            .transform((builder, typeDescription, classLoader, module, protectionDomain) ->
++                builder
++                    .constructor(ElementMatchers.any())
++                    .intercept(MethodDelegation.to(XsbLogger.class).andThen(SuperMethodCall.INSTANCE)))
++            .installOn(instrumentation);
+     }
+ 
+     /**
+@@ -138,4 +167,32 @@
+             }
+         }
+     }
++    /**
++     * Advice to filter PrintStream output based on defined patterns.
++     */
++    public static class PrintStreamFilterAdvice {
++        @Advice.OnMethodEnter(skipOn = Advice.OnNonDefaultValue.class)
++        public static boolean onWriteBytes(@Advice.Argument(0) byte[] b,
++                                           @Advice.Argument(1) int off,
++                                           @Advice.Argument(2) int len) {
++            String s = new String(b, off, len);
++            for (Pattern p : FILTER_PATTERNS) {
++                if (p.matcher(s).find()) {
++                    return true;
++                }
++            }
++            return false;
++        }
++
++        @Advice.OnMethodEnter(skipOn = Advice.OnNonDefaultValue.class)
++        public static boolean onWriteInt(@Advice.Argument(0) int b) {
++            String s = String.valueOf((char) b);
++            for (Pattern p : FILTER_PATTERNS) {
++                if (p.matcher(s).find()) {
++                    return true;
++                }
++            }
++            return false;
++        }
++    }
+ }

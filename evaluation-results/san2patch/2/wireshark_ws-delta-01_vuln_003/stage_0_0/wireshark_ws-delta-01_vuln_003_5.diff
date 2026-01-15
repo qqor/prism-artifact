@@ -1,0 +1,34 @@
+diff --git a/epan/dissectors/packet-ber.c b/epan/dissectors/packet-ber.c
+index ce979681ee..9a57590573 100644
+--- a/epan/dissectors/packet-ber.c
++++ b/epan/dissectors/packet-ber.c
+@@ -916,7 +916,8 @@ try_dissect_unknown_ber(packet_info *pinfo, tvbuff_t *tvb, volatile int offset,
+             case BER_UNI_TAG_OID:
+                 offset = dissect_ber_object_identifier_str(false, &asn1_ctx, tree, tvb, start_offset, hf_ber_unknown_OID, NULL);
+                 break;
+-            case BER_UNI_TAG_RELATIVE_OID:
++// FIXME: Crash CWE-787: Out-of-bounds Write
++             case BER_UNI_TAG_RELATIVE_OID:
+                 offset = dissect_ber_relative_oid_str(false, &asn1_ctx, tree, tvb, start_offset, hf_ber_unknown_relative_OID, NULL);
+                 break;
+             case BER_UNI_TAG_NumericString:
+@@ -931,6 +932,19 @@ try_dissect_unknown_ber(packet_info *pinfo, tvbuff_t *tvb, volatile int offset,
+             case BER_UNI_TAG_VisibleString:
+                 offset = dissect_ber_octet_string(false, &asn1_ctx, tree, tvb, start_offset, hf_ber_unknown_VisibleString, NULL);
+                 break;
++            case BER_UNI_TAG_GeneralString:
++                /* Rationale: dynamically allocate buffer to avoid stack overflow */
++                {
++                    guint len = asn1_ctx.length;
++                    char *name_string = g_malloc(len + 1);
++                    tvb_memcpy((guint8 *)name_string, tvb, start_offset, len);
++                    name_string[len] = '\0';
++                    proto_tree_add_string(tree, hf_ber_unknown_GeneralString, tvb, start_offset, len, name_string);
++                    g_free(name_string);
++                    offset = start_offset + len;
++                }
++                break;                offset = dissect_ber_octet_string(false, &asn1_ctx, tree, tvb, start_offset, hf_ber_unknown_VisibleString, NULL);
++                break;
+             case BER_UNI_TAG_GeneralString:
+                 offset = dissect_ber_GeneralString(&asn1_ctx, tree, tvb, start_offset, hf_ber_unknown_GeneralString, name_string, sizeof(name_string));
+                 break;

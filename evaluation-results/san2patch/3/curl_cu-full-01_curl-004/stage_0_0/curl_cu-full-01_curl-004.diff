@@ -1,0 +1,107 @@
+diff --git a/lib/file.c b/lib/file.c
+index 7440b3c66..f4821b6fb 100644
+--- a/lib/file.c
++++ b/lib/file.c
+@@ -459,71 +459,24 @@ static CURLcode file_do(struct Curl_easy *data, bool *done)
+      !Curl_meets_timecondition(data, data->info.filetime))
+     return CURLE_OK;
+ 
+-  if(fstated) {
+-    time_t filetime;
+-    struct tm buffer;
+-    const struct tm *tm = &buffer;
+-    char header[80];
+-    int headerlen;
+-    static const char accept_ranges[]= { "Accept-ranges: bytes\r\n" };
+-    static const char no_body[]= { "File-body: suppressed.The body of "
+-      "this file has been supressed. If you would like to include "
+-      "the contents of this file use the -i option.\r\n" };
+-    static const char body_msg[]= { "File-body: included.\r\n"};
+-    if(expected_size >= 0) {
++  // FIXME: Crash CWE-787: Out-of-bounds Write
++     if(data->req.no_body) {
++      /* format then clamp post-output */
+       headerlen =
+-        msnprintf(header, sizeof(header), "Content-Length: %" FMT_OFF_T "\r\n",
+-                  expected_size);
+-      result = Curl_client_write(data, CLIENTWRITE_HEADER,
+-                                   header, headerlen);
+-      if(result)
+-        return result;
+-
+-      result = Curl_client_write(data, CLIENTWRITE_HEADER,
+-                                 accept_ranges, sizeof(accept_ranges) - 1);
+-      if(result != CURLE_OK)
+-        return result;
+-    }
+-
+-    filetime = (time_t)statbuf.st_mtime;
+-    result = Curl_gmtime(filetime, &buffer);
+-    if(result)
+-      return result;
+-
+-    if(data->req.no_body) {
+-      headerlen =
+-      msnprintf(header, sizeof(no_body), "%s (%ld bytes) \r\n",
++        msnprintf(header, sizeof(header), "%s (%ld bytes) \r\n",
+                   no_body, expected_size);
++      if(headerlen < 0)
++        headerlen = 0;
++      else if((size_t)headerlen >= sizeof(header))
++        headerlen = sizeof(header) - 1;
++      header[headerlen] = '\0';
+       result = Curl_client_write(data, CLIENTWRITE_HEADER, header, headerlen);
+     }
+     else {
+       result = Curl_client_write(data, CLIENTWRITE_HEADER,
+                                  body_msg, sizeof(body_msg) - 1);
+     }
+-    if(result)
+-      return result;
+-    /* format: "Tue, 15 Nov 1994 12:45:26 GMT" */
+-    headerlen =
+-      msnprintf(header, sizeof(header),
+-                "Last-Modified: %s, %02d %s %4d %02d:%02d:%02d GMT\r\n",
+-                Curl_wkday[tm->tm_wday ? tm->tm_wday-1 : 6],
+-                tm->tm_mday,
+-                Curl_month[tm->tm_mon],
+-                tm->tm_year + 1900,
+-                tm->tm_hour,
+-                tm->tm_min,
+-                tm->tm_sec);
+-    result = Curl_client_write(data, CLIENTWRITE_HEADER, header, headerlen);
+-    if(!result)
+-      /* end of headers */
+-      result = Curl_client_write(data, CLIENTWRITE_HEADER, "\r\n", 2);
+-    if(result)
+-      return result;
+-    /* set the file size to make it available post transfer */
+-    Curl_pgrsSetDownloadSize(data, expected_size);
+-    if(data->req.no_body)
+-      return CURLE_OK;
+-  }
++/* Rationale: Allowed existing msnprintf call but clamped its result and enforced null-termination to eliminate overflow risk. */
+ 
+   /* Check whether file range has been specified */
+   result = Curl_range(data);
+diff --git a/lib/mprintf.c b/lib/mprintf.c
+index 35e40e302..47e7bfb76 100644
+--- a/lib/mprintf.c
++++ b/lib/mprintf.c
+@@ -1053,10 +1053,14 @@ number:
+ static int addbyter(unsigned char outc, void *f)
+ {
+   struct nsprintf *infop = f;
++  /* Rationale: ensure no overflow and enforce NUL termination on overflow */
+   if(infop->length < infop->max) {
+-    /* only do this if we have not reached max length yet */
+     *infop->buffer++ = (char)outc; /* store */
+-    infop->length++; /* we are now one byte larger */
++    infop->length++;              /* we are now one byte larger */
++    if(infop->length == infop->max && outc != '\0') {
++      /* overwrite last byte with NUL to avoid overflow */
++      *(infop->buffer - 1) = '\0';
++    }
+     return 0;     /* fputc() returns like this on success */
+   }
+   return 1;

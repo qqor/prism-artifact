@@ -1,0 +1,56 @@
+--- a/tika-core/src/main/java/org/apache/tika/detect/ShellCodeDetector.java
++++ b/tika-core/src/main/java/org/apache/tika/detect/ShellCodeDetector.java
+@@ -36,9 +36,9 @@
+ import org.apache.tika.metadata.Property;
+ import org.apache.tika.metadata.TikaCoreProperties;
+ import org.apache.tika.mime.MediaType;
+-import org.apache.tika.utils.FileProcessResult;
+-import org.apache.tika.utils.ProcessUtils;
+-import org.apache.tika.utils.StringUtils;
++import java.io.BufferedReader;
++import java.nio.charset.StandardCharsets;
++import java.nio.file.Files;
+ 
+ /**
+  * Simple detector to determine if a shell script is no-arg shell script.
+@@ -81,7 +81,7 @@
+             return MediaType.OCTET_STREAM;
+         }
+         String fileName = metadata.get(TikaCoreProperties.RESOURCE_NAME_KEY);
+-        if (StringUtils.isBlank(fileName)) {
++        if (fileName == null || fileName.isBlank()) {
+             return isShell(isShell);
+         }
+         //now test for no-arg shell script
+@@ -93,21 +93,18 @@
+         if (fileName.length() > MAX_LENGTH) {
+             fileName = fileName.substring(fileName.length() - MAX_LENGTH);
+         }
+-        Path cwd = Paths.get(".").toAbsolutePath().normalize();
+-        Path tmpDir = Files.createTempDirectory(cwd, "tika-shell-detect-");
+-        Path tmpFile = tmpDir.resolve(fileName);
+-        Files.copy(tis.getPath(), tmpFile, StandardCopyOption.REPLACE_EXISTING);
+-        ProcessBuilder pb = new ProcessBuilder(fileName);
+-        pb.directory(tmpDir.toFile());
+-        try {
+-            FileProcessResult result = ProcessUtils.execute(pb, 20000, 100000, 100000);
+-            if (result.getExitValue() == 0) {
+-                metadata.set(SHELL_NO_ARGS, true);
++        Path path = tis.getPath();
++        if (path == null) {
++            return MediaType.OCTET_STREAM;
++        }
++        try (BufferedReader reader = Files.newBufferedReader(path, StandardCharsets.UTF_8)) {
++            String firstLine = reader.readLine();
++            if (firstLine != null && firstLine.startsWith("#!")) {
++                return SHELL_SCRIPT;
++            } else {
++                return MediaType.OCTET_STREAM;
+             }
+-        } finally {
+-            FileUtils.deleteDirectory(tmpDir.toFile());
+         }
+-        return SHELL_SCRIPT;
+     }
+ 
+     private MediaType isShell(boolean isShell) {

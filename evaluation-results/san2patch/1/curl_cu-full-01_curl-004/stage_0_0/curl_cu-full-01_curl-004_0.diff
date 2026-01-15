@@ -1,0 +1,73 @@
+diff --git a/lib/mprintf.c b/lib/mprintf.c
+index 35e40e302..2fd2373d3 100644
+--- a/lib/mprintf.c
++++ b/lib/mprintf.c
+@@ -872,6 +872,7 @@ number:
+       break;
+ 
+     case FORMAT_STRING: {
++      struct msnprintf *info = (struct msnprintf *)userp;
+       const char *str;
+       size_t len;
+ 
+@@ -899,20 +900,23 @@ number:
+       width -= (len > INT_MAX) ? INT_MAX : (int)len;
+ 
+       if(flags & FLAGS_ALT)
+-        OUTCHAR('"');
++        if(info->max > 1) OUTCHAR('"');
+ 
+       if(!(flags & FLAGS_LEFT))
+         while(width-- > 0)
+-          OUTCHAR(' ');
++          if(info->max > 1) OUTCHAR(' ');
+ 
+-      for(; len && *str; len--)
++      /* ensure no overflow when writing string */
++      while(len && *str && info->max > 1) {
+         OUTCHAR(*str++);
++        len--;
++      }
+       if(flags & FLAGS_LEFT)
+         while(width-- > 0)
+-          OUTCHAR(' ');
++          if(info->max > 1) OUTCHAR(' ');
+ 
+       if(flags & FLAGS_ALT)
+-        OUTCHAR('"');
++        if(info->max > 1) OUTCHAR('"');
+       break;
+     }
+ 
+@@ -1066,23 +1070,14 @@ int curl_mvsnprintf(char *buffer, size_t maxlength, const char *format,
+                     va_list ap_save)
+ {
+   int retcode;
+-  struct nsprintf info;
+-
+-  info.buffer = buffer;
+-  info.length = 0;
+-  info.max = maxlength;
+-
+-  retcode = formatf(&info, addbyter, format, ap_save);
+-  if(info.max) {
+-    /* we terminate this with a zero byte */
+-    if(info.max == info.length) {
+-      /* we are at maximum, scrap the last letter */
+-      info.buffer[-1] = 0;
+-      DEBUGASSERT(retcode);
+-      retcode--; /* do not count the nul byte */
+-    }
+-    else
+-      info.buffer[0] = 0;
++  /* Use standard vsnprintf to avoid overflow */
++  retcode = vsnprintf(buffer, maxlength, format, ap_save);
++  if(retcode < 0)
++    return retcode;
++  /* ensure null-termination */
++  if((size_t)retcode >= maxlength) {
++    buffer[maxlength - 1] = '\0';
++    retcode = (int)maxlength - 1;
+   }
+   return retcode;
+ }

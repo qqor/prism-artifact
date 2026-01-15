@@ -1,0 +1,48 @@
+diff --git a/lib/mprintf.c b/lib/mprintf.c
+index 35e40e302..bd98e9b03 100644
+--- a/lib/mprintf.c
++++ b/lib/mprintf.c
+@@ -1090,9 +1090,31 @@ int curl_mvsnprintf(char *buffer, size_t maxlength, const char *format,
+ int curl_msnprintf(char *buffer, size_t maxlength, const char *format, ...)
+ {
+   int retcode;
+-  va_list ap_save; /* argument pointer */
++   va_list ap_save; /* argument pointer */
+   va_start(ap_save, format);
+-  retcode = curl_mvsnprintf(buffer, maxlength, format, ap_save);
++  /* use a temporary safe buffer to avoid in-place overflow */
++  if(maxlength == 0) {
++    retcode = -1;
++  }
++  else {
++    char *tmpbuf = malloc(maxlength);
++    if(!tmpbuf) {
++      retcode = -1;
++    }
++    else {
++      retcode = curl_mvsnprintf(tmpbuf, maxlength, format, ap_save);
++      if(retcode < 0) {
++        /* propagate error */
++      }
++      else if((size_t)retcode >= maxlength) {
++        retcode = (int)maxlength - 1;
++      }
++      /* copy safely back into user buffer */
++      memcpy(buffer, tmpbuf, retcode);
++      buffer[retcode] = '\0';
++      free(tmpbuf);
++    }
++  }
+   va_end(ap_save);
+   return retcode;
+ }
+@@ -1102,8 +1124,7 @@ static int alloc_addbyter(unsigned char outc, void *f)
+ {
+   struct asprintf *infop = f;
+   CURLcode result = Curl_dyn_addn(infop->b, &outc, 1);
+-  if(result) {
+-    infop->merr = result == CURLE_TOO_LARGE ? MERR_TOO_LARGE : MERR_MEM;
++  if(result) {    infop->merr = result == CURLE_TOO_LARGE ? MERR_TOO_LARGE : MERR_MEM;
+     return 1 ; /* fail */
+   }
+   return 0;

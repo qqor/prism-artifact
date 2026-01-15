@@ -1,0 +1,42 @@
+--- a/lib/ftp.c
++++ b/lib/ftp.c
+@@ -2018,8 +2018,7 @@
+   *minute = twodigit(&p[10]);
+   *second = twodigit(&p[12]);
+ 
+-  if((*month > 12) || (*day > 31) || (*hour > 23) || (*minute > 59) ||
+-     (*second > 60))
++  if((*month > 12) || (*day > 31) || (*hour > 23) || (*minute > 59) || (*second > 59))
+     return FALSE;
+   return TRUE;
+ }
+@@ -2095,16 +2094,26 @@
+           return result;
+ 
+         /* format: "Tue, 15 Nov 1994 12:45 and twenty-six seconds" */
++        int sec = tm->tm_sec;
++        if(sec < 0 || sec > 59)
++            sec = 59;
++        int mon = tm->tm_mon;
++        if(mon < 0 || mon > 11)
++            mon = 0;
++        int wday = tm->tm_wday;
++        if(wday < 0 || wday > 6)
++            wday = 0;
++        int wday_idx = wday ? wday - 1 : 6;
+         headerbuflen =
+           msnprintf(headerbuf, sizeof(headerbuf),
+             "Last-Modified: %s, %02d %s %4d %02d:%02d and %s seconds GMT\r\n",
+-                    Curl_wkday[tm->tm_wday ? tm->tm_wday-1 : 6],
++                    Curl_wkday[wday_idx],
+                     tm->tm_mday,
+-                    Curl_month[tm->tm_mon],
++                    Curl_month[mon],
+                     tm->tm_year + 1900,
+                     tm->tm_hour,
+                     tm->tm_min,
+-                    Curl_seconds[tm->tm_sec]);
++                    Curl_seconds[sec]);
+         result = client_write_header(data, headerbuf, headerbuflen);
+         if(result)
+           return result;

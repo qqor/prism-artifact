@@ -1,0 +1,91 @@
+diff --git a/src/json.c b/src/json.c
+index 2a91900..5cc61ae 100644
+--- a/src/json.c
++++ b/src/json.c
+@@ -600,49 +600,55 @@ json_value * json_parse_ex (json_settings * settings,
+                      case 't':
+ 
+                         if ((end - state.ptr) < 3 || *(++ state.ptr) != 'r' ||
+-                            *(++ state.ptr) != 'u' || *(++ state.ptr) != 'e')
+-                        {
+-                           goto e_unknown_value;
+-                        }
+-
++                            {
++                               static const char *lit = "true";
++                               size_t L = 4;
++                               if ((size_t)(end - state.ptr) < L)
++                                   goto e_unknown_value;
++                               for (size_t i = 0; i < L; i++) {
++                                   if (state.ptr[i] != lit[i])
++                                       goto e_unknown_value;
++                               }
++                               state.ptr += (L - 1);
++                            }
+                         if (!new_value (&state, &top, &root, &alloc, json_boolean))
+                            goto e_alloc_failure;
+-
+-                        top->u.boolean = 1;
+-
++                         top->u.boolean = 1;
+                         flags |= flag_next;
+                         break;
+-
+                      case 'f':
+-
+-                        if ((end - state.ptr) < 4 || *(++ state.ptr) != 'a' ||
+-                            *(++ state.ptr) != 'l' || *(++ state.ptr) != 's' ||
+-                            *(++ state.ptr) != 'e')
+-                        {
+-                           goto e_unknown_value;
+-                        }
+-
+-                        if (!new_value (&state, &top, &root, &alloc, json_boolean))
+-                           goto e_alloc_failure;
+-
+-                        flags |= flag_next;
+-                        break;
+-
+-                     case 'n':
+-
+-                        if ((end - state.ptr) < 3 || *(++ state.ptr) != 'u' ||
+-                            *(++ state.ptr) != 'l' || *(++ state.ptr) != 'l')
++                            {
++                               static const char *lit = "false";
++                               size_t L = 5;
++                               if ((size_t)(end - state.ptr) < L)
++                                   goto e_unknown_value;
++                               for (size_t i = 0; i < L; i++) {
++                                   if (state.ptr[i] != lit[i])
++                                       goto e_unknown_value;
++                               }
++                               state.ptr += (L - 1);
++                            }
++                        }                     case 'n':
+                         {
+-                           goto e_unknown_value;
++                           static const char *lit = "null";
++                           size_t L = 4;
++                           /* ensure there are L characters remaining */
++                           if ((size_t)(end - state.ptr) < L)
++                              goto e_unknown_value;
++                           /* compare each character */
++                           for (size_t i = 0; i < L; i++) {
++                              if (state.ptr[i] != lit[i])
++                                 goto e_unknown_value;
++                           }
++                           /* advance past the full literal */
++                           state.ptr += (L - 1);
+                         }
+ 
+                         if (!new_value (&state, &top, &root, &alloc, json_null))
+                            goto e_alloc_failure;
+ 
+                         flags |= flag_next;
+-                        break;
+-
+-                     default:
++                        break;                     default:
+ 
+                         if (isdigit (b) || b == '-')
+                         {
