@@ -1,0 +1,81 @@
+
+================================================================================
+Response 1
+================================================================================
+Looking at the crash log and the failed patch, I can see the issue. The vulnerability is an OS Command Injection at line 190 in the `doOCR` method where `ProcessBuilder.start()` is called. 
+
+The previous patch attempted to validate the tesseract path by rejecting dangerous characters, but this approach failed because:
+
+1. **The fuzzer is still detecting command injection** - This means the validation is either bypassed or the approach is fundamentally flawed
+2. **Path validation alone is insufficient** - Even with a "safe" path, if it's being used in a way that allows command injection (like being passed through a shell), the vulnerability persists
+3. **The real issue is HOW the command is being executed** - Not just what the path contains
+
+Let me first examine the actual code to understand how the command is being constructed:
+
+================================================================================
+Response 2
+================================================================================
+Now I can see the issue clearly. The problem is on line 158-162 where `actualTessPath` is retrieved from **user-controlled document metadata** (`pdDocument.getDocumentInformation().getCustomMetadataValue(TESSERACT_PATH_KEY)`). This is then used directly in the ProcessBuilder command at line 182.
+
+The previous patch tried to validate the path with character filtering, but this approach has fundamental problems:
+
+1. **The validation was too restrictive** - It might block legitimate paths
+2. **It's a blacklist approach** - Easy to bypass with encoding or edge cases
+3. **It doesn't address the root cause** - The real issue is that we're allowing untrusted document metadata to control what executable gets run
+
+The correct fix is to **NEVER use attacker-controlled data as the executable path**. Instead, we should:
+1. Only allow the configured tesseractPath (from setTesseractPath)
+2. Completely ignore the document metadata for the executable path
+3. Or if we must support it, use a strict whitelist approach
+
+Here's the proper fix:
+
+================================================================================
+Response 3
+================================================================================
+Perfect! Now let me create the diff for you:
+
+## Why the Previous Patch Failed
+
+The previous patch failed because it tried to **validate and sanitize** the attacker-controlled input (the tesseract path from document metadata) instead of **rejecting it entirely**. This is a classic security mistake:
+
+1. **Blacklist approach is flawed**: Trying to filter out dangerous characters is error-prone. There are always edge cases, encoding tricks, or OS-specific behaviors that can bypass character filters.
+
+2. **Wrong trust boundary**: The code was still trusting document metadata (attacker-controlled data) to provide the executable path, just with some validation. This is fundamentally insecure.
+
+3. **Validation was insufficient**: Even with the character restrictions, the fuzzer still detected command injection, proving the approach was bypassable.
+
+## The Correct Approach
+
+The new patch takes a **whitelist approach** by completely removing the ability for document metadata to control the executable path:
+
+- **Removes the attack vector entirely**: Document metadata can no longer influence which executable gets run
+- **Uses only trusted configuration**: Only the `tesseractPath` set via `setTesseractPath()` method (trusted code) is used
+- **Follows security principle**: "Don't trust user input" - especially for executable paths
+
+## New Patch
+
+```diff
+diff --git a/pdfbox/src/main/java/org/apache/pdfbox/ocr/OCRStreamEngine.java b/pdfbox/src/main/java/org/apache/pdfbox/ocr/OCRStreamEngine.java
+index eb0a9f79a..c8f4c8e1f 100644
+--- a/pdfbox/src/main/java/org/apache/pdfbox/ocr/OCRStreamEngine.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/ocr/OCRStreamEngine.java
+@@ -156,10 +156,10 @@ public class OCRStreamEngine {
+     }
+ 
+     private String runTesseract(Path image) throws IOException {
+-        String actualTessPath = pdDocument.getDocumentInformation()
+-                .getCustomMetadataValue(TESSERACT_PATH_KEY);
+-        if (actualTessPath == null || actualTessPath.isEmpty()) {
+-            actualTessPath = tesseractPath;
+-        }
++        // SECURITY: Never use document metadata for executable path to prevent OS command injection
++        // Only use the configured tesseractPath from setTesseractPath() method
++        // Document metadata is attacker-controlled and must not be used for executable paths
++        String actualTessPath = tesseractPath;
+ 
+         Path txt = Paths.get(image.toAbsolutePath().toString());
+         doOCR(actualTessPath, image, txt);
+```
+
+This fix eliminates the OS Command Injection vulnerability by ensuring that only trusted, administrator-configured paths can be used to execute tesseract, never attacker-controlled document metadata.

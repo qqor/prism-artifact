@@ -1,0 +1,90 @@
+diff --git a/tika-core/src/main/java/org/apache/tika/parser/external/ExternalParser.java b/tika-core/src/main/java/org/apache/tika/parser/external/ExternalParser.java
+index 429258e46..d9b4f2d72 100644
+--- a/tika-core/src/main/java/org/apache/tika/parser/external/ExternalParser.java
++++ b/tika-core/src/main/java/org/apache/tika/parser/external/ExternalParser.java
+@@ -277,6 +277,25 @@ public class ExternalParser implements Parser {
+         }
+     }
+ 
++    /**
++     * Checks if a string contains shell metacharacters that could be used for command injection
++     * @param str the string to check
++     * @return true if the string contains shell metacharacters
++     */
++    private boolean containsShellMetacharacters(String str) {
++        if (str == null) {
++            return false;
++        }
++        // Check for common shell metacharacters and command injection patterns
++        // This includes: semicolon, pipe, ampersand, backticks, dollar signs (for variables),
++        // parentheses (for subshells), redirects, newlines, etc.
++        return str.contains(";") || str.contains("|") || str.contains("&") ||
++               str.contains("`") || str.contains("$") || str.contains("(") ||
++               str.contains(")") || str.contains("<") || str.contains(">") ||
++               str.contains("\n") || str.contains("\r") || str.contains("'") ||
++               str.contains("\"") || str.contains("\\");
++    }
++
+     private void parse(TikaInputStream stream, XHTMLContentHandler xhtml, Metadata metadata,
+                        TemporaryResources tmp) throws IOException, SAXException, TikaException {
+         boolean inputToStdIn = true;
+@@ -288,31 +307,51 @@ public class ExternalParser implements Parser {
+         // Build our command
+         String[] cmd;
+         if (command.length == 1) {
+-            cmd = command[0].split(" ");
++            // SECURITY FIX: Do not split by space as it can lead to command injection
++            // Instead, use the command as-is in an array
++            cmd = new String[]{command[0]};
+         } else {
+             cmd = new String[command.length];
+             System.arraycopy(command, 0, cmd, 0, command.length);
+         }
++
++        // Validate file paths to prevent command injection
++        File inputFile = stream.getFile();
++        if (inputFile != null) {
++            String inputPath = inputFile.getPath();
++            // Validate that the path doesn't contain shell metacharacters
++            if (containsShellMetacharacters(inputPath)) {
++                throw new TikaException("Input file path contains invalid characters: " + inputPath);
++            }
++        }
++
+         for (int i = 0; i < cmd.length; i++) {
+             if (cmd[i].contains(INPUT_FILE_TOKEN)) {
+-                cmd[i] = cmd[i].replace(INPUT_FILE_TOKEN, stream.getFile().getPath());
++                String inputPath = stream.getFile().getPath();
++                // Validate the input path before substitution
++                if (containsShellMetacharacters(inputPath)) {
++                    throw new TikaException("Input file path contains shell metacharacters");
++                }
++                cmd[i] = cmd[i].replace(INPUT_FILE_TOKEN, inputPath);
+                 inputToStdIn = false;
+             }
+             if (cmd[i].contains(OUTPUT_FILE_TOKEN)) {
+                 output = tmp.createTemporaryFile();
+                 outputFromStdOut = false;
+-                cmd[i] = cmd[i].replace(OUTPUT_FILE_TOKEN, output.getPath());
++                String outputPath = output.getPath();
++                // Validate the output path before substitution
++                if (containsShellMetacharacters(outputPath)) {
++                    throw new TikaException("Output file path contains shell metacharacters");
++                }
++                cmd[i] = cmd[i].replace(OUTPUT_FILE_TOKEN, outputPath);
+             }
+         }
+ 
+         // Execute
+         Process process = null;
+         try {
+-            if (cmd.length == 1) {
+-                process = Runtime.getRuntime().exec(cmd[0]);
+-            } else {
+-                process = Runtime.getRuntime().exec(cmd);
+-            }
++            // Always use the array form to avoid shell interpretation
++            process = Runtime.getRuntime().exec(cmd);
+         } catch (Exception e) {
+             LOG.warn("problem with process exec", e);
+         }

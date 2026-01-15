@@ -1,0 +1,46 @@
+--- a/src/main/java/org/apache/commons/compress/archivers/examples/Expander.java
++++ b/src/main/java/org/apache/commons/compress/archivers/examples/Expander.java
+@@ -30,6 +30,7 @@
+ import java.nio.file.Files;
+ import java.nio.file.Path;
+ import java.nio.file.StandardOpenOption;
++import java.nio.file.StandardCopyOption;
+ import java.util.Enumeration;
+ import java.util.Iterator;
+ 
+@@ -481,25 +482,21 @@
+                 Path target = targetDirectory.resolve(targetName);
+                 Path parent = createParentDirectory(targetDirectory, link);
+ 
+-                if (!Files.isSameFile(link.getParent(), parent)) {
+-                    link = parent.relativize(link.getFileName()).normalize();
+-                }
++                    if (!Files.isSameFile(link.getParent(), parent)) {
++                        link = parent.relativize(link).normalize();
++                    }
+                 if (!Files.isRegularFile(link) && !Files.isSymbolicLink(link)) {
+                     Files.createSymbolicLink(link, target);
+                 }
+-            } else if (! zae.isDirectory()) {
+-                Path target = targetDirectory.resolve(zae.getName()).normalize();
+-                if (!target.startsWith(targetDirectory)) {
+-                    throw new IOException(String.format("Zip slip '%s' + '%s' -> '%s'",
+-                            targetDirectory, zae.getName(), target));
++            } else if (!zae.isDirectory()) {
++                final Path baseDir = targetDirectory.toAbsolutePath().normalize();
++                final Path entryPath = baseDir.resolve(zae.getName()).normalize();
++                if (!entryPath.startsWith(baseDir)) {
++                    throw new IOException("Zip entry is outside of the target directory: " + zae.getName());
+                 }
+-                Path parent = createParentDirectory(targetDirectory, target);
+-                if (! target.getParent().toAbsolutePath().normalize().equals(
+-                        parent.toAbsolutePath().normalize())) {
+-                    target = parent.normalize().resolve(target.getFileName());
+-                }
++                Files.createDirectories(entryPath.getParent());
+                 try (InputStream is = archive.getInputStream(zae)) {
+-                    Files.copy(is, target);
++                    Files.copy(is, entryPath, StandardCopyOption.REPLACE_EXISTING);
+                 }
+             }
+         }

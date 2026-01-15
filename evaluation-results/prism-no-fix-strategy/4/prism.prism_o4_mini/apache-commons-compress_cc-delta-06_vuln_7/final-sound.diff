@@ -1,0 +1,39 @@
+--- a/src/main/java/org/apache/commons/compress/archivers/examples/Expander.java
++++ b/src/main/java/org/apache/commons/compress/archivers/examples/Expander.java
+@@ -71,21 +71,25 @@
+         T nextEntry = supplier.get();
+         while (nextEntry != null) {
+             final Path targetPath = nullTarget ? null : nextEntry.resolveIn(targetDirPath);
++            Path entryPath = targetDirPath.resolve(nextEntry.getName()).normalize();
++            if (!entryPath.startsWith(targetDirPath)) {
++                throw new IOException("Entry is outside of target directory: " + nextEntry.getName());
++            }
+             if (nextEntry.isDirectory()) {
+-                if (!nullTarget && !Files.isDirectory(targetPath) && Files.createDirectories(targetPath) == null) {
+-                    throw new IOException("Failed to create directory " + targetPath);
++                if (!nullTarget) {
++                    Files.createDirectories(entryPath);
+                 }
++                writer.accept(nextEntry, NullOutputStream.INSTANCE);
+             } else {
+-                final Path parent = nullTarget ? null : targetPath.getParent();
+-                if (!nullTarget && !Files.isDirectory(parent) && Files.createDirectories(parent) == null) {
+-                    throw new IOException("Failed to create directory " + parent);
++                if (!nullTarget) {
++                    Path parent = entryPath.getParent();
++                    if (parent != null) {
++                        Files.createDirectories(parent);
++                    }
+                 }
+-                if (nullTarget) {
+-                    writer.accept(nextEntry, NullOutputStream.INSTANCE);
+-                } else {
+-                    try (OutputStream outputStream = Files.newOutputStream(targetPath)) {
+-                        writer.accept(nextEntry, outputStream);
+-                    }
++                try (OutputStream out = nullTarget ? NullOutputStream.INSTANCE
++                        : Files.newOutputStream(entryPath)) {
++                    writer.accept(nextEntry, out);
+                 }
+             }
+             nextEntry = supplier.get();

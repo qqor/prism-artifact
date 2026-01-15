@@ -1,0 +1,49 @@
+--- a/lib/mprintf.c
++++ b/lib/mprintf.c
+@@ -690,6 +690,9 @@
+   /* Parse the format string */
+   if(parsefmt(format, output, input, &ocount, &icount, ap_save))
+     return 0;
++  /* safety: reject excessive format segments to prevent overflow */
++  if(ocount > MAX_SEGMENTS || icount > MAX_PARAMETERS)
++    return 0;
+ 
+   for(i = 0; i < ocount; i++) {
+     struct outsegment *optr = &output[i];
+@@ -703,9 +706,17 @@
+     mp_intmax_t signed_num; /* Used to convert negative in positive.  */
+     char *w;
+     size_t outlen = optr->outlen;
+-    unsigned int flags = optr->flags;
+-
+-    if(outlen) {
++      unsigned int flags = optr->flags;
++      /* guard against invalid width parameter index */
++      if((flags & FLAG_WIDTHPARAM) &&
++         (optr->width < 0 || optr->width >= icount || optr->width >= MAX_PARAMETERS))
++        continue;
++      /* guard against invalid precision parameter index */
++      if((flags & FLAG_PRECPARAM) &&
++         (optr->precision < 0 || optr->precision >= icount || optr->precision >= MAX_PARAMETERS))
++        continue;
++
++      /* pick up the specified width */
+       char *str = optr->start;
+       for(; outlen && *str; outlen--)
+         OUTCHAR(*str++);
+@@ -745,7 +756,14 @@
+       prec = -1;
+ 
+     is_alt = (flags & FLAGS_ALT) ? 1 : 0;
+-    iptr = &input[optr->input];
++    /* guard against invalid or out-of-bounds parameter index */
++    if(optr->input < icount && optr->input < MAX_PARAMETERS) {
++        iptr = &input[optr->input];
++    }
++    else {
++        /* skip this segment if the index is bogus */
++        continue;
++    }
+ 
+     switch(iptr->type) {
+     case FORMAT_INTU:

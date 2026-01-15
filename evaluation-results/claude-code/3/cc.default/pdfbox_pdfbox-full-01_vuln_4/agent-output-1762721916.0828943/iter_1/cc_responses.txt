@@ -1,0 +1,67 @@
+
+================================================================================
+Response 1
+================================================================================
+Looking at the crash log and the failed patch, I can see the issue:
+
+## Why the previous patch failed:
+
+1. **Wrong location**: The iteration counter and progress checks were added inside the `do-while` loop, but the actual infinite loop is happening within the inner `while (buffer.hasRemaining())` loop at line 123.
+
+2. **Ineffective checks**: The `lastPosition` tracking was only done in specific branches (whitespace and null byte handling), but the hang occurs in the main loop where `buffer.hasRemaining()` keeps returning true without the buffer position actually advancing.
+
+3. **The real problem**: Looking at the stack trace, the timeout happens at `Type1Lexer.java:123` which is inside the `while (buffer.hasRemaining())` loop. This loop can spin forever if the buffer position never advances (e.g., malformed input that causes the code to keep looking at the same position).
+
+## New approach:
+
+The fix should track progress at the **inner while loop** level, ensuring the buffer position actually advances on each iteration. If the position doesn't change after processing, we should break out to prevent infinite loops.
+
+```diff
+diff --git a/fontbox/src/main/java/org/apache/fontbox/type1/Type1Lexer.java b/fontbox/src/main/java/org/apache/fontbox/type1/Type1Lexer.java
+index 56aaf64ad..8f4c77c7d 100644
+--- a/fontbox/src/main/java/org/apache/fontbox/type1/Type1Lexer.java
++++ b/fontbox/src/main/java/org/apache/fontbox/type1/Type1Lexer.java
+@@ -119,8 +119,11 @@ class Type1Lexer
+         boolean skip;
+         do
+         {
+             skip = false;
++            int loopIterations = 0;
++            int previousPosition = buffer.position();
++            final int MAX_LOOP_ITERATIONS = 1000000; // Prevent infinite loops
+             while (buffer.hasRemaining())
+             {
+                 int b = buffer.get();
+@@ -202,6 +205,20 @@ class Type1Lexer
+                     skip = true;
+                 }
+                 else
+                 {
+                     throw new IOException("Unknown token at " + buffer.position() + ": " + c);
+                 }
++                
++                // Check for infinite loop conditions
++                if (++loopIterations > MAX_LOOP_ITERATIONS)
++                {
++                    throw new IOException("Maximum loop iterations exceeded at position " + buffer.position() + 
++                                        " - possible infinite loop or malformed font data");
++                }
++                
++                // Ensure we're making progress through the buffer
++                if (loopIterations % 1000 == 0 && buffer.position() == previousPosition)
++                {
++                    throw new IOException("No progress made in buffer after " + loopIterations + 
++                                        " iterations at position " + buffer.position());
++                }
+             }
+         }
+         while (skip);
+```
+
+This patch:
+1. **Tracks iterations at the correct level**: Monitors the inner `while (buffer.hasRemaining())` loop where the hang actually occurs
+2. **Sets a hard limit**: Prevents more than 1,000,000 iterations in the inner loop
+3. **Checks for progress**: Every 1000 iterations, verifies the buffer position has actually changed
+4. **Fails fast**: Throws IOException with clear diagnostic messages when infinite loop conditions are detected
+
+This should prevent the timeout by catching the case where the buffer claims to have data remaining but the position never advances.

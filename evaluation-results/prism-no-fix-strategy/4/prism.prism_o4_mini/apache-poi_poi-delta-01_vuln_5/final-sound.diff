@@ -1,0 +1,38 @@
+--- a/poi-ooxml/src/main/java/org/apache/poi/xssf/extractor/XSSFEventBasedExcelExtractor.java
++++ b/poi-ooxml/src/main/java/org/apache/poi/xssf/extractor/XSSFEventBasedExcelExtractor.java
+@@ -59,9 +59,11 @@
+ import org.apache.poi.xssf.usermodel.XSSFSimpleShape;
+ import org.apache.xmlbeans.XmlException;
+ import org.xml.sax.Attributes;
+-import org.xml.sax.ContentHandler;
+-import org.xml.sax.InputSource;
+-import org.xml.sax.SAXException;
++ import org.xml.sax.ContentHandler;
++ import org.xml.sax.InputSource;
++ import org.xml.sax.XMLReader;
++ import javax.xml.XMLConstants;
++ import org.xml.sax.SAXException;
+ import org.xml.sax.XMLReader;
+ import org.xml.sax.helpers.DefaultHandler;
+ 
+@@ -312,8 +314,18 @@
+         }
+         PackagePart part = parts.get(0);
+         try (InputStream is = part.getInputStream()) {
+-            SAXParser parser = SAXParserFactory.newInstance().newSAXParser();
+-            parser.parse(is, new ExtendedPropertiesHandler(text));
++ SAXParser parser = SAXParserFactory.newInstance().newSAXParser();
++ // disable external entities and DTDs to prevent SSRF
++ XMLReader reader = parser.getXMLReader();
++ try {
++     reader.setFeature("http://xml.org/sax/features/external-general-entities", false);
++     reader.setFeature("http://xml.org/sax/features/external-parameter-entities", false);
++     reader.setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false);
++     reader.setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true);
++ } catch (SAXException e) {
++     // ignore unsupported features
++ }
++ parser.parse(is, new ExtendedPropertiesHandler(text));
+         } catch (ParserConfigurationException | SAXException | IOException e) {
+             //swallow
+         }

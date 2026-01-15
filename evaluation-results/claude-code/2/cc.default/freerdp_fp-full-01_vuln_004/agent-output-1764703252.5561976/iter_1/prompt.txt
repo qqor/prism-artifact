@@ -1,0 +1,101 @@
+I tried to fix a AddressSanitizer: heap-buffer-overflow vulnerability causing the crash log in the <crash_log> below.
+I failed to fix the vulnerability with the following patches:
+
+```diff
+diff --git a/libfreerdp/core/gcc.c b/libfreerdp/core/gcc.c
+index d135d8353..b9c29f1cc 100644
+--- a/libfreerdp/core/gcc.c
++++ b/libfreerdp/core/gcc.c
+@@ -1859,7 +1859,7 @@ BOOL gcc_read_client_network_data(wStream* s, rdpMcs* mcs)
+ 	if (blockLength < 4 + (UINT8)mcs->channelCount * 12)
+ 		return FALSE;
+ 
+-	if (mcs->channelCount > CHANNEL_MAX_COUNT)
++	if (mcs->channelCount >= CHANNEL_MAX_COUNT)
+ 		return FALSE;
+ 
+ 	/* channelDefArray */
+
+```
+
+Explain why the patches failed and provide a new patch to fix the vulnerability.
+Do not repeat the same mistakes in the new patch.
+Try a completely different approach to fix the vulnerability.
+NEVER fix files outside the source directory.
+NEVER do any git operations in or outside the source directory.
+
+Below is the crash log:
+
+<crash_log>
+==ERROR: AddressSanitizer: heap-buffer-overflow on address 0x519000001d60 at pc 0x55edb3642e54 bp 0x7ffe7c66fcb0 sp 0x7ffe7c66f470
+WRITE of size 8 at 0x519000001d60 thread T0
+SCARINESS: 42 (8-byte-write-heap-buffer-overflow)
+    #0 0x55edb3642e53 in __asan_memcpy /src/llvm-project/compiler-rt/lib/asan/asan_interceptors_memintrinsics.cpp:63:3
+    #1 0x55edb3c65c99 in Stream_Read /src/FreeRDP/winpr/include/winpr/stream.h:703:3
+    #2 0x55edb3c60c55 in gcc_read_client_network_data /src/FreeRDP/libfreerdp/core/gcc.c:1875:3
+    #3 0x55edb3c4de99 in gcc_read_client_data_blocks /src/FreeRDP/libfreerdp/core/gcc.c:617:10
+    #4 0x55edb3c4d776 in gcc_read_conference_create_request /src/FreeRDP/libfreerdp/core/gcc.c:414:7
+    #5 0x55edb3b2285c in mcs_recv_connect_initial /src/FreeRDP/libfreerdp/core/mcs.c:700:7
+    #6 0x55edb3731387 in freerdp_is_valid_mcs_create_request /src/FreeRDP/libfreerdp/core/freerdp.c:1441:16
+    #7 0x55edb3682c0e in test_server /src/FreeRDP/libfreerdp/core/test/TestFuzzCoreServer.c:82:3
+    #8 0x55edb3682284 in LLVMFuzzerTestOneInput /src/FreeRDP/libfreerdp/core/test/TestFuzzCoreServer.c:106:2
+    #9 0x55edb3539100 in fuzzer::Fuzzer::ExecuteCallback(unsigned char const*, unsigned long) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:614:13
+    #10 0x55edb3524375 in fuzzer::RunOneTest(fuzzer::Fuzzer*, char const*, unsigned long) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerDriver.cpp:327:6
+    #11 0x55edb3529e0f in fuzzer::FuzzerDriver(int*, char***, int (*)(unsigned char const*, unsigned long)) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerDriver.cpp:862:9
+    #12 0x55edb35550b2 in main /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerMain.cpp:20:10
+    #13 0x7fe067a92082 in __libc_start_main (/lib/x86_64-linux-gnu/libc.so.6+0x24082) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #14 0x55edb351c55d in _start (/out/TestFuzzCoreServer+0x3f955d)
+
+DEDUP_TOKEN: __asan_memcpy--Stream_Read--gcc_read_client_network_data
+0x519000001d60 is located 0 bytes after 992-byte region [0x519000001980,0x519000001d60)
+allocated by thread T0 here:
+    #0 0x55edb3645099 in calloc /src/llvm-project/compiler-rt/lib/asan/asan_malloc_linux.cpp:75:3
+    #1 0x55edb3b2a2fc in mcs_new /src/FreeRDP/libfreerdp/core/mcs.c:1446:34
+    #2 0x55edb373157c in test_mcs_new /src/FreeRDP/libfreerdp/core/freerdp.c:1419:9
+    #3 0x55edb3731306 in freerdp_is_valid_mcs_create_request /src/FreeRDP/libfreerdp/core/freerdp.c:1438:16
+    #4 0x55edb3682c0e in test_server /src/FreeRDP/libfreerdp/core/test/TestFuzzCoreServer.c:82:3
+    #5 0x55edb3682284 in LLVMFuzzerTestOneInput /src/FreeRDP/libfreerdp/core/test/TestFuzzCoreServer.c:106:2
+    #6 0x55edb3539100 in fuzzer::Fuzzer::ExecuteCallback(unsigned char const*, unsigned long) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:614:13
+    #7 0x55edb3524375 in fuzzer::RunOneTest(fuzzer::Fuzzer*, char const*, unsigned long) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerDriver.cpp:327:6
+    #8 0x55edb3529e0f in fuzzer::FuzzerDriver(int*, char***, int (*)(unsigned char const*, unsigned long)) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerDriver.cpp:862:9
+    #9 0x55edb35550b2 in main /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerMain.cpp:20:10
+    #10 0x7fe067a92082 in __libc_start_main (/lib/x86_64-linux-gnu/libc.so.6+0x24082) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+
+DEDUP_TOKEN: __interceptor_calloc--mcs_new--test_mcs_new
+SUMMARY: AddressSanitizer: heap-buffer-overflow /src/FreeRDP/winpr/include/winpr/stream.h:703:3 in Stream_Read
+Shadow bytes around the buggy address:
+  0x519000001a80: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+  0x519000001b00: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+  0x519000001b80: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+  0x519000001c00: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+  0x519000001c80: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+=>0x519000001d00: 00 00 00 00 00 00 00 00 00 00 00 00[fa]fa fa fa
+  0x519000001d80: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa
+  0x519000001e00: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa
+  0x519000001e80: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa
+  0x519000001f00: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa
+  0x519000001f80: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa
+Shadow byte legend (one shadow byte represents 8 application bytes):
+  Addressable:           00
+  Partially addressable: 01 02 03 04 05 06 07 
+  Heap left redzone:       fa
+  Freed heap region:       fd
+  Stack left redzone:      f1
+  Stack mid redzone:       f2
+  Stack right redzone:     f3
+  Stack after return:      f5
+  Stack use after scope:   f8
+  Global redzone:          f9
+  Global init order:       f6
+  Poisoned by user:        f7
+  Container overflow:      fc
+  Array cookie:            ac
+  Intra object redzone:    bb
+  ASan internal:           fe
+  Left alloca redzone:     ca
+  Right alloca redzone:    cb
+==18==ABORTING
+subprocess command returned a non-zero exit status: 1
+INFO:__main__:Running: docker run --privileged --shm-size=2g --platform linux/amd64 --rm -i -e HELPER=True -e ARCHITECTURE=x86_64 -v /home/qqor/crete/packages/python_oss_fuzz/.oss_fuzz/build/out/freerdp:/out -v /tmp/tmpck4fhtzr:/testcase -t ghcr.io/aixcc-finals/base-runner:v1.3.0 reproduce TestFuzzCoreServer -runs=100.
+
+</crash_log>

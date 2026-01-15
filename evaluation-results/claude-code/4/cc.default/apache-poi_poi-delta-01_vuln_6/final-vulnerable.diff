@@ -1,0 +1,136 @@
+diff --git a/poi/src/main/java/org/apache/poi/ss/usermodel/DateUtil.java b/poi/src/main/java/org/apache/poi/ss/usermodel/DateUtil.java
+index 401b1c47a..c39888f63 100644
+--- a/poi/src/main/java/org/apache/poi/ss/usermodel/DateUtil.java
++++ b/poi/src/main/java/org/apache/poi/ss/usermodel/DateUtil.java
+@@ -71,12 +71,109 @@ public class DateUtil {
+     private static final Pattern date_ptrn3a = Pattern.compile("[yYmMdDhHsS]");
+     // add "\u5e74 \u6708 \u65e5" for Chinese/Japanese date format:2017 \u5e74 2 \u6708 7 \u65e5
+     private static final Pattern date_ptrn3b = Pattern.compile("^[\\[\\]yYmMdDhHsS\\-T/\u5e74\u6708\u65e5,. :\"\\\\]+0* ?[ampAMP/]*$");
++    // Characters allowed in date_ptrn3b for iterative matching
++    private static final String DATE_PTRN3B_CHARS = "[]yYmMdDhHsS-T/\u5e74\u6708\u65e5,. :\"\\";
++    private static final String DATE_PTRN3B_AMPM_CHARS = "ampAMP/";
+     //  elapsed time patterns: [h],[m] and [s]
+-    private static final Pattern date_ptrn4 = Pattern.compile("^\\[([hH]+|[mM]+|[sS]+)]");
++    // Note: Replaced regex with iterative method to prevent stack overflow on long inputs
++    // Original pattern was: Pattern.compile("^\\[([hH]+|[mM]+|[sS]+)]")
+ 
+     // for format which start with "[DBNum1]" or "[DBNum2]" or "[DBNum3]" could be a Chinese date
+     private static final Pattern date_ptrn5 = Pattern.compile("^\\[DBNum([123])]");
+ 
++    /**
++     * Iterative replacement for date_ptrn4 regex to avoid stack overflow on long inputs.
++     * Matches elapsed time patterns: [h], [hh], [hhh...], [m], [mm], [mmm...], [s], [ss], [sss...]
++     * Original regex was: ^\\[([hH]+|[mM]+|[sS]+)]
++     *
++     * @param fs the format string to check
++     * @return true if the string matches the elapsed time pattern
++     */
++    private static boolean matchesElapsedTimePattern(String fs) {
++        if (fs == null || fs.length() < 3) {
++            return false;
++        }
++
++        // Must start with '['
++        if (fs.charAt(0) != '[') {
++            return false;
++        }
++
++        // Must end with ']'
++        if (fs.charAt(fs.length() - 1) != ']') {
++            return false;
++        }
++
++        // The middle part must be all the same character (h, H, m, M, s, or S)
++        // and there must be at least one such character
++        if (fs.length() < 3) {
++            return false;
++        }
++
++        char firstChar = fs.charAt(1);
++        char lowerFirst = Character.toLowerCase(firstChar);
++
++        // Must be h, m, or s
++        if (lowerFirst != 'h' && lowerFirst != 'm' && lowerFirst != 's') {
++            return false;
++        }
++
++        // Check that all characters between '[' and ']' are the same letter (case-insensitive)
++        for (int i = 2; i < fs.length() - 1; i++) {
++            if (Character.toLowerCase(fs.charAt(i)) != lowerFirst) {
++                return false;
++            }
++        }
++
++        return true;
++    }
++
++    /**
++     * Iterative replacement for date_ptrn3b regex to avoid stack overflow on long inputs.
++     * Matches: ^[...]+ 0* ?[ampAMP/]*$
++     * where [...] contains date/time format characters.
++     * Original regex was: ^[\\[\\]yYmMdDhHsS\\-T/\u5e74\u6708\u65e5,. :\"\\\\]+0* ?[ampAMP/]*$
++     *
++     * @param fs the format string to check
++     * @return true if the string matches the date pattern
++     */
++    private static boolean matchesDatePattern3b(String fs) {
++        if (fs == null || fs.isEmpty()) {
++            return false;
++        }
++
++        int len = fs.length();
++        int pos = 0;
++
++        // Match one or more date format characters: [...]+
++        boolean foundDateChar = false;
++        while (pos < len && DATE_PTRN3B_CHARS.indexOf(fs.charAt(pos)) >= 0) {
++            foundDateChar = true;
++            pos++;
++        }
++        if (!foundDateChar) {
++            return false;
++        }
++
++        // Match zero or more '0' characters: 0*
++        while (pos < len && fs.charAt(pos) == '0') {
++            pos++;
++        }
++
++        // Match optional space: ?
++        if (pos < len && fs.charAt(pos) == ' ') {
++            pos++;
++        }
++
++        // Match zero or more AM/PM characters: [ampAMP/]*
++        while (pos < len && DATE_PTRN3B_AMPM_CHARS.indexOf(fs.charAt(pos)) >= 0) {
++            pos++;
++        }
++
++        // Must have consumed the entire string
++        return pos == len;
++    }
++
+     private static final DateTimeFormatter dateTimeFormats = new DateTimeFormatterBuilder()
+             .appendPattern("[d[.] [MMMM][MMM][ yyyy]][[ ]h:m[:s][.SSS] a][[ ]H:m[:s][.SSS]]")
+             .appendPattern("[[yyyy ]d-[MMMM][MMM][-yyyy]][[ ]h:m[:s][.SSS] a][[ ]H:m[:s][.SSS]]")
+@@ -684,7 +781,8 @@ public class DateUtil {
+         fs = sb.toString();
+ 
+         // short-circuit if it indicates elapsed time: [h], [m] or [s]
+-        if(date_ptrn4.matcher(fs).matches()){
++        // Using iterative method to prevent stack overflow on long inputs
++        if(matchesElapsedTimePattern(fs)){
+             cache(formatString, formatIndex, true);
+             return true;
+         }
+@@ -714,8 +812,9 @@ public class DateUtil {
+         // If we get here, check it's only made up, in any case, of:
+         //  y m d h s - \ / , . : [ ] T
+         // optionally followed by AM/PM
++        // Using iterative method to prevent stack overflow on long inputs
+ 
+-        boolean result = date_ptrn3b.matcher(fs).matches();
++        boolean result = matchesDatePattern3b(fs);
+         cache(formatString, formatIndex, result);
+         return result;
+     }

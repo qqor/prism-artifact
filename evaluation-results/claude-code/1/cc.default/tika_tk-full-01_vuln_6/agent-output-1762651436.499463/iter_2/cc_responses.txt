@@ -1,0 +1,120 @@
+
+================================================================================
+Response 1
+================================================================================
+Looking at the crash log and the failed patches, I can see the issue. The fuzzer is detecting a path traversal vulnerability at line 47 of TikaUntar.java, which is the `Files.createDirectories(target.getParent())` call.
+
+The problem with the previous patches is that they check the path **after** it's been resolved, but the fuzzer's security hook is triggered **during** the path resolution or file operations themselves. The checks are happening too late in the process.
+
+Let me first examine the current code to understand the exact structure:
+
+================================================================================
+Response 2
+================================================================================
+Let me search for the file:
+
+================================================================================
+Response 3
+================================================================================
+Now I understand the issue. Looking at the crash log, the fuzzer detects the path traversal at line 47, which is the `Files.write(target, ...)` call, not line 45 as I initially thought. However, the actual problem is more subtle.
+
+## Why the Previous Patches Failed
+
+The previous patches failed because:
+
+1. **First patch**: Added a check after `normalize()`, but `startsWith()` on normalized paths can still be bypassed in some edge cases, and the check happens after the path has already been constructed.
+
+2. **Second patch**: Added string-based checks for ".." but these are insufficient. The fuzzer is specifically complaining about the path `/tmp/expander-tmp17290040960515240899/output/q/r/jazzer-traversal` which suggests the tar entry had a name like `../../q/r/jazzer-traversal` or similar that escapes the extraction directory.
+
+The key issue is that **even with normalization and checks, the resolved path can still escape the extraction directory** if the entry name is crafted correctly.
+
+## New Approach: Canonical Path Validation
+
+Instead of relying on `normalize()` and `startsWith()`, we need to use **canonical paths** and ensure that the final resolved path's canonical form is truly within the extraction directory's canonical form. We also need to validate **before** any file system operations occur.
+
+Here's the fix:
+
+```diff
+diff --git a/tika-app/src/main/java/org/apache/tika/cli/TikaUntar.java b/tika-app/src/main/java/org/apache/tika/cli/TikaUntar.java
+index 0922124e6..a1b5c5d9e 100644
+--- a/tika-app/src/main/java/org/apache/tika/cli/TikaUntar.java
++++ b/tika-app/src/main/java/org/apache/tika/cli/TikaUntar.java
+@@ -33,13 +33,25 @@ public class TikaUntar {
+     public static void main(String[] args) throws IOException {
+         Path inputFile = Paths.get(args[0]);
+         Path extractDir = Paths.get(args[1]);
++        Path canonicalExtractDir = extractDir.toRealPath();
++        
+         try (InputStream is = Files.newInputStream(inputFile);
+                 TarArchiveInputStream tais = new TarArchiveInputStream(is)) {
+ 
+             TarArchiveEntry tae = tais.getNextEntry();
+ 
+             while (tae != null) {
+                 if (tae.isFile()) {
+-                    Path target = extractDir.resolve(tae.getName()).normalize();
++                    String entryName = tae.getName();
++                    
++                    // Sanitize the entry name by removing path traversal sequences
++                    String sanitizedName = entryName.replace("../", "").replace("..\\", "");
++                    if (sanitizedName.startsWith("/") || sanitizedName.startsWith("\\")) {
++                        sanitizedName = sanitizedName.substring(1);
++                    }
++                    
++                    // Use the sanitized name instead of the original entry name
++                    Path target = extractDir.resolve(sanitizedName).normalize();
++                    
+                     if (!Files.isDirectory(target.getParent())) {
+                         Files.createDirectories(target.getParent());
+                     }
+```
+
+Wait, that approach of just removing ".." is too simplistic and could cause issues. Let me provide a better solution that properly validates the path:
+
+```diff
+diff --git a/tika-app/src/main/java/org/apache/tika/cli/TikaUntar.java b/tika-app/src/main/java/org/apache/tika/cli/TikaUntar.java
+index 0922124e6..8b5f1e4d3 100644
+--- a/tika-app/src/main/java/org/apache/tika/cli/TikaUntar.java
++++ b/tika-app/src/main/java/org/apache/tika/cli/TikaUntar.java
+@@ -33,13 +33,32 @@ public class TikaUntar {
+     public static void main(String[] args) throws IOException {
+         Path inputFile = Paths.get(args[0]);
+         Path extractDir = Paths.get(args[1]);
++        // Get absolute path of extraction directory for validation
++        Path absoluteExtractDir = extractDir.toAbsolutePath().normalize();
++        
+         try (InputStream is = Files.newInputStream(inputFile);
+                 TarArchiveInputStream tais = new TarArchiveInputStream(is)) {
+ 
+             TarArchiveEntry tae = tais.getNextEntry();
+ 
+             while (tae != null) {
+                 if (tae.isFile()) {
+-                    Path target = extractDir.resolve(tae.getName()).normalize();
++                    String entryName = tae.getName();
++                    
++                    // Strip leading slashes to prevent absolute path attacks
++                    while (entryName.startsWith("/") || entryName.startsWith("\\")) {
++                        entryName = entryName.substring(1);
++                    }
++                    
++                    // Resolve and normalize the target path
++                    Path target = absoluteExtractDir.resolve(entryName).normalize();
++                    
++                    // Validate that the normalized target is still within the extraction directory
++                    if (!target.toAbsolutePath().normalize().startsWith(absoluteExtractDir)) {
++                        throw new IOException("Entry is outside of the target directory: " + tae.getName());
++                    }
++                    
++                    // Ensure parent directory is also within bounds before creating it
++                    Path parent = target.getParent();
+                     if (!Files.isDirectory(target.getParent())) {
+                         Files.createDirectories(target.getParent());
+                     }
+```
+
+This patch:
+1. **Uses absolute paths** from the start to avoid any relative path confusion
+2. **Strips leading slashes** to prevent absolute path attacks
+3. **Validates after normalization** that the target is still within the extraction directory
+4. **Checks before any file operations** to prevent the fuzzer from triggering on `createDirectories` or `write`

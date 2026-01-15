@@ -1,0 +1,99 @@
+--- a/libexif/exif-data.c
++++ b/libexif/exif-data.c
+@@ -180,10 +180,21 @@
+ 
+ 	/* {0,1,2,4,8} x { 0x00000000 .. 0xffffffff } 
+ 	 *   -> { 0x000000000 .. 0x7fffffff8 } */
+-	s = exif_format_get_size(entry->format) * entry->components;
+-	if ((s < entry->components) || (s == 0)){
+-		return 0;
+-	}
++    {
++        /* Prevent integer overflow and zero-length data */
++        const unsigned long long fs = exif_format_get_size(entry->format);
++        const unsigned long long comps = entry->components;
++        unsigned long long tmp = fs * comps;
++        if (comps != 0 && tmp / comps != fs) {
++            exif_log(data->priv->log, EXIF_LOG_CODE_DEBUG,
++                     "ExifData", "Data size overflow: %llu * %llu", fs, comps);
++            return 0;
++        }
++        if (tmp == 0) {
++            return 0;
++        }
++        s = (unsigned int)tmp;
++    }
+ 
+ 	/*
+ 	 * Size? If bigger than 4 bytes, the actual data is not
+@@ -201,20 +212,33 @@
+ 		return 0;
+ 	}
+ 
+-	if (s > size - doff) {
+-		exif_log (data->priv->log, EXIF_LOG_CODE_DEBUG, "ExifData",
+-				  "Tag data goes past end of buffer (%u > %u)", doff+s, size);
+-		return 0;
+-	}
+-
+-	entry->data = exif_data_alloc (data, s);
+-	if (entry->data) {
+-		entry->size = s;
+-		memcpy (entry->data, d + doff, s);
+-	} else {
+-		EXIF_LOG_NO_MEMORY(data->priv->log, "ExifData", s);
+-		return 0;
+-	}
++    {
++        /* Clamp and safely copy tag data */
++        unsigned int len;
++        if (doff >= size)
++            len = 0;
++        else if (s > size - doff)
++            len = size - doff;
++        else
++            len = s;
++        if (len == 0) {
++            exif_log (data->priv->log, EXIF_LOG_CODE_DEBUG,
++                      "ExifData", "Tag data len is zero or out of bounds");
++            return 0;
++        }
++        entry->data = exif_data_alloc (data, len);
++        if (!entry->data) {
++            EXIF_LOG_NO_MEMORY (data->priv->log, "ExifData", len);
++            return 0;
++        }
++        entry->size = len;
++        /* Byte-wise copy to avoid vectorized over-read */
++        {
++            unsigned int i;
++            for (i = 0; i < len; ++i)
++                entry->data[i] = d[doff + i];
++        }
++    }
+ 
+ 	/* If this is the MakerNote, remember the offset */
+ 	if (entry->tag == EXIF_TAG_MAKER_NOTE) {
+@@ -528,10 +552,18 @@
+                                           "Could not allocate memory");
+ 				  return;
+ 			}
+-			if (exif_data_load_data_entry (data, entry, d, ds,
+-						   offset + 12 * i))
+-				exif_content_add_entry (data->ifd[ifd], entry);
+-			exif_entry_unref (entry);
++        {
++            /* Clamp IFD table entry offset before loading */
++            unsigned long long doff_ll = (unsigned long long)offset + 12ULL * i;
++            if (doff_ll >= ds) {
++                exif_log (data->priv->log, EXIF_LOG_CODE_DEBUG,
++                          "ExifData", "IFD entry offset out of bounds (%llu >= %u)",
++                          doff_ll, ds);
++            } else if (exif_data_load_data_entry (data, entry, d, ds, (unsigned int)doff_ll)) {
++                exif_content_add_entry (data->ifd[ifd], entry);
++            }
++            exif_entry_unref (entry);
++        }
+ 			break;
+ 		}
+ 	}

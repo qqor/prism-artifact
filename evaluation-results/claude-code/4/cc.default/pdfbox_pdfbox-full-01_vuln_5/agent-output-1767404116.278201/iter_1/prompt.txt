@@ -1,0 +1,66 @@
+I tried to fix a com.code_intelligence.jazzer.api.FuzzerSecurityIssueLow: Out of memory (use '-Xmx1710m' to reproduce) vulnerability causing the crash log in the <crash_log> below.
+I failed to fix the vulnerability with the following patches:
+
+```diff
+diff --git a/fontbox/src/main/java/org/apache/fontbox/type1/Type1Lexer.java b/fontbox/src/main/java/org/apache/fontbox/type1/Type1Lexer.java
+index 56aaf64ad..22638eb56 100644
+--- a/fontbox/src/main/java/org/apache/fontbox/type1/Type1Lexer.java
++++ b/fontbox/src/main/java/org/apache/fontbox/type1/Type1Lexer.java
+@@ -501,6 +501,11 @@ class Type1Lexer
+      */
+     private Token readCharString(int length) throws IOException
+     {
++        if (length < 0 || length > buffer.remaining())
++        {
++            throw new DamagedFontException("Invalid CharString length: " + length +
++                    " (remaining bytes: " + buffer.remaining() + ")");
++        }
+         try
+         {
+             buffer.get(); // space
+
+```
+
+Explain why the patches failed and provide a new patch to fix the vulnerability.
+Do not repeat the same mistakes in the new patch.
+Try a completely different approach to fix the vulnerability.
+NEVER fix files outside the source directory.
+NEVER do any git operations in or outside the source directory.
+
+Below is the crash log:
+
+<crash_log>
+== Java Exception: com.code_intelligence.jazzer.api.FuzzerSecurityIssueLow: Out of memory (use '-Xmx1710m' to reproduce)
+Caused by: java.lang.OutOfMemoryError: Requested array size exceeds VM limit
+	at org.apache.fontbox.type1.Type1Lexer.readCharString(Type1Lexer.java:507)
+	at org.apache.fontbox.type1.Type1Lexer.readToken(Type1Lexer.java:232)
+	at org.apache.fontbox.type1.Type1Lexer.nextToken(Type1Lexer.java:75)
+	at org.apache.fontbox.type1.Type1Parser.read(Type1Parser.java:877)
+	at org.apache.fontbox.type1.Type1Parser.parseASCII(Type1Parser.java:109)
+	at org.apache.fontbox.type1.Type1Parser.parse(Type1Parser.java:63)
+	at org.apache.fontbox.type1.Type1Font.createWithPFB(Type1Font.java:71)
+	at org.apache.pdfbox.pdmodel.font.PDType1Font.<init>(PDType1Font.java:227)
+	at org.apache.pdfbox.pdmodel.font.PDFontFactory.createFont(PDFontFactory.java:140)
+	at org.apache.pdfbox.pdmodel.PDResources.getFont(PDResources.java:170)
+	at org.apache.pdfbox.contentstream.operator.text.SetFontAndSize.process(SetFontAndSize.java:72)
+	at org.apache.pdfbox.contentstream.PDFStreamEngine.processOperator(PDFStreamEngine.java:924)
+	at org.apache.pdfbox.contentstream.PDFStreamEngine.processStreamOperators(PDFStreamEngine.java:557)
+	at org.apache.pdfbox.contentstream.PDFStreamEngine.processStream(PDFStreamEngine.java:515)
+	at org.apache.pdfbox.contentstream.PDFStreamEngine.processPage(PDFStreamEngine.java:158)
+	at org.apache.pdfbox.text.LegacyPDFStreamEngine.processPage(LegacyPDFStreamEngine.java:153)
+	at org.apache.pdfbox.text.PDFTextStripper.processPage(PDFTextStripper.java:378)
+	at org.apache.pdfbox.text.PDFTextStripper.processPages(PDFTextStripper.java:303)
+	at org.apache.pdfbox.text.PDFTextStripper.writeText(PDFTextStripper.java:251)
+	at org.apache.pdfbox.text.PDFTextStripper.getText(PDFTextStripper.java:218)
+	at com.example.PDFExtractTextFuzzer.fuzzerTestOneInput(PDFExtractTextFuzzer.java:41)
+	at java.base/java.lang.invoke.LambdaForm$DMH/0x0000000800cbc000.invokeStaticInit(LambdaForm$DMH)
+	at java.base/java.lang.invoke.LambdaForm$MH/0x0000000800cbd000.invoke(LambdaForm$MH)
+	at java.base/java.lang.invoke.LambdaForm$MH/0x0000000800cbc800.invoke_MT(LambdaForm$MH)
+DEDUP_TOKEN: 0d88e419df5aef8d
+== libFuzzer crashing input ==
+reproducer_path='.'; Java reproducer written to ./Crash_d2611a1da232ff06e1fb71af7aa15135c4b27931.java
+
+subprocess command returned a non-zero exit status: 77
+INFO:__main__:Running: docker run --privileged --shm-size=2g --platform linux/amd64 --rm -i -e HELPER=True -e ARCHITECTURE=x86_64 -v /home/qqor/crete/packages/python_oss_fuzz/.oss_fuzz/build/out/pdfbox:/out -v /tmp/tmppvw7n03w:/testcase -t ghcr.io/aixcc-finals/base-runner:v1.3.0 reproduce PDFExtractTextFuzzer -runs=100.
+
+</crash_log>

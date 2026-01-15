@@ -1,0 +1,63 @@
+--- a/tika-app/src/main/java/org/apache/tika/cli/TikaCLI.java
++++ b/tika-app/src/main/java/org/apache/tika/cli/TikaCLI.java
+@@ -1092,10 +1092,18 @@
+ 
+             MediaType contentType = detector.detect(tis, metadata);
+ 
+-            String name = metadata.get(TikaCoreProperties.RESOURCE_NAME_KEY);
++            String rawName = metadata.get(TikaCoreProperties.RESOURCE_NAME_KEY);
++            String name;
+             File outputFile = null;
+-            if (name == null) {
++            if (rawName == null) {
+                 name = "file" + count++;
++            } else {
++                // strip any path segments and null characters to prevent traversal
++                name = FilenameUtils.getName(rawName).replaceAll("\\u0000", "");
++                // fallback if name is empty after sanitization
++                if (name.isEmpty()) {
++                    name = "file" + count++;
++                }
+             }
+             outputFile = getOutputFile(name, metadata, contentType);
+ 
+@@ -1147,23 +1155,30 @@
+             if (normalizedName == null) {
+                 normalizedName = "file" + count++ + ext;
+             }
+-            //strip off initial C:/ or ~/ or /
++            // strip off initial C:/ or ~/ or /
+             int prefixLength = FilenameUtils.getPrefixLength(normalizedName);
+             if (prefixLength > -1) {
+                 normalizedName = normalizedName.substring(prefixLength);
+             }
++            // decode percent-encoded characters safely
+             try {
+                 normalizedName = URLDecoder.decode(normalizedName, UTF_8);
+             } catch (IllegalArgumentException e) {
+-                LOG.warn("couldn't url decode name {}", normalizedName);
+-            }
++                LOG.warn("couldn't url decode name{}", normalizedName);
++            }
++            // strip any remaining path segments to prevent traversal
++            normalizedName = FilenameUtils.getName(normalizedName);
++            // now create file ensuring it stays within extractDir
+             File outputFile = new File(extractDir, normalizedName);
+-            //if file already exists, prepend uuid
+-            if (outputFile.exists()) {
+-                String fileName = FilenameUtils.getName(normalizedName);
+-                outputFile = new File(extractDir, UUID
+-                        .randomUUID()
+-                        .toString() + "-" + fileName);
++            try {
++                String canonicalBase = extractDir.getCanonicalPath();
++                String canonicalPath = outputFile.getCanonicalPath();
++                if (!canonicalPath.startsWith(canonicalBase + File.separator)) {
++                    throw new TikaException("Invalid embedded filename: " + normalizedName);
++                }
++            } catch (IOException e) {
++                throw new TikaException(
++                    "Failed to resolve canonical path for embedded filename: " + normalizedName, e);
+             }
+             return outputFile;
+         }

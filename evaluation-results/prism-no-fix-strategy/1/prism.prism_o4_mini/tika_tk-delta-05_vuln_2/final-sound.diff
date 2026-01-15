@@ -1,0 +1,27 @@
+--- a/tika-app/src/main/java/org/apache/tika/cli/TikaCLI.java
++++ b/tika-app/src/main/java/org/apache/tika/cli/TikaCLI.java
+@@ -1106,9 +1106,21 @@
+                     throw new IOException("unable to create directory \"" + parent + "\"");
+                 }
+             }
+-            System.out.println("Extracting '" + name + "' (" + contentType + ") to " + outputFile);
+-
+-            try (FileOutputStream os = new FileOutputStream(outputFile)) {
++            Path outputDirPath = outputFile.toPath().getParent();
++            String safeName = Paths.get(name).getFileName().toString();
++            Path safePath = outputDirPath.resolve(safeName).normalize();
++            if (!safePath.startsWith(outputDirPath)) {
++                // Prevent path traversal: use only the base name
++                safePath = outputDirPath.resolve(safeName);
++            }
++            if (Files.exists(safePath)) {
++                safePath = outputDirPath.resolve(UUID.randomUUID().toString() + "-" + safeName);
++            }
++            Files.createDirectories(safePath.getParent());
++            File finalOutput = safePath.toFile();
++            System.out.println("Extracting '" + safeName + "' (" + contentType + ") to " + finalOutput);
++            
++            try (FileOutputStream os = new FileOutputStream(finalOutput)) {
+                 if (embeddedStreamTranslator.shouldTranslate(tis, metadata)) {
+                     try (InputStream translated = embeddedStreamTranslator.translate(tis, metadata)) {
+                         IOUtils.copy(translated, os);

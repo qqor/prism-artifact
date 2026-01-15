@@ -1,0 +1,87 @@
+I tried to fix a AddressSanitizer: SEGV vulnerability causing the crash log in the <crash_log> below.
+I failed to fix the vulnerability with the following patches:
+
+```diff
+diff --git a/lib/dict.c b/lib/dict.c
+index c940308b0..df2a4ae05 100644
+--- a/lib/dict.c
++++ b/lib/dict.c
+@@ -206,10 +206,16 @@ static CURLcode dict_do(struct Curl_easy *data, bool *done)
+     if(user_end) {
+       size_t resp_count = 0;
+       ssize_t bytes_recv;
++      char *slash_pos;
+       resp_buf = malloc(1024);
+       memset(resp_buf, 0, 1024);
+       /* Username comes immediately after path */
+-      user_start = strchr(path, '/') + 1;
++      slash_pos = strchr(path, '/');
++      if(!slash_pos) {
++        result = CURLE_URL_MALFORMAT;
++        goto error;
++      }
++      user_start = slash_pos + 1;
+       *user_end = (char)0;
+       auth_start = user_end + 1;
+       auth_end = strchr(path, '@');
+@@ -222,13 +228,15 @@ static CURLcode dict_do(struct Curl_easy *data, bool *done)
+       if(result)
+         goto error;
+ 
+-      if(strcmp(auth_start, "debug")) {
++      if(auth_start && strcmp(auth_start, "debug")) {
+         do {
+         result = sendf(data, "Sending extra debug info...");
+         } while(result == CURLE_AGAIN);
+-        do {
+-        result = sendf(data, user_start);
+-        } while(result == CURLE_AGAIN);
++        if(user_start && *user_start) {
++          do {
++          result = sendf(data, user_start);
++          } while(result == CURLE_AGAIN);
++        }
+       }
+ 
+ 
+
+```
+
+Explain why the patches failed and provide a new patch to fix the vulnerability.
+Do not repeat the same mistakes in the new patch.
+Try a completely different approach to fix the vulnerability.
+NEVER fix files outside the source directory.
+NEVER do any git operations in or outside the source directory.
+
+Below is the crash log:
+
+<crash_log>
+==ERROR: AddressSanitizer: SEGV on unknown address (pc 0x55b0c67e9af0 bp 0x7ffdcd018250 sp 0x7ffdcd0179c0 T0)
+==18==The signal is caused by a READ memory access.
+==18==Hint: this fault was caused by a dereference of a high value address (see register values below).  Disassemble the provided pc to learn which register was used.
+SCARINESS: 20 (wild-addr-read)
+    #0 0x55b0c67e9af0 in formatf /src/curl/lib/mprintf.c:894:15
+    #1 0x55b0c67ec4aa in curl_mvaprintf /src/curl/lib/mprintf.c:1135:9
+    #2 0x55b0c695a528 in sendf /src/curl/lib/dict.c:139:7
+    #3 0x55b0c6958a55 in dict_do /src/curl/lib/dict.c:230:18
+    #4 0x55b0c6813430 in multi_do /src/curl/lib/multi.c:1643:14
+    #5 0x55b0c6810192 in state_do /src/curl/lib/multi.c:2314:14
+    #6 0x55b0c67fe08f in multi_runsingle /src/curl/lib/multi.c:2768:12
+    #7 0x55b0c67fbfd5 in curl_multi_perform /src/curl/lib/multi.c:3016:16
+    #8 0x55b0c67a9d40 in fuzz_handle_transfer(fuzz_data*) /src/curl_fuzzer/curl_fuzzer.cc:341:3
+    #9 0x55b0c67a808d in LLVMFuzzerTestOneInput /src/curl_fuzzer/curl_fuzzer.cc:97:3
+    #10 0x55b0c665c640 in fuzzer::Fuzzer::ExecuteCallback(unsigned char const*, unsigned long) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:614:13
+    #11 0x55b0c66478b5 in fuzzer::RunOneTest(fuzzer::Fuzzer*, char const*, unsigned long) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerDriver.cpp:327:6
+    #12 0x55b0c664d34f in fuzzer::FuzzerDriver(int*, char***, int (*)(unsigned char const*, unsigned long)) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerDriver.cpp:862:9
+    #13 0x55b0c66785f2 in main /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerMain.cpp:20:10
+    #14 0x7f226e920082 in __libc_start_main (/lib/x86_64-linux-gnu/libc.so.6+0x24082) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #15 0x55b0c663fa9d in _start (/out/curl_fuzzer_dict+0x137a9d)
+
+DEDUP_TOKEN: formatf--curl_mvaprintf--sendf
+AddressSanitizer can not provide additional info.
+SUMMARY: AddressSanitizer: SEGV /src/curl/lib/mprintf.c:894:15 in formatf
+==18==ABORTING
+subprocess command returned a non-zero exit status: 1
+INFO:__main__:Running: docker run --privileged --shm-size=2g --platform linux/amd64 --rm -i -e HELPER=True -e ARCHITECTURE=x86_64 -v /home/qqor/aixcc/crete/packages/python_oss_fuzz/.oss_fuzz/build/out/curl:/out -v /tmp/tmp62hastcq:/testcase -t ghcr.io/aixcc-finals/base-runner:v1.3.0 reproduce curl_fuzzer_dict -runs=100.
+
+</crash_log>

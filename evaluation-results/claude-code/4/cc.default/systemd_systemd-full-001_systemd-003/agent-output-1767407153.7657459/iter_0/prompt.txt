@@ -1,0 +1,85 @@
+Create a patch to fix a AddressSanitizer: heap-buffer-overflow bug given below and apply it to the code.
+NEVER fix files outside the source directory.
+NEVER do any git operations in or outside the source directory.
+
+Below is the crash log:
+
+<crash_log>
+==ERROR: AddressSanitizer: heap-buffer-overflow on address 0x50600000083c at pc 0x7fb0e99dd207 bp 0x7ffe4ca76f90 sp 0x7ffe4ca76f88
+WRITE of size 1 at 0x50600000083c thread T0
+SCARINESS: 41 (1-byte-write-heap-buffer-overflow-far-from-bounds)
+    #0 0x7fb0e99dd206 in finish_item /work/build/../../src/systemd/src/libsystemd/sd-journal/catalog.c:163:48
+    #1 0x7fb0e99dc94b in catalog_import_file /work/build/../../src/systemd/src/libsystemd/sd-journal/catalog.c:373:21
+    #2 0x5611d437f2ab in LLVMFuzzerTestOneInput /work/build/../../src/systemd/src/fuzz/fuzz-catalog.c:22:16
+    #3 0x5611d439c170 in fuzzer::Fuzzer::ExecuteCallback(unsigned char const*, unsigned long) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:614:13
+    #4 0x5611d43873e5 in fuzzer::RunOneTest(fuzzer::Fuzzer*, char const*, unsigned long) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerDriver.cpp:327:6
+    #5 0x5611d438ce7f in fuzzer::FuzzerDriver(int*, char***, int (*)(unsigned char const*, unsigned long)) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerDriver.cpp:862:9
+    #6 0x5611d43b8122 in main /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerMain.cpp:20:10
+    #7 0x7fb0e8ae3082 in __libc_start_main (/lib/x86_64-linux-gnu/libc.so.6+0x24082) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #8 0x5611d42a67ed in _start (/out/fuzz-catalog+0x3e7ed)
+
+DEDUP_TOKEN: finish_item--catalog_import_file--LLVMFuzzerTestOneInput
+0x50600000083c is located 1244 bytes after 64-byte region [0x506000000320,0x506000000360)
+freed by thread T0 here:
+    #0 0x5611d433f566 in free /src/llvm-project/compiler-rt/lib/asan/asan_malloc_linux.cpp:52:3
+    #1 0x7fb0e99dcbd9 in freep /work/build/../../src/systemd/src/basic/alloc-util.h:106:9
+    #2 0x7fb0e99dc5ef in catalog_import_file /work/build/../../src/systemd/src/libsystemd/sd-journal/catalog.c:365:9
+    #3 0x5611d437f2ab in LLVMFuzzerTestOneInput /work/build/../../src/systemd/src/fuzz/fuzz-catalog.c:22:16
+    #4 0x5611d439c170 in fuzzer::Fuzzer::ExecuteCallback(unsigned char const*, unsigned long) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:614:13
+    #5 0x5611d43873e5 in fuzzer::RunOneTest(fuzzer::Fuzzer*, char const*, unsigned long) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerDriver.cpp:327:6
+    #6 0x5611d438ce7f in fuzzer::FuzzerDriver(int*, char***, int (*)(unsigned char const*, unsigned long)) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerDriver.cpp:862:9
+    #7 0x5611d43b8122 in main /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerMain.cpp:20:10
+    #8 0x7fb0e8ae3082 in __libc_start_main (/lib/x86_64-linux-gnu/libc.so.6+0x24082) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+
+DEDUP_TOKEN: __interceptor_free--freep--catalog_import_file
+previously allocated by thread T0 here:
+    #0 0x5611d433fbec in realloc /src/llvm-project/compiler-rt/lib/asan/asan_malloc_linux.cpp:82:3
+    #1 0x7fb0e9751850 in greedy_realloc /work/build/../../src/systemd/src/basic/alloc-util.c:69:13
+    #2 0x7fb0e97f7613 in read_line_full /work/build/../../src/systemd/src/basic/fileio.c:1519:22
+    #3 0x7fb0e99dcc56 in read_line /work/build/../../src/systemd/src/basic/fileio.h:152:16
+    #4 0x7fb0e99db446 in catalog_import_file /work/build/../../src/systemd/src/libsystemd/sd-journal/catalog.c:282:21
+    #5 0x5611d437f2ab in LLVMFuzzerTestOneInput /work/build/../../src/systemd/src/fuzz/fuzz-catalog.c:22:16
+    #6 0x5611d439c170 in fuzzer::Fuzzer::ExecuteCallback(unsigned char const*, unsigned long) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:614:13
+    #7 0x5611d43873e5 in fuzzer::RunOneTest(fuzzer::Fuzzer*, char const*, unsigned long) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerDriver.cpp:327:6
+    #8 0x5611d438ce7f in fuzzer::FuzzerDriver(int*, char***, int (*)(unsigned char const*, unsigned long)) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerDriver.cpp:862:9
+    #9 0x5611d43b8122 in main /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerMain.cpp:20:10
+    #10 0x7fb0e8ae3082 in __libc_start_main (/lib/x86_64-linux-gnu/libc.so.6+0x24082) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+
+DEDUP_TOKEN: __interceptor_realloc--greedy_realloc--read_line_full
+SUMMARY: AddressSanitizer: heap-buffer-overflow /work/build/../../src/systemd/src/libsystemd/sd-journal/catalog.c:163:48 in finish_item
+Shadow bytes around the buggy address:
+  0x506000000580: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa
+  0x506000000600: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa
+  0x506000000680: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa
+  0x506000000700: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa
+  0x506000000780: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa
+=>0x506000000800: fa fa fa fa fa fa fa[fa]fa fa fa fa fa fa fa fa
+  0x506000000880: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa
+  0x506000000900: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa
+  0x506000000980: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa
+  0x506000000a00: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa
+  0x506000000a80: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa
+Shadow byte legend (one shadow byte represents 8 application bytes):
+  Addressable:           00
+  Partially addressable: 01 02 03 04 05 06 07 
+  Heap left redzone:       fa
+  Freed heap region:       fd
+  Stack left redzone:      f1
+  Stack mid redzone:       f2
+  Stack right redzone:     f3
+  Stack after return:      f5
+  Stack use after scope:   f8
+  Global redzone:          f9
+  Global init order:       f6
+  Poisoned by user:        f7
+  Container overflow:      fc
+  Array cookie:            ac
+  Intra object redzone:    bb
+  ASan internal:           fe
+  Left alloca redzone:     ca
+  Right alloca redzone:    cb
+==18==ABORTING
+subprocess command returned a non-zero exit status: 1
+INFO:__main__:Running: docker run --privileged --shm-size=2g --platform linux/amd64 --rm -i -e HELPER=True -e ARCHITECTURE=x86_64 -v /home/qqor/crete/packages/python_oss_fuzz/.oss_fuzz/build/out/systemd:/out -v /tmp/tmppk61pisk:/testcase -t ghcr.io/aixcc-finals/base-runner:v1.3.0 reproduce fuzz-catalog -runs=100.
+
+</crash_log>

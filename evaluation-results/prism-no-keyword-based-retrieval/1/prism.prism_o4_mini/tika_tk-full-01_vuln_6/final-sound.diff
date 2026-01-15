@@ -1,0 +1,31 @@
+--- a/tika-app/src/main/java/org/apache/tika/cli/TikaUntar.java
++++ b/tika-app/src/main/java/org/apache/tika/cli/TikaUntar.java
+@@ -33,6 +33,7 @@
+     public static void main(String[] args) throws IOException {
+         Path inputFile = Paths.get(args[0]);
+         Path extractDir = Paths.get(args[1]);
++        Path root = extractDir.toAbsolutePath().normalize();
+         try (InputStream is = Files.newInputStream(inputFile);
+                 TarArchiveInputStream tais = new TarArchiveInputStream(is)) {
+ 
+@@ -40,7 +41,19 @@
+ 
+             while (tae != null) {
+                 if (tae.isFile()) {
+-                    Path target = extractDir.resolve(tae.getName()).normalize();
++                    String entryName = tae.getName().replace('\u0000', ' ');
++                    String sanitized = org.apache.commons.io.FilenameUtils.normalize(entryName, true);
++                    if (sanitized == null) {
++                        System.err.println("Skipping malformed entry '" + tae.getName() + "'");
++                        tae = tais.getNextEntry();
++                        continue;
++                    }
++                    Path target = root.resolve(sanitized).normalize();
++                    if (!target.startsWith(root)) {
++                        System.err.println("Skipping entry '" + tae.getName() + "' as it is outside the target dir");
++                        tae = tais.getNextEntry();
++                        continue;
++                    }
+                     if (!Files.isDirectory(target.getParent())) {
+                         Files.createDirectories(target.getParent());
+                     }

@@ -1,0 +1,53 @@
+diff --git a/poi/src/main/java/org/apache/poi/ss/format/CellFormatPart.java b/poi/src/main/java/org/apache/poi/ss/format/CellFormatPart.java
+index ea8eaa37b..854419f32 100644
+--- a/poi/src/main/java/org/apache/poi/ss/format/CellFormatPart.java
++++ b/poi/src/main/java/org/apache/poi/ss/format/CellFormatPart.java
+@@ -117,32 +117,34 @@ public class CellFormatPart {
+         // Note: careful that in something like ##, that the trailing comma is not caught up in the integer part
+ 
+         // A part of a specification
++        // Note: Using possessive quantifiers (++ and *+) to prevent catastrophic backtracking
++        // that can lead to stack overflow with malicious input (ReDoS vulnerability)
+         //noinspection RegExpRedundantEscape
+         String part = "\\\\.                     # Quoted single character\n" +
+-                "|\"([^\\\\\"]|\\\\.)*\"         # Quoted string of characters (handles escaped quotes like \\\") \n" +
++                "|\"([^\\\\\"]|\\\\.)*+\"        # Quoted string of characters (handles escaped quotes like \\\") \n" +
+                 "|"+currency+"                   # Currency symbol in a given locale\n" +
+                 "|_.                             # Space as wide as a given character\n" +
+                 "|\\*.                           # Repeating fill character\n" +
+                 "|@                              # Text: cell text\n" +
+-                "|([0?\\#][0?\\#,]*)             # Number: digit + other digits and commas\n" +
++                "|([0?\\#][0?\\#,]*+)            # Number: digit + other digits and commas\n" +
+                 "|e[-+]                          # Number: Scientific: Exponent\n" +
+-                "|m{1,5}                         # Date: month or minute spec\n" +
+-                "|d{1,4}                         # Date: day/date spec\n" +
+-                "|y{2,4}                         # Date: year spec\n" +
+-                "|h{1,2}                         # Date: hour spec\n" +
+-                "|s{1,2}                         # Date: second spec\n" +
++                "|m{1,5}+                        # Date: month or minute spec\n" +
++                "|d{1,4}+                        # Date: day/date spec\n" +
++                "|y{2,4}+                        # Date: year spec\n" +
++                "|h{1,2}+                        # Date: hour spec\n" +
++                "|s{1,2}+                        # Date: second spec\n" +
+                 "|am?/pm?                        # Date: am/pm spec\n" +
+-                "|\\[h{1,2}]                     # Elapsed time: hour spec\n" +
+-                "|\\[m{1,2}]                     # Elapsed time: minute spec\n" +
+-                "|\\[s{1,2}]                     # Elapsed time: second spec\n" +
++                "|\\[h{1,2}+]                    # Elapsed time: hour spec\n" +
++                "|\\[m{1,2}+]                    # Elapsed time: minute spec\n" +
++                "|\\[s{1,2}+]                    # Elapsed time: second spec\n" +
+                 "|[^;]                           # A character\n";
+ 
+-        String format = "(?:" + color + ")?                 # Text color\n" +
+-                "(?:\\[" + condition + "])?               # Condition\n" +
++        String format = "(?:" + color + ")?+                # Text color\n" +
++                "(?:\\[" + condition + "])?+              # Condition\n" +
+                 // see https://msdn.microsoft.com/en-ca/goglobal/bb964664.aspx and https://bz.apache.org/ooo/show_bug.cgi?id=70003
+                 // we ignore these for now though
+-                "(?:\\[\\$-[0-9a-fA-F]+])?                # Optional locale id, ignored currently\n" +
+-                "((?:" + part + ")+)                        # Format spec\n";
++                "(?:\\[\\$-[0-9a-fA-F]+])?+               # Optional locale id, ignored currently\n" +
++                "((?:" + part + ")++)                       # Format spec\n";
+ 
+         int flags = Pattern.COMMENTS | Pattern.CASE_INSENSITIVE;
+         COLOR_PAT = Pattern.compile(color, flags);

@@ -1,0 +1,36 @@
+diff --git a/libfreerdp/core/gcc.c b/libfreerdp/core/gcc.c
+index d135d83..baf547d 100644
+--- a/libfreerdp/core/gcc.c
++++ b/libfreerdp/core/gcc.c
+@@ -1853,17 +1853,22 @@ BOOL gcc_read_client_network_data(wStream* s, rdpMcs* mcs)
+ 	const size_t blockLength = Stream_GetRemainingLength(s);
+ 	if (blockLength < 4)
+ 		return FALSE;
+-
+-	Stream_Read_UINT8(s, mcs->channelCount); /* channelCount */
+-
+-	if (blockLength < 4 + (UINT8)mcs->channelCount * 12)
+-		return FALSE;
+-
+-	if (mcs->channelCount > CHANNEL_MAX_COUNT)
+-		return FALSE;
++	/* Read and validate channel count */
++	{
++		UINT8 channelCount = 0;
++		Stream_Read_UINT8(s, channelCount); /* channelCount */
++		/* Ensure count within bounds */
++		if (channelCount > CHANNEL_MAX_COUNT)
++			return FALSE;
++		/* Check total block length for all channel defs (12 bytes each) plus header */
++		if (blockLength < 4 + (size_t)channelCount * 12)
++			return FALSE;
++		/* Store validated count */
++		mcs->channelCount = channelCount;
++	}
+ 
+ 	/* channelDefArray */
+-	for (UINT32 i = 0; i < mcs->channelCount; i++)
++	for (UINT32 i = 0; i < (UINT32)mcs->channelCount; i++)
+ 	{
+ 		/**
+ 		 * CHANNEL_DEF

@@ -1,0 +1,14 @@
+{
+  "project_name": "apache-poi",
+  "vulnerability_identifier": "apache-poi_poi-full-01_vuln_1",
+  "source_directory": "/home/qqor/crete/.cache/official-afc-poi",
+  "llm_usage": {
+    "total_cost": 0.5569289,
+    "prompt_tokens": 279307,
+    "completion_tokens": 56748
+  },
+  "variant": "sound",
+  "diff": "--- a/poi/src/main/java/org/apache/poi/util/IOUtils.java\n+++ b/poi/src/main/java/org/apache/poi/util/IOUtils.java\n@@ -60,7 +60,14 @@\n     private static int MAX_BYTE_ARRAY_INIT_SIZE = -1;\n \n     /**\n-     * The default size of the bytearray used while reading input streams. This is meant to be pretty small.\n+     * Global default maximum record length for safe allocations via IOUtils.\n+     * Can be overridden per record type via {@link #setByteArrayMaxOverride(int)}.\n+     */\n+    public static final int MAX_RECORD_LENGTH = Integer.MAX_VALUE;\n+\n+    /**\n+     * Peeks at the first 8 bytes of the stream. Returns those bytes, but\n+     *  with the stream unaffected. Requires a stream that supports mark/reset,\n      */\n     private static final int DEFAULT_BUFFER_SIZE = 4096;\n \n\n--- a/poi/src/main/java/org/apache/poi/util/StringUtil.java\n+++ b/poi/src/main/java/org/apache/poi/util/StringUtil.java\n@@ -24,6 +24,7 @@\n import java.nio.charset.StandardCharsets;\n import java.util.Arrays;\n import java.util.Locale;\n+import org.apache.poi.util.IOUtils;\n \n /**\n  * Collection of string handling utilities\n@@ -91,6 +92,10 @@\n             throw new IllegalArgumentException(\"Illegal length \" + len);\n         }\n \n+        long byteLen = (long) len * 2;\n+        if (byteLen > IOUtils.MAX_RECORD_LENGTH) {\n+            throw new IllegalArgumentException(\"Requested UnicodeLE string length exceeds maximum: \" + len);\n+        }\n         return new String(string, offset, len * 2, UTF16LE);\n     }\n \n\n--- a/poi-scratchpad/src/main/java/org/apache/poi/hmef/attribute/MAPIAttribute.java\n+++ b/poi-scratchpad/src/main/java/org/apache/poi/hmef/attribute/MAPIAttribute.java\n@@ -168,7 +168,7 @@\n                   if (mplen < 0) {\n                      throw new IOException(\"Did not expect negative value: \" + mplen);\n                   }\n-                  byte[] mpdata = new byte[mplen];\n+                  byte[] mpdata = IOUtils.safelyAllocate(mplen, MAX_RECORD_LENGTH);\n                   if (IOUtils.readFully(inp, mpdata) < 0) {\n                      throw new IOException(\"Not enough data to read \" + mplen + \" bytes for attribute name\");\n                   }\n",
+  "stdout": "",
+  "stderr": ""
+}

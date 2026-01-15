@@ -1,0 +1,26 @@
+diff --git a/src/main/java/org/apache/commons/compress/archivers/tar/TarUtils.java b/src/main/java/org/apache/commons/compress/archivers/tar/TarUtils.java
+index 3b2b5be88..67a0bd808 100644
+--- a/src/main/java/org/apache/commons/compress/archivers/tar/TarUtils.java
++++ b/src/main/java/org/apache/commons/compress/archivers/tar/TarUtils.java
+@@ -767,6 +767,10 @@ private static long[] readLineOfNumberForPax1X(final InputStream inputStream) th
+         int number;
+         long result = 0;
+         long bytesRead = 0;
++        // Limit max digits to prevent denial of service. 19 digits can represent
++        // values up to Long.MAX_VALUE (9223372036854775807), which is sufficient.
++        final int maxDigits = 19;
++        int digitCount = 0;
+         while ((number = inputStream.read()) != '\n') {
+             bytesRead += 1;
+             if (number == -1) {
+@@ -775,6 +779,10 @@ private static long[] readLineOfNumberForPax1X(final InputStream inputStream) th
+             if (number < '0' || number > '9') {
+                 throw new IOException("Corrupted TAR archive. Non-numeric value in sparse headers block");
+             }
++            digitCount++;
++            if (digitCount > maxDigits) {
++                throw new IOException("Corrupted TAR archive. Number exceeds maximum length in sparse headers block");
++            }
+             result = result * 10 + (number - '0');
+         }
+         bytesRead += 1;

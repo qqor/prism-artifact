@@ -1,0 +1,170 @@
+
+================================================================================
+Response 1
+================================================================================
+Let me analyze the crash log and the failed patches to understand why they didn't work.
+
+## Why the Previous Patches Failed
+
+The previous patches attempted to fix the vulnerability by limiting the format string length to 4096 characters. However, the stack overflow is caused by **regex catastrophic backtracking** in the `FORMAT_PAT` pattern, not simply by long input strings. Even relatively short inputs with specific patterns can cause the regex engine to use excessive recursion, leading to stack overflow.
+
+The key issue is in the regex patterns themselves - specifically patterns with nested loops and optional groups (like `(x?)*` patterns) that cause exponential backtracking.
+
+Let me examine the source code to understand the regex patterns:
+
+================================================================================
+Response 2
+================================================================================
+Now I understand the issue. The problem is in the `part` regex pattern, specifically the `((?:" + part + ")+)` which creates a nested loop structure. Looking at the pattern structure:
+
+```java
+String part = "\\\\.                     # Quoted single character\n" +
+        "|\"([^\\\\\"]|\\\\.)*\"         # Quoted string of characters\n" +
+        ... + 
+        "|[^;]                           # A character\n";
+
+String format = ... +
+        "((?:" + part + ")+)              # Format spec\n";
+```
+
+The `[^;]` fallback in `part` combined with the `+` quantifier creates problematic backtracking because it can match almost anything. Each character could be matched by either a specific pattern or the fallback `[^;]`.
+
+The fix approach of limiting string length (4096 characters) failed because a malicious input can cause stack overflow even with shorter strings due to the nested quantifiers and backtracking.
+
+**A completely different approach:** Instead of limiting input length, we should modify the regex to prevent catastrophic backtracking by making the regex possessive or by restructuring to avoid the problematic pattern. However, since Java's regex doesn't support possessive quantifiers inside groups well, a better approach is to **wrap the regex matching in a try-catch to handle StackOverflowError gracefully**.
+
+Let me read the CellFormat.java file as well to see where the patterns are used:
+
+================================================================================
+Response 3
+================================================================================
+Now I have a complete understanding of the issue. I notice that in `CellFormat.java` there's already an existing try-catch for `StackOverflowError` (lines 199-206), but it throws an `IllegalStateException`. The issue is that:
+
+1. The existing catch only covers the `while (m.find())` loop but not the `CellFormatPart` constructor call on line 180
+2. The `CellFormatPart` constructor (line 184-194) calls `FORMAT_PAT.matcher(desc).matches()` which can also cause the stack overflow
+3. The throw of `IllegalStateException` still propagates to the caller and crashes
+
+## Why the Previous Patches Failed
+
+The previous patches added length limits, but:
+1. Stack overflow can occur with inputs much shorter than 4096 characters due to backtracking
+2. The length check happens too late - after the regex is already being used
+3. Even short crafted inputs can trigger catastrophic backtracking in the regex
+
+## A Completely Different Approach
+
+Instead of limiting input length, we should catch the `StackOverflowError` at the point where it occurs (in `CellFormatPart.java` where `FORMAT_PAT.matcher(desc).matches()` is called) and convert it to a graceful `IllegalArgumentException`. This follows the pattern already used in `CellFormat.java`.
+
+Let me create the patch:
+
+================================================================================
+Response 4
+================================================================================
+Now let me apply the fix. The approach is to wrap the `FORMAT_PAT.matcher(desc).matches()` call in a try-catch for `StackOverflowError` and convert it to an `IllegalArgumentException`:
+
+================================================================================
+Response 5
+================================================================================
+Now I also need to check if there are other places where the `SPECIFICATION_PAT` regex is used (as shown in the stack trace with `Pattern$Loop.match`) that could cause similar issues. Let me check the `formatType` method and `parseFormat` method:
+
+================================================================================
+Response 6
+================================================================================
+I see there are additional uses of `SPECIFICATION_PAT.matcher()` in both `formatType()` and `parseFormat()` methods. The `formatType` method uses `m.find()` and `parseFormat` also uses `m.find()`. These could also cause stack overflow during regex matching. However, looking at the stack trace more carefully:
+
+```
+at java.base/java.util.regex.Pattern$Loop.match(Pattern.java:4898)
+at java.base/java.util.regex.Pattern$GroupTail.match(Pattern.java:4820)
+```
+
+The `Loop` and `GroupTail` pattern suggests this is from the `FORMAT_PAT` which uses the `((?:" + part + ")+)` pattern. The `FORMAT_PAT` is used via `m.matches()` which could cause the stack overflow.
+
+The key vulnerability is in the constructor where `FORMAT_PAT.matcher(desc).matches()` is called. My fix addresses this. However, let me also add protection to the `formatType` and `parseFormat` methods to be thorough:
+
+================================================================================
+Response 7
+================================================================================
+Now let's also protect the `parseFormat` method:
+
+================================================================================
+Response 8
+================================================================================
+Now let me verify the final state of the file to make sure all the changes are correct:
+
+================================================================================
+Response 9
+================================================================================
+The fix is in place. Let me provide a summary of why the previous patches failed and how this new patch addresses the vulnerability:
+
+## Why the Previous Patches Failed
+
+The previous patches tried to fix the vulnerability by **limiting the format string length to 4096 characters**. This approach failed because:
+
+1. **Stack overflow can occur with short inputs**: The vulnerability is caused by **catastrophic regex backtracking**, not just long strings. The `FORMAT_PAT` regex pattern contains nested quantifiers like `((?:" + part + ")+)` where `part` includes a catch-all `[^;]` pattern. This creates exponential backtracking possibilities even for relatively short but maliciously crafted inputs.
+
+2. **Length check happens too late**: Even if the length check existed, the vulnerability could be triggered before the check runs, or with inputs shorter than 4096 characters.
+
+3. **The root cause wasn't addressed**: Limiting input length is a mitigation, not a fix. The underlying vulnerable regex patterns remain unchanged and can still cause stack overflow.
+
+## New Patch: Different Approach
+
+The new patch takes a completely different approach by:
+
+1. **Catching `StackOverflowError`** at the point where regex matching occurs (in `CellFormatPart.java`)
+
+2. **Converting to `IllegalArgumentException`**: Instead of letting the stack overflow crash the application, the error is caught and converted to a graceful `IllegalArgumentException` with a descriptive message
+
+3. **Protecting all vulnerable code paths**: The patch protects:
+   - The constructor's `FORMAT_PAT.matcher(desc).matches()` call
+   - The `formatType()` method's `SPECIFICATION_PAT.matcher().find()` loop
+   - The `parseFormat()` method's `SPECIFICATION_PAT.matcher().find()` loop
+
+This approach allows the application to handle malicious inputs gracefully without crashing, while maintaining full functionality for legitimate format strings.
+
+### New Patch Summary
+
+```diff
+diff --git a/poi/src/main/java/org/apache/poi/ss/format/CellFormatPart.java b/poi/src/main/java/org/apache/poi/ss/format/CellFormatPart.java
+--- a/poi/src/main/java/org/apache/poi/ss/format/CellFormatPart.java
++++ b/poi/src/main/java/org/apache/poi/ss/format/CellFormatPart.java
+@@ -184,8 +184,15 @@ public class CellFormatPart {
+     public CellFormatPart(Locale locale, String desc) {
+         Matcher m = FORMAT_PAT.matcher(desc);
+-        if (!m.matches()) {
++        boolean matches;
++        try {
++            matches = m.matches();
++        } catch (StackOverflowError e) {
++            // Complex format patterns can cause catastrophic regex backtracking
++            // leading to stack overflow. Catch this and convert to a more graceful exception.
++            throw new IllegalArgumentException("Format pattern is too complex and cannot be parsed: " + quote(desc));
++        }
++        if (!matches) {
+             throw new IllegalArgumentException("Unrecognized format: " + quote(
+                     desc));
+         }
+
+@@ -344,6 +351,7 @@ public class CellFormatPart {
+         Matcher m = SPECIFICATION_PAT.matcher(fdesc);
+         boolean couldBeDate = false;
+         boolean seenZero = false;
++        try {
+         while (m.find()) {
+             // ... existing code ...
+         }
++        } catch (StackOverflowError e) {
++            throw new IllegalArgumentException("Format pattern is too complex and cannot be parsed: " + quote(fdesc));
++        }
+
+@@ -508,6 +516,7 @@ public class CellFormatPart {
+         Matcher m = SPECIFICATION_PAT.matcher(fdesc);
+         StringBuffer fmt = new StringBuffer();
++        try {
+             while (m.find()) {
+                 // ... existing code ...
+             }
+             m.appendTail(fmt);
++        } catch (StackOverflowError e) {
++            throw new IllegalArgumentException("Format pattern is too complex and cannot be parsed: " + quote(fdesc));
++        }
+```

@@ -1,0 +1,33 @@
+--- a/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-microsoft-module/src/main/java/org/apache/tika/parser/microsoft/rtf/RTFEmbObjHandler.java
++++ b/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-microsoft-module/src/main/java/org/apache/tika/parser/microsoft/rtf/RTFEmbObjHandler.java
+@@ -211,17 +211,19 @@
+             extractObj(bytes, handler, metadata);
+ 
+         } else if (state == EMB_STATE.JAVA_OBJDATA) {
+-            try {
+-                Object obj = new ObjectInputStream(
+-                        UnsynchronizedByteArrayInputStream.builder().setByteArray(bytes)
+-                                .get()).readObject();
+-                metadata.set(RTFMetadata.EMB_CLASS, obj.getClass().getName());
+-                metadata.set(TikaCoreProperties.CONTENT_TYPE_PARSER_OVERRIDE,
+-                        MediaType.text("plain").toString());
+-                extractObj(obj.toString().getBytes(StandardCharsets.UTF_8), handler, metadata);
+-            } catch (ClassNotFoundException e) {
+-                throw new TikaException("Not found", e);
+-            }
++            // Skip unsafe deserialization of Java object data to prevent RCE
++            metadata.set(RTFMetadata.EMB_CLASS, "deserialization-skipped");
++            metadata.set(TikaCoreProperties.CONTENT_TYPE_PARSER_OVERRIDE,
++                    MediaType.text("plain").toString());
++            // Record raw data length instead of parsing object
++            metadata.set(Metadata.CONTENT_LENGTH, Integer.toString(bytes.length));
++            // Do not extract object content to avoid executing untrusted payload
++
++            // Reset handler state and end processing for this object
++            reset();
++            return;
++
++            // Safe fallback: original object deserialization removed
+         } else if (state == EMB_STATE.NADA) {
+             //swallow...no start for pict or embed?!
+         }

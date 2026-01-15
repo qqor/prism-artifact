@@ -1,0 +1,37 @@
+diff --git a/poi-scratchpad/src/main/java/org/apache/poi/hmef/CompressedRTF.java b/poi-scratchpad/src/main/java/org/apache/poi/hmef/CompressedRTF.java
+index 46988b9ec..25bafa5c3 100644
+--- a/poi-scratchpad/src/main/java/org/apache/poi/hmef/CompressedRTF.java
++++ b/poi-scratchpad/src/main/java/org/apache/poi/hmef/CompressedRTF.java
+@@ -22,6 +22,7 @@ import java.io.InputStream;
+ import java.io.OutputStream;
+ import java.nio.charset.StandardCharsets;
+ 
++import org.apache.commons.io.input.BoundedInputStream;
+ import org.apache.poi.util.IOUtils;
+ import org.apache.poi.util.LZWDecompresser;
+ import org.apache.poi.util.LittleEndian;
+@@ -84,14 +85,23 @@ public final class CompressedRTF extends LZWDecompresser {
+       if(compressionType == UNCOMPRESSED_SIGNATURE_INT) {
+          // Nope, nothing fancy to do
+          IOUtils.copy(src, res);
++         return;
+       } else if(compressionType == COMPRESSED_SIGNATURE_INT) {
+          // We need to decompress it below
+       } else {
+          throw new IllegalArgumentException("Invalid compression signature " + compressionType);
+       }
+ 
++      // Limit the input stream to the declared compressed size (minus 12-byte header already read)
++      // This prevents malicious inputs from causing infinite decompression loops
++      int maxCompressedBytes = compressedSize - 12;
++      if (maxCompressedBytes < 0) {
++         throw new IllegalArgumentException("Invalid compressed size: " + compressedSize);
++      }
++      InputStream boundedSrc = BoundedInputStream.builder().setInputStream(src).setMaxCount(maxCompressedBytes).get();
++
+       // Have it processed
+-      super.decompress(src, res);
++      super.decompress(boundedSrc, res);
+    }
+ 
+    /**

@@ -1,0 +1,27 @@
+--- a/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-xml-module/src/main/java/org/apache/tika/parser/xliff/XLIFF12Parser.java
++++ b/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-xml-module/src/main/java/org/apache/tika/parser/xliff/XLIFF12Parser.java
+@@ -79,12 +79,23 @@
+                                ParseContext context) throws SAXException, IOException {
+         SAXParserFactory factory = SAXParserFactory.newInstance();
+         factory.setNamespaceAware(true);
+-        SAXParser parser = null;
++        try {
++            factory.setFeature(javax.xml.XMLConstants.FEATURE_SECURE_PROCESSING, true);
++            factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
++            factory.setFeature("http://xml.org/sax/features/external-general-entities", false);
++            factory.setFeature("http://xml.org/sax/features/external-parameter-entities", false);
++            factory.setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false);
++        } catch (ParserConfigurationException | org.xml.sax.SAXNotSupportedException | org.xml.sax.SAXNotRecognizedException e) {
++            throw new SAXException("Could not secure XML parser settings", e);
++        }
++        SAXParser parser;
+         try {
+             parser = factory.newSAXParser();
+         } catch (ParserConfigurationException e) {
+             throw new SAXException(e);
+         }
++        parser.getXMLReader().setEntityResolver((publicId, systemId) ->
++                new org.xml.sax.InputSource(new java.io.StringReader("")));
+         parser.parse(is, contentHandler);
+     }
+ 

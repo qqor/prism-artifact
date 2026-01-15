@@ -1,0 +1,55 @@
+
+================================================================================
+Response 1
+================================================================================
+Let me find the source directory:
+
+================================================================================
+Response 2
+================================================================================
+Now let me look at the function signature and context around line 3194 to understand the bug better:
+
+================================================================================
+Response 3
+================================================================================
+Now let me check the calling context in `try_dissect_unknown_ber` to understand what `name_string` buffer size is:
+
+================================================================================
+Response 4
+================================================================================
+Now I understand the bug:
+
+1. `name_string` is declared as `char name_string[80]` at line 825 in `try_dissect_unknown_ber`
+2. At line 935, `dissect_ber_GeneralString` is called with `name_string` and `sizeof(name_string)` (80)
+3. In `dissect_ber_GeneralString` at line 3188, `tvb_len` is read from the tvbuff as a signed `int8_t`
+4. At line 3194, `name_string[tvb_len] = '\0'` is executed
+
+The bug: `tvb_len` is a `int8_t` which can be negative (e.g., 0xFF = -1). When negative, `name_string[tvb_len]` becomes `name_string[-1]`, causing a stack buffer underflow (writing at offset 159 when `name_string` starts at offset 160, i.e., one byte before the buffer).
+
+The fix should:
+1. Validate that `tvb_len` is non-negative (or change it to unsigned type)
+2. Check that `tvb_len` is within bounds of `name_len`
+
+Let me look at the crash log more carefully - it confirms this: "Memory access at offset 159 underflows this variable" where `name_string` is at `[160, 240)`.
+
+================================================================================
+Response 5
+================================================================================
+The patch has been applied. Here's a summary of the fix:
+
+## Summary of the Bug and Fix
+
+**Bug:** Stack buffer overflow in `dissect_ber_GeneralString()` function in `packet-ber.c:3194`
+
+**Root Cause:** 
+1. The variable `tvb_len` was declared as `int8_t` (signed 8-bit integer)
+2. It was read using `tvb_get_uint8(tvb, offset)` which returns an unsigned byte
+3. When the byte value is >= 128 (0x80-0xFF), it gets interpreted as a negative number when stored in `int8_t`
+4. Using this negative value as an index in `name_string[tvb_len]` causes an underflow write before the buffer
+
+**Fix Applied:**
+1. Changed `tvb_len` from `int8_t` to `unsigned` to properly handle all byte values
+2. Changed the method to get the length from reading a raw byte at an arbitrary offset (`tvb_get_uint8(tvb, offset)`) to using `tvb_reported_length(out_tvb)` which gives the actual reported length of the output tvbuff - this is more correct semantically
+3. Ensured the null terminator is always written within bounds:
+   - If `tvb_len >= name_len`: copy `name_len-1` bytes and null-terminate at position `name_len-1`
+   - If `tvb_len < name_len`: copy `tvb_len` bytes and null-terminate at position `tvb_len`

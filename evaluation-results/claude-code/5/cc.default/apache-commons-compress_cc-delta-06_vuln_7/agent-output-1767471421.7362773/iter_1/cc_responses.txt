@@ -1,0 +1,106 @@
+
+================================================================================
+Response 1
+================================================================================
+Now I understand the issue. Let me analyze the vulnerability and why the previous patches failed.
+
+## Analysis of the Vulnerability
+
+The crash log shows a path traversal vulnerability at:
+```
+/tmp/expander-tmp2839794566451461562/output/q/r/jazzer-traversal
+```
+
+The vulnerability is in the `resolveIn` method. Looking at the code:
+
+### `ZipArchiveEntry.resolveIn()` (lines 1484-1492):
+```java
+public Path resolveIn(final Path parentPath) throws IOException {
+    final String name = getName();
+    final Path outputFile = parentPath.resolve(name).normalize();
+    if (!outputFile.startsWith(parentPath)) {
+        throw new IOException(String.format("Zip slip '%s' + '%s' -> '%s'", parentPath, name, outputFile));
+    }
+    return parentPath.resolve(Normalizer.normalize(name, Normalizer.Form.NFKD)).normalize();
+}
+```
+
+### Why the previous patches failed:
+
+The previous patches tried to normalize the parent path before the comparison, but the fundamental issue is different. The problem is that **the validation is done with the original name, but the returned path uses `Normalizer.normalize(name, Normalizer.Form.NFKD)`** which performs Unicode normalization.
+
+This is a **TOCTOU (Time-Of-Check to Time-Of-Use)** vulnerability:
+1. **Check**: The code validates `parentPath.resolve(name).normalize()` is within `parentPath`
+2. **Use**: But it returns `parentPath.resolve(Normalizer.normalize(name, Normalizer.Form.NFKD)).normalize()` which is a DIFFERENT path!
+
+Unicode NFKD normalization can convert certain Unicode characters to ASCII equivalents. For example:
+- `．` (fullwidth period, U+FF0E) normalizes to `.`
+- `．．` normalizes to `..`
+- Various Unicode representations of `/` normalize to `/`
+
+So an attacker can craft a name like `q/r/．．/．．/jazzer-traversal` which:
+1. Passes the initial check (because the raw name doesn't look like path traversal)
+2. After NFKD normalization becomes `q/r/../../jazzer-traversal` which escapes the target directory
+
+The fix needs to validate the **final returned path**, not just the initial resolved path.
+
+================================================================================
+Response 2
+================================================================================
+Now let me also fix the base `ArchiveEntry.resolveIn()` method to use the same approach for consistency and defense in depth:
+
+================================================================================
+Response 3
+================================================================================
+Now let me provide a summary of the fix:
+
+## Why the Previous Patches Failed
+
+The previous patches focused on normalizing the parent path, but missed the actual root cause of the vulnerability. The problem was a **TOCTOU (Time-Of-Check to Time-Of-Use)** vulnerability in `ZipArchiveEntry.resolveIn()`:
+
+1. **Check phase**: The code validated `parentPath.resolve(name).normalize()` against `parentPath`
+2. **Use phase**: But it returned `parentPath.resolve(Normalizer.normalize(name, Normalizer.Form.NFKD)).normalize()` — a **different** path!
+
+The Unicode NFKD normalization can transform malicious Unicode sequences into path traversal attacks:
+- `．` (fullwidth period, U+FF0E) → `.`  
+- `／` (fullwidth solidus, U+FF0F) → `/`
+- So `q/r/．．／．．／jazzer-traversal` normalizes to `q/r/../../jazzer-traversal`
+
+## The New Fix
+
+The fix applies a completely different approach:
+
+### For `ZipArchiveEntry.resolveIn()`:
+```java
+public Path resolveIn(final Path parentPath) throws IOException {
+    final String name = getName();
+    final Path normalizedParent = parentPath.toAbsolutePath().normalize();
+    // Apply Unicode NFKD normalization first, then validate the result
+    final String normalizedName = Normalizer.normalize(name, Normalizer.Form.NFKD);
+    final Path outputFile = normalizedParent.resolve(normalizedName).normalize();
+    if (!outputFile.startsWith(normalizedParent)) {
+        throw new IOException(String.format("Zip slip '%s' + '%s' -> '%s'", parentPath, name, outputFile));
+    }
+    return outputFile;
+}
+```
+
+Key changes:
+1. **Apply Unicode normalization BEFORE validation** - The `Normalizer.normalize()` is now applied to the name before resolving and checking
+2. **Validate the actual returned path** - We check the same path that we return, eliminating the TOCTOU issue
+3. **Use absolute path for parent** - `toAbsolutePath().normalize()` ensures consistent path comparison regardless of the working directory
+
+### For `ArchiveEntry.resolveIn()`:
+```java
+default Path resolveIn(final Path parentPath) throws IOException {
+    final String name = getName();
+    final Path normalizedParent = parentPath.toAbsolutePath().normalize();
+    final Path outputFile = normalizedParent.resolve(name).normalize();
+    if (!outputFile.startsWith(normalizedParent)) {
+        throw new IOException(String.format("Zip slip '%s' + '%s' -> '%s'", parentPath, name, outputFile));
+    }
+    return outputFile;
+}
+```
+
+The base implementation is also improved to use absolute paths for reliable comparison.

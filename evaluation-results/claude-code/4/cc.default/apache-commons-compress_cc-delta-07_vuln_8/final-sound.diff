@@ -1,0 +1,86 @@
+diff --git a/src/main/java/org/apache/commons/compress/archivers/examples/Expander.java b/src/main/java/org/apache/commons/compress/archivers/examples/Expander.java
+index 30649f530..f39ffb814 100644
+--- a/src/main/java/org/apache/commons/compress/archivers/examples/Expander.java
++++ b/src/main/java/org/apache/commons/compress/archivers/examples/Expander.java
+@@ -471,33 +471,42 @@ public void expand(final ZipFile archive, final Path targetDirectory) throws IOE
+         if (! Files.isDirectory(targetDirectory)) {
+             Files.createDirectories(targetDirectory);
+         }
++        final Path normalizedTargetDir = targetDirectory.toAbsolutePath().normalize();
+         final Enumeration<ZipArchiveEntry> entries = archive.getEntries();
+         while (entries.hasMoreElements()) {
+             ZipArchiveEntry zae = entries.nextElement();
+             if (zae.isUnixSymlink()) {
+                 String targetName = IOUtils.toString(archive.getInputStream(zae),
+                         StandardCharsets.UTF_8);
+-                Path link = targetDirectory.resolve(zae.getName());
+-                Path target = targetDirectory.resolve(targetName);
+-                Path parent = createParentDirectory(targetDirectory, link);
+-
+-                if (!Files.isSameFile(link.getParent(), parent)) {
+-                    link = parent.relativize(link.getFileName()).normalize();
++                Path link = targetDirectory.resolve(zae.getName()).normalize();
++                // Validate symlink location is within target directory
++                if (!link.toAbsolutePath().normalize().startsWith(normalizedTargetDir)) {
++                    throw new IOException(String.format("Zip slip '%s' + '%s' -> '%s'",
++                            targetDirectory, zae.getName(), link));
+                 }
+-                if (!Files.isRegularFile(link) && !Files.isSymbolicLink(link)) {
+-                    Files.createSymbolicLink(link, target);
++                Path parent = createParentDirectory(normalizedTargetDir, link);
++
++                Path finalLink = parent.resolve(link.getFileName());
++                if (!Files.isRegularFile(finalLink) && !Files.isSymbolicLink(finalLink)) {
++                    // Create symlink with the target as a relative path (don't resolve against targetDirectory)
++                    Files.createSymbolicLink(finalLink, java.nio.file.Paths.get(targetName));
+                 }
+             } else if (! zae.isDirectory()) {
+                 Path target = targetDirectory.resolve(zae.getName()).normalize();
+-                if (!target.startsWith(targetDirectory)) {
++                if (!target.toAbsolutePath().normalize().startsWith(normalizedTargetDir)) {
+                     throw new IOException(String.format("Zip slip '%s' + '%s' -> '%s'",
+                             targetDirectory, zae.getName(), target));
+                 }
+-                Path parent = createParentDirectory(targetDirectory, target);
++                Path parent = createParentDirectory(normalizedTargetDir, target);
+                 if (! target.getParent().toAbsolutePath().normalize().equals(
+                         parent.toAbsolutePath().normalize())) {
+                     target = parent.normalize().resolve(target.getFileName());
+                 }
++                // Final validation after parent directory creation
++                if (!target.toAbsolutePath().normalize().startsWith(normalizedTargetDir)) {
++                    throw new IOException(String.format("Zip slip '%s' + '%s' -> '%s'",
++                            targetDirectory, zae.getName(), target));
++                }
+                 try (InputStream is = archive.getInputStream(zae)) {
+                     Files.copy(is, target);
+                 }
+@@ -506,14 +515,25 @@ public void expand(final ZipFile archive, final Path targetDirectory) throws IOE
+     }
+ 
+     private static Path createParentDirectory(Path root, Path target) throws IOException {
++        final Path normalizedRoot = root.toAbsolutePath().normalize();
+         Path relative =
+-                root.relativize(target.getParent());
+-        Path current = root.toAbsolutePath();
++                normalizedRoot.relativize(target.toAbsolutePath().normalize().getParent());
++        Path current = normalizedRoot;
+ 
+         for (Path p : relative) {
++            // Skip parent directory references
++            if (p.toString().equals("..")) {
++                throw new IOException(String.format("Path traversal detected in '%s'", target));
++            }
+             current = current.resolve(p);
+             if (Files.isSymbolicLink(current)) {
+-                current = Files.readSymbolicLink(current);
++                Path resolved = current.toRealPath();
++                // Validate symlink target stays within root directory
++                if (!resolved.startsWith(normalizedRoot)) {
++                    throw new IOException(String.format("Symlink traversal detected: '%s' points to '%s' outside of '%s'",
++                            current, resolved, normalizedRoot));
++                }
++                current = resolved;
+             }
+             if (! Files.isDirectory(current)) {
+                 Files.createDirectory(current);

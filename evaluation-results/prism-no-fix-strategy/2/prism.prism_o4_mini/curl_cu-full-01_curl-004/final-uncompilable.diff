@@ -1,0 +1,115 @@
+--- a/lib/file.c
++++ b/lib/file.c
+@@ -471,55 +471,77 @@
+       "the contents of this file use the -i option.\r\n" };
+     static const char body_msg[]= { "File-body: included.\r\n"};
+     if(expected_size >= 0) {
+-      headerlen =
+-        msnprintf(header, sizeof(header), "Content-Length: %" FMT_OFF_T "\r\n",
+-                  expected_size);
+-      result = Curl_client_write(data, CLIENTWRITE_HEADER,
++        /* Safely format Content-Length header */
++        headerlen = snprintf(header, sizeof(header),
++                             "Content-Length: %" FMT_OFF_T "\r\n",
++                             expected_size);
++        if(headerlen < 0)
++            headerlen = 0;
++        else if((size_t)headerlen >= sizeof(header))
++            headerlen = sizeof(header) - 1;
++        header[headerlen] = '\0';
++        result = Curl_client_write(data, CLIENTWRITE_HEADER,
+                                    header, headerlen);
+-      if(result)
+-        return result;
+-
+-      result = Curl_client_write(data, CLIENTWRITE_HEADER,
+-                                 accept_ranges, sizeof(accept_ranges) - 1);
+-      if(result != CURLE_OK)
+-        return result;
+-    }
+-
++        if(result)
++            return result;
++        /* Write Accept-Ranges header */
++        result = Curl_client_write(data, CLIENTWRITE_HEADER,
++                                   accept_ranges, sizeof(accept_ranges) - 1);
++        if(result)
++            return result;
++    }
+     filetime = (time_t)statbuf.st_mtime;
+     result = Curl_gmtime(filetime, &buffer);
+     if(result)
+       return result;
+ 
+     if(data->req.no_body) {
+-      headerlen =
+-      msnprintf(header, sizeof(no_body), "%s (%ld bytes) \r\n",
+-                  no_body, expected_size);
+-      result = Curl_client_write(data, CLIENTWRITE_HEADER, header, headerlen);
++        /* Safely format suppressed-body header */
++        headerlen = snprintf(header, sizeof(header),
++                             "%s (%" FMT_OFF_T " bytes)\r\n",
++                             no_body, expected_size);
++        if(headerlen < 0)
++            headerlen = 0;
++        else if((size_t)headerlen >= sizeof(header))
++            headerlen = sizeof(header) - 1;
++        header[headerlen] = '\0';
++        result = Curl_client_write(data, CLIENTWRITE_HEADER,
++                                   header, headerlen);
++        if(result)
++            return result;
+     }
+     else {
+-      result = Curl_client_write(data, CLIENTWRITE_HEADER,
+-                                 body_msg, sizeof(body_msg) - 1);
++        /* Send default File-body header when body is included */
++        result = Curl_client_write(data, CLIENTWRITE_HEADER,
++                                   body_msg, sizeof(body_msg) - 1);
++        if(result)
++            return result;
+     }
+     if(result)
+       return result;
+     /* format: "Tue, 15 Nov 1994 12:45:26 GMT" */
+-    headerlen =
+-      msnprintf(header, sizeof(header),
+-                "Last-Modified: %s, %02d %s %4d %02d:%02d:%02d GMT\r\n",
+-                Curl_wkday[tm->tm_wday ? tm->tm_wday-1 : 6],
+-                tm->tm_mday,
+-                Curl_month[tm->tm_mon],
+-                tm->tm_year + 1900,
+-                tm->tm_hour,
+-                tm->tm_min,
+-                tm->tm_sec);
+-    result = Curl_client_write(data, CLIENTWRITE_HEADER, header, headerlen);
+-    if(!result)
+-      /* end of headers */
+-      result = Curl_client_write(data, CLIENTWRITE_HEADER, "\r\n", 2);
++    headerlen = snprintf(header, sizeof(header),
++                         "Last-Modified: %s, %02d %s %04d %02d:%02d:%02d GMT\r\n",
++                         Curl_wkday[tm->tm_wday ? tm->tm_wday-1 : 6],
++                         tm->tm_mday,
++                         Curl_month[tm->tm_mon],
++                         tm->tm_year + 1900,
++                         tm->tm_hour,
++                         tm->tm_min,
++                         tm->tm_sec);
++    if(headerlen < 0)
++        headerlen = 0;
++    else if((size_t)headerlen >= sizeof(header))
++        headerlen = sizeof(header) - 1;
++    header[headerlen] = '\0';
++    result = Curl_client_write(data, CLIENTWRITE_HEADER,
++                               header, headerlen);
+     if(result)
+-      return result;
+-    /* set the file size to make it available post transfer */
++        return result;
++    /* end of headers */
++    result = Curl_client_write(data, CLIENTWRITE_HEADER, "\r\n", 2);
++    if(result)
++        return result;
+     Curl_pgrsSetDownloadSize(data, expected_size);
+     if(data->req.no_body)
+       return CURLE_OK;

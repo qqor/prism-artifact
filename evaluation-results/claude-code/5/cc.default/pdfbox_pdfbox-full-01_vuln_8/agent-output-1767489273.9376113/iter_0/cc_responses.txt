@@ -1,0 +1,117 @@
+
+================================================================================
+Response 1
+================================================================================
+Let me search for the fuzzer file and text extraction related code in this pdfbox project:
+
+================================================================================
+Response 2
+================================================================================
+This is a large file. Let me look at the `LegacyPDFStreamEngine.java` which is the parent class of `PDFTextStripper`, as well as explore other relevant content stream processing files to understand what could be causing the timeout:
+
+================================================================================
+Response 3
+================================================================================
+Let me look at the PDFStreamEngine to understand the main content stream processing:
+
+================================================================================
+Response 4
+================================================================================
+Now let me look at the DrawObject operator, which is commonly involved in recursive processing that could cause infinite loops/timeouts:
+
+================================================================================
+Response 5
+================================================================================
+The `DrawObject` already has a recursion limit of 50. Let me check `showType3Glyph` in `PDFStreamEngine` which processes Type3 character procedures. This could also cause timeouts with complex fonts. Let me also check the `showText` method and related operators for potential issues:
+
+================================================================================
+Response 6
+================================================================================
+Let me look at the `showType3Glyph` method in `PDFStreamEngine` more closely - this could be causing the timeout when Type 3 fonts are processed recursively. Looking at line 867-875:
+
+```java
+protected void showType3Glyph(Matrix textRenderingMatrix, PDType3Font font, int code,
+        Vector displacement) throws IOException
+{
+    PDType3CharProc charProc = font.getCharProc(code);
+    if (charProc != null)
+    {
+        processType3Stream(charProc, textRenderingMatrix);
+    }
+}
+```
+
+This processes Type 3 character procedures, but doesn't seem to have a recursion limit like `DrawObject` does. Let me also check if there are any issues with the `processType3Stream` method - it's not using `increaseLevel`/`decreaseLevel`:
+
+================================================================================
+Response 7
+================================================================================
+I see that `increaseLevel`/`decreaseLevel` is only used in the `DrawObject` operators, but not for Type3 font processing. Let me check the `processType3Stream` method:
+
+Looking back at line 278-310 of `PDFStreamEngine.java`, the `processType3Stream` method doesn't track recursion level. This could cause infinite loops if a Type3 font character procedure references itself or creates a cycle.
+
+Let me also check if there are any issues with the `showTextStrings` method at line 665-714 - specifically looking at how nested arrays are handled. I see on line 704-707:
+```java
+else if (obj instanceof COSArray)
+{
+    LOG.error("Nested arrays are not allowed in an array for TJ operation: {}", obj);
+}
+```
+
+This just logs an error but continues processing. If the nested array is processed recursively, it could cause issues. But this is already handled correctly.
+
+Now let me check the `processStreamOperators` method more closely. Looking at line 531-571, this method parses the content stream and processes each operator. The issue is that a malicious PDF could have an extremely long content stream that takes a long time to process.
+
+Let me look for where the source directory is to understand the structure:
+
+================================================================================
+Response 8
+================================================================================
+Now I understand the structure. The source directory is `/home/qqor/crete/.cache/official-afc-pdfbox/pdfbox/src/main/java/org/apache/pdfbox/`. 
+
+Based on the crash log and my analysis, the timeout issue is likely caused by:
+1. **Type 3 font processing without recursion limits** - `showType3Glyph` in `PDFStreamEngine.java` calls `processType3Stream` without checking recursion level
+2. **Missing recursion limit in Type3 stream processing** - `processType3Stream` doesn't use `increaseLevel()/decreaseLevel()`
+
+Let me verify this is the issue by looking at the `showType3Glyph` method again:
+
+================================================================================
+Response 9
+================================================================================
+Now I've confirmed the issue. The `showType3Glyph` method at line 867-875 doesn't check the recursion level before processing a Type 3 character procedure. This can lead to:
+
+1. Infinite recursion if a Type 3 font's character procedure references itself
+2. Extremely deep recursion that times out
+
+The fix is to add recursion level checking to `showType3Glyph` similar to how it's done in `DrawObject.java`.
+
+Let me create the patch:
+
+================================================================================
+Response 10
+================================================================================
+The patch has been applied successfully. The fix adds recursion level checking to the `showType3Glyph` method, similar to how it's implemented in the `DrawObject` operator. 
+
+Let me verify the patch is correct by reading the updated code:
+
+================================================================================
+Response 11
+================================================================================
+The patch has been applied successfully. Here's a summary of the fix:
+
+## Summary
+
+**Bug:** libFuzzer timeout after 25 seconds during PDF text extraction (`PDFExtractTextFuzzer`)
+
+**Root Cause:** The `showType3Glyph` method in `PDFStreamEngine.java` did not have any recursion limit checking before processing Type 3 font character procedures. A maliciously crafted PDF with self-referencing Type 3 fonts or deeply nested Type 3 character procedures could cause infinite recursion or extremely deep recursion, leading to the timeout.
+
+**Fix Applied:** Added recursion level checking to the `showType3Glyph` method, similar to the existing protection in `DrawObject.java`:
+
+1. Calls `increaseLevel()` before processing the Type 3 character procedure
+2. Checks if `level > 50` and logs an error and returns early if recursion is too deep
+3. Calls `decreaseLevel()` in a `finally` block to ensure the level is always decremented
+
+**File Modified:**
+- `/home/qqor/crete/.cache/official-afc-pdfbox/pdfbox/src/main/java/org/apache/pdfbox/contentstream/PDFStreamEngine.java`
+
+The fix prevents infinite recursion or excessive recursion depth that could cause timeouts, while still allowing reasonable nesting depth (up to 50 levels) for legitimate Type 3 fonts.

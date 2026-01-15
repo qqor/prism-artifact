@@ -1,0 +1,40 @@
+diff --git a/fontbox/src/main/java/org/apache/fontbox/type1/Type1Lexer.java b/fontbox/src/main/java/org/apache/fontbox/type1/Type1Lexer.java
+index 56aaf64ad..bdeaea3f4 100644
+--- a/fontbox/src/main/java/org/apache/fontbox/type1/Type1Lexer.java
++++ b/fontbox/src/main/java/org/apache/fontbox/type1/Type1Lexer.java
+@@ -117,9 +117,14 @@ class Type1Lexer
+     private Token readToken(Token prevToken) throws IOException
+     {
+         boolean skip;
++        int loopCount = 0;
++        final int maxLoops = 1000000; // Prevent infinite loops
+         do
+         {
+             skip = false;
++            // Track if we make progress in this iteration
++            int startPosition = buffer.position();
++
+             while (buffer.hasRemaining())
+             {
+                 char c = getChar();
+@@ -243,6 +248,20 @@ class Type1Lexer
+                     }
+                 }
+             }
++
++            // If buffer is exhausted and skip is true, we're done - no more tokens
++            // If we didn't consume anything and skip is still true, break to prevent infinite loop
++            if (!buffer.hasRemaining() || (skip && buffer.position() == startPosition))
++            {
++                break;
++            }
++
++            // Safety check: prevent infinite loops
++            if (++loopCount > maxLoops)
++            {
++                LOG.warn("Maximum loop iterations exceeded in readToken, possible infinite loop");
++                break;
++            }
+         }
+         while (skip);
+         return null;

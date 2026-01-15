@@ -1,0 +1,117 @@
+
+================================================================================
+Response 1
+================================================================================
+I'll analyze the crash log and find the code causing the timeout issue, then create and apply a patch to fix it.
+
+================================================================================
+Response 2
+================================================================================
+Let me search more specifically for the fuzzer files:
+
+================================================================================
+Response 3
+================================================================================
+Found it! Let me read the fuzzer file:
+
+================================================================================
+Response 4
+================================================================================
+Now let me check what directory structure exists and identify the source directory:
+
+================================================================================
+Response 5
+================================================================================
+Good! Now I need to find the TextAndCSVParser to understand the timeout issue:
+
+================================================================================
+Response 6
+================================================================================
+Perfect! Let me read the TextAndCSVParser.java file to see where the timeout might be occurring:
+
+================================================================================
+Response 7
+================================================================================
+Now let me check the CSVSniffer which is called during detection and may be causing the timeout:
+
+================================================================================
+Response 8
+================================================================================
+Now I understand the issue! Looking at the CSVSniffer code, I can see the problem:
+
+1. In the `consumeQuoted` method (line 253), there's a `while (c != -1)` loop that reads characters inside quoted fields
+2. If a malformed input has an unclosed quote, this loop will continue reading until EOF without any timeout or character limit check
+3. Unlike other read operations in the Snifflet class that check `charsRead >= markLimit`, the `consumeQuoted` method doesn't enforce this limit within its inner while loop
+4. This causes an infinite-like loop that results in the 25-second timeout
+
+The fix is to add a check for the mark limit inside the `consumeQuoted` method's while loop. Let me create a patch:
+
+================================================================================
+Response 9
+================================================================================
+Now let me apply the patch to the source file:
+
+================================================================================
+Response 10
+================================================================================
+Perfect! The patch has been applied successfully. Let me verify the change by reading the updated section:
+
+================================================================================
+Response 11
+================================================================================
+Excellent! The patch has been successfully applied. Now let me create a summary document explaining the fix:
+
+================================================================================
+Response 12
+================================================================================
+Perfect! Let me also verify that the fix was only applied to files in the source directory:
+
+================================================================================
+Response 13
+================================================================================
+Perfect! The fix has been successfully applied. Let me create a clean version of the patch file following the unified diff format:
+
+================================================================================
+Response 14
+================================================================================
+Excellent! The patch file has been created. Let me verify its contents:
+
+================================================================================
+Response 15
+================================================================================
+Perfect! Now let me verify that no files outside the source directory were modified:
+
+================================================================================
+Response 16
+================================================================================
+Perfect! The changes are exactly as intended:
+1. Modified only 1 source file: `CSVSniffer.java` (within the source directory)
+2. Created 2 documentation/patch files: `TIMEOUT_FIX_SUMMARY.md` and `fix-timeout.patch`
+3. No git operations were performed
+4. No files outside the source directory were modified
+
+## Summary
+
+I've successfully created and applied a patch to fix the timeout issue in the Apache Tika codebase. Here's what was done:
+
+### Problem Identified
+The `TextAndCSVParserFuzzer` was experiencing a timeout after 25 seconds when processing malformed CSV input. The root cause was in the `CSVSniffer.java` file's `consumeQuoted()` method, which could enter a near-infinite loop when encountering unclosed quote characters in the input.
+
+### Fix Applied
+Added a mark limit check inside the `consumeQuoted()` method's while loop to prevent excessive processing:
+
+```java
+if (charsRead >= markLimit - 1) {
+    // Hit mark limit while parsing quoted field, treat as parse exception
+    throw new HitMarkLimitException();
+}
+```
+
+This ensures the parser stops after reading the configured `markLimit` characters (default: 10,000) even when processing malformed quoted fields.
+
+### Files Modified
+- **Source file**: `tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-text-module/src/main/java/org/apache/tika/parser/csv/CSVSniffer.java`
+- **Patch file**: `fix-timeout.patch` (created in the root directory)
+- **Documentation**: `TIMEOUT_FIX_SUMMARY.md` (created for reference)
+
+The fix has been successfully applied and is ready for testing!

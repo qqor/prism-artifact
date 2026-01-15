@@ -1,0 +1,82 @@
+
+================================================================================
+Response 1
+================================================================================
+I'll analyze the crash log and create a patch to fix the out-of-memory issue. Let me start by exploring the codebase to understand the problem.
+
+================================================================================
+Response 2
+================================================================================
+Let me check the stack trace more carefully. The issue is in the HMEF classes. Let me read the relevant files:
+
+================================================================================
+Response 3
+================================================================================
+Now let me read the MAPIAttribute.java file where the actual crash occurs:
+
+================================================================================
+Response 4
+================================================================================
+Now let me check the StringUtil class where the actual memory allocation happens:
+
+================================================================================
+Response 5
+================================================================================
+Now I understand the issue. Looking at the stack trace:
+
+1. `StringUtil.getFromUnicodeLE` at line 94 creates a String from byte array
+2. This is called from `MAPIAttribute.create` at line 175
+3. The issue is that malformed input can specify a very large `mplen` value causing massive memory allocation
+
+Let me check the exact line 175 in MAPIAttribute.java again and understand the context:
+
+================================================================================
+Response 6
+================================================================================
+Perfect! Now I can see the issue clearly. The problem is:
+
+1. At line 167, `mplen` is read from the input
+2. At line 171, an array of size `mplen` is allocated without checking against MAX_RECORD_LENGTH
+3. Line 175 then tries to create a String from this potentially huge byte array, causing OOM
+
+The fix should add validation for `mplen` similar to how other allocations are validated in the codebase. Let me create a patch:
+
+================================================================================
+Response 7
+================================================================================
+Perfect! Now let me verify the fix by reading the modified section to confirm it's correct:
+
+================================================================================
+Response 8
+================================================================================
+Excellent! The fix has been successfully applied. Let me create a summary of what was fixed:
+
+## Summary
+
+I've successfully created and applied a patch to fix the `OutOfMemoryError` bug in the Apache POI HMEF message parser.
+
+### Root Cause
+The vulnerability was in `/poi-scratchpad/src/main/java/org/apache/poi/hmef/attribute/MAPIAttribute.java` at line 171. When parsing MAPI attributes with custom property names, the code read a length value (`mplen`) from the input stream and directly allocated a byte array of that size without any validation:
+
+```java
+byte[] mpdata = new byte[mplen];  // Unsafe allocation
+```
+
+A maliciously crafted TNEF file could specify an extremely large `mplen` value (e.g., close to Integer.MAX_VALUE), causing the JVM to attempt allocating gigabytes of memory, resulting in an OutOfMemoryError.
+
+### The Fix
+Changed line 171 to use `IOUtils.safelyAllocate()` which validates the allocation size against `MAX_RECORD_LENGTH` (1,000,000 bytes by default):
+
+```java
+byte[] mpdata = IOUtils.safelyAllocate(mplen, MAX_RECORD_LENGTH);  // Safe allocation with bounds checking
+```
+
+This method will throw an exception if `mplen` exceeds the maximum allowed record length, preventing the OOM condition while still allowing legitimate data to be processed.
+
+### Why This Works
+- `IOUtils.safelyAllocate()` is already used throughout the codebase for safe memory allocation (see line 198 in the same file)
+- It prevents memory exhaustion attacks by enforcing reasonable size limits
+- The `MAX_RECORD_LENGTH` of 1MB is sufficient for legitimate MAPI property names while protecting against malicious input
+- This approach is consistent with the existing defensive programming patterns in the Apache POI codebase
+
+The patch has been successfully applied to the source code.

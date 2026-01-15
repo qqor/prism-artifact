@@ -1,0 +1,48 @@
+
+================================================================================
+Response 1
+================================================================================
+Now I understand the issue. The vulnerability is in `FileSystemEmitter.java`. The `emit` method at line 146 uses `basePath.resolve(path)` without validating that the resolved path stays within the `basePath`. An attacker can use path traversal sequences like `../` in the path to write files outside the intended directory.
+
+Looking at the crash log:
+```
+File path traversal: /tmp/expander-tmp10459935850403363140/output/q/r/s/t/./input.bin/../../../jazzer-traversal
+```
+
+The path contains `../../../` which allows escaping the intended directory.
+
+Let me create a patch to fix this vulnerability by normalizing the path and ensuring it stays within the basePath:
+
+================================================================================
+Response 2
+================================================================================
+Now let me also fix the first `emit` method (line 77) which has the same vulnerability pattern:
+
+================================================================================
+Response 3
+================================================================================
+The patch has been applied. Let me verify the complete fix by reading the modified file:
+
+================================================================================
+Response 4
+================================================================================
+The patch has been successfully applied to `FileSystemEmitter.java`. Here's a summary of the fix:
+
+## Fix Applied
+
+**File:** `tika-pipes/tika-emitters/tika-emitter-fs/src/main/java/org/apache/tika/pipes/emitter/fs/FileSystemEmitter.java`
+
+**Vulnerability:** File Path Traversal (CWE-22)
+
+**Root Cause:** The `emit()` methods in `FileSystemEmitter` used `basePath.resolve(path)` without validating that the resolved path stays within the intended `basePath` directory. An attacker could supply paths containing `../` sequences to write files outside the designated output directory.
+
+**Fix Applied:**
+1. **Normalize the resolved path** using `.normalize()` to collapse any `.` and `..` path segments
+2. **Validate the path** using `startsWith()` to ensure the normalized path remains within the normalized `basePath`
+3. **Throw an exception** with a descriptive error message if path traversal is detected
+
+The fix was applied to both `emit()` methods:
+- `emit(String emitKey, List<Metadata> metadataList, ParseContext parseContext)` (line 77)
+- `emit(String path, InputStream inputStream, Metadata userMetadata, ParseContext parseContext)` (line 149)
+
+This prevents malicious archive entries with paths like `q/r/s/t/./input.bin/../../../jazzer-traversal` from escaping the intended output directory.

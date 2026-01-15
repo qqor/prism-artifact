@@ -1,0 +1,103 @@
+--- a/libfreerdp/codec/rfx_types.h
++++ b/libfreerdp/codec/rfx_types.h
+@@ -118,11 +118,12 @@
+ 	RFX_TILE** tiles;
+ 
+ 	UINT16 numQuant;
+-	UINT32* quantVals;
++    UINT32 * quantVals;
+ 
+-	UINT32 tilesDataSize;
+-
+-	BOOL freeArray;
++    UINT32 tilesDataSize;
++    UINT64 metadataBlock;
++    UINT64 metadataData;
++    BOOL freeArray;
+ };
+ 
+ struct S_RFX_MESSAGE_LIST
+
+--- a/libfreerdp/codec/rfx.c
++++ b/libfreerdp/codec/rfx.c
+@@ -706,33 +706,53 @@
+ 	return TRUE;
+ }
+ 
+-static INLINE BOOL rfx_process_message_metadata(RFX_CONTEXT* WINPR_RESTRICT context,
+-												RFX_MESSAGE* WINPR_RESTRICT message,
+-												wStream* WINPR_RESTRICT s,
+-												UINT16* WINPR_RESTRICT pExpectedBlockType)
+-{
+-	UINT32 magic = 0;
+-
+-	WINPR_ASSERT(context);
+-	WINPR_ASSERT(context->priv);
+-	WINPR_ASSERT(message);
+-	WINPR_ASSERT(s);
+-	WINPR_ASSERT(pExpectedBlockType);
+-
+-	if (*pExpectedBlockType != WBT_FRAME_END)
+-	{
+-		WLog_Print(context->priv->log, WLOG_ERROR, "message unexpected wants WBT_FRAME_END (0x%x)", *pExpectedBlockType);
+-		return FALSE;
+-	}
+-
+-	Stream_Read_UINT32(s, magic); /* magic (4 bytes), 0xCACCACCA */
+-	if (magic != WF_MAGIC)
+-	{
+-		WLog_Print(context->priv->log, WLOG_ERROR, "invalid magic number 0x%08" PRIX32 "", magic);
+-		return FALSE;
+-	}
+-	*(UINT64*)metadataBlock = metadataData;
+-	return TRUE;
++static INLINE BOOL rfx_process_message_metadata(RFX_CONTEXT* context,
++                                                RFX_MESSAGE* message,
++                                                wStream* s,
++                                                UINT16* pExpectedBlockType)
++{
++    UINT32 magic = 0;
++    UINT64 blockOffset = 0;
++    UINT64 dataValue = 0;
++
++    WINPR_ASSERT(context);
++    WINPR_ASSERT(context->priv);
++    WINPR_ASSERT(message);
++    WINPR_ASSERT(s);
++    WINPR_ASSERT(pExpectedBlockType);
++
++    if (*pExpectedBlockType != WBT_FRAME_END)
++    {
++        WLog_Print(context->priv->log, WLOG_ERROR,
++                   "message unexpected wants WBT_FRAME_END (0x%" PRIu16 ")",
++                   *pExpectedBlockType);
++        return FALSE;
++    }
++
++    *pExpectedBlockType = WBT_FRAME_BEGIN;
++    WLog_Print(context->priv->log, WLOG_DEBUG,
++               "RFX_FRAME_BEGIN");
++
++    /* verify and read magic */
++    if (!Stream_CheckAndLogRequiredLengthWLog(context->priv->log, s, 4))
++        return FALSE;
++    Stream_Read_UINT32(s, magic);
++    if (magic != WF_MAGIC)
++    {
++        WLog_Print(context->priv->log, WLOG_ERROR,
++                   "invalid magic number 0x%08" PRIX32, magic);
++        return FALSE;
++    }
++
++    /* read metadata block offset and data */
++    if (!Stream_CheckAndLogRequiredLengthWLog(context->priv->log, s, 16))
++        return FALSE;
++    Stream_Read_UINT64(s, blockOffset);
++    Stream_Read_UINT64(s, dataValue);
++    message->metadataBlock = blockOffset;
++    message->metadataData = dataValue;
++
++    return TRUE;
+ }
+ 
+ static INLINE BOOL rfx_resize_rects(RFX_MESSAGE* WINPR_RESTRICT message)

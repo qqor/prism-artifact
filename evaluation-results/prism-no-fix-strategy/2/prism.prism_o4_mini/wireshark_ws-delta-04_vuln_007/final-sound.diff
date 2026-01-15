@@ -1,0 +1,68 @@
+--- a/epan/dissectors/packet-json.c
++++ b/epan/dissectors/packet-json.c
+@@ -173,11 +173,13 @@
+ 	wmem_stack_push(data->array_idx, GINT_TO_POINTER(JSON_COMPACT_OBJECT_WITH_KEY));
+ }
+ 
+-static char*
+-json_string_unescape(wmem_allocator_t *scope, const char *string, size_t *length_ptr)
+-{
+-	size_t read_index = 0;
+-	size_t string_length = strlen(string);
++ static char*
++ json_string_unescape(wmem_allocator_t *scope, const char *string, size_t *length_ptr)
++ {
++     /* suppress -Wunused-parameter when callers don’t use it */
++     (void)length_ptr;
++     size_t read_index = 0;
++     size_t string_length = strlen(string);
+ 
+ 	wmem_strbuf_t* output_string_buffer = wmem_strbuf_new_sized(scope, string_length);
+ 
+@@ -350,22 +352,30 @@
+ 							}
+ 						}
+ 						
+-						else if (current_character == 'U') {
+-							uint16_t lead_surrogate = code_point;
+-							uint16_t trail_surrogate = 0;
+-	
+-							read_index++;
+-	
+-							for (int i = 0; i < 8; i++)
+-							{
+-								current_character = string[read_index];
+-								read_index++;
+-	
+-								int nibble = ws_xton(current_character);
+-	
+-								trail_surrogate <<= 4;
+-								trail_surrogate |= nibble;
+-							}
++         else if (current_character == 'U') {
++             uint16_t lead_surrogate = code_point;
++             uint16_t trail_surrogate = 0;
++
++             /* Make sure we have 8 hex digits left to read */
++             if (read_index + 8 > string_length) {
++                 /* incomplete \UXXXXXXXX – treat as invalid escape */
++                 wmem_strbuf_append_unichar_repl(output_string_buffer);
++                 break;
++             }
++
++             /* consume the 'U' */
++             read_index++;
++
++             for (int i = 0; i < 8; i++) {
++                 unsigned char c = string[read_index++];
++                 int nibble = ws_xton(c);
++                 if (nibble < 0) {
++                     /* bad hex digit – invalid escape */
++                     wmem_strbuf_append_unichar_repl(output_string_buffer);
++                     break;
++                 }
++                 trail_surrogate = (trail_surrogate << 4) | nibble;
++             }
+ 	
+ 							if ((IS_TRAIL_SURROGATE(trail_surrogate)))
+ 							{	

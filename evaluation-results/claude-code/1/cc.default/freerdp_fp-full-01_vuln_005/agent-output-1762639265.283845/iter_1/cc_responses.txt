@@ -1,0 +1,48 @@
+
+================================================================================
+Response 1
+================================================================================
+Looking at the crash log, I can see the issue:
+
+1. The crash occurs at `freerdp_is_valid_mcs_create_response` at line 1458
+2. The crash happens with a WRITE to address 0x000000000700 (near-null dereference)
+3. The previous patch only checked if `mcs` was NULL, but the crash still occurs
+
+The problem is that **the crash happens inside `mcs_recv_connect_response()` or `mcs_recv_connect_initial()`**, not from a NULL `mcs` pointer. The previous patch failed because:
+
+1. `test_mcs_new()` likely doesn't return NULL (it probably asserts internally or always succeeds)
+2. The real issue is that the `mcs` object returned by `test_mcs_new()` is not properly initialized
+3. When `mcs_recv_connect_response()` is called, it tries to access uninitialized fields in the `mcs` structure, causing the near-null dereference at offset 0x700
+
+Let me examine the code to understand the structure better:
+
+================================================================================
+Response 2
+================================================================================
+Now let me check the `mcs_recv_connect_response` function to understand what fields it accesses:
+
+================================================================================
+Response 3
+================================================================================
+Now let me check the `gcc_read_conference_create_response` function as it's called with `mcs` at line 933:
+
+================================================================================
+Response 4
+================================================================================
+Let me check one of these functions to see what it accesses:
+
+================================================================================
+Response 5
+================================================================================
+Now let me check `mcs_get_settings`:
+
+================================================================================
+Response 6
+================================================================================
+Perfect! Now I understand the issue. The crash happens because:
+
+1. `mcs_get_settings()` accesses `mcs->transport` at line 127
+2. The crash address 0x0700 is likely the offset of the `transport` field within the `rdpMcs` struct
+3. When `test_mcs_new()` fails (returns NULL), or when `mcs_new()` returns a partially initialized structure, the `transport` pointer is NULL or invalid
+
+Let me check the `mcs_new` function:

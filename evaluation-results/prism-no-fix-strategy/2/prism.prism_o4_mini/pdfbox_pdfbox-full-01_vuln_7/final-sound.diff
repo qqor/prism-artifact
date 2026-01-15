@@ -1,0 +1,68 @@
+--- a/pdfbox/src/main/java/org/apache/pdfbox/pdmodel/PDPageTree.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/pdmodel/PDPageTree.java
+@@ -21,6 +21,7 @@
+ import java.util.Iterator;
+ import java.util.Queue;
+ import org.apache.pdfbox.cos.COSArray;
++import java.util.ArrayList;
+ import org.apache.pdfbox.cos.COSBase;
+ import org.apache.pdfbox.cos.COSDictionary;
+ import org.apache.pdfbox.cos.COSInteger;
+@@ -203,26 +204,40 @@
+          * @param node
+          * @return
+          */
+-        private List<COSDictionary> enqueueKids(COSDictionary node)
+-        {
+-            if (isPageTreeNode(node))
+-            {
+-                return getKids(node);
+-            }
+-            else
+-            {
+-                if (node != null && COSName.PAGE.equals(node.getCOSName(COSName.TYPE)))
++    private List<COSDictionary> enqueueKids(COSDictionary node)
++    {
++        List<COSDictionary> result = new ArrayList<>();
++        if (isPageTreeNode(node))
++        {
++            List<COSDictionary> kids = getKids(node);
++            for (COSDictionary kid : kids)
++            {
++                if (pageSet.add(kid))
++                {
++                    queue.add(kid);
++                    result.add(kid);
++                }
++            }
++            return result;
++        }
++        else
++        {
++            if (node != null && COSName.PAGE.equals(node.getCOSName(COSName.TYPE)))
++            {
++                if (pageSet.add(node))
+                 {
+                     queue.add(node);
++                    result.add(node);
+                 }
+-                else
+-                {
+-                    LOG.error("Page skipped due to an invalid or missing type {}",
+-                            () -> (node == null ? "(null)" : node.getCOSName(COSName.TYPE)));
+-                }
+-            }
+-            return Collections.EMPTY_LIST;
+-        }
++            }
++            else
++            {
++                LOG.error("Page skipped due to invalid or missing type {}",
++                          () -> (node == null ? "(null)" : node.getCOSName(COSName.TYPE)));
++            }
++        }
++        return result;
++    }
+ 
+         @Override
+         public boolean hasNext()

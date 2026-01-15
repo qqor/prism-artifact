@@ -1,0 +1,123 @@
+
+================================================================================
+Response 1
+================================================================================
+Looking at the crash log and the failed patch, I can see the issue clearly.
+
+## Why the Previous Patch Failed
+
+The previous patch attempted to use `LIST_REMOVE(conditions, head, condition_free(c))`, but this is incorrect because:
+
+1. **`condition_free(c)` returns `NULL`** - Looking at the `condition_free` function, it frees the condition and returns `NULL`. You cannot pass `NULL` to `LIST_REMOVE`.
+
+2. **Wrong `LIST_REMOVE` usage** - `LIST_REMOVE` expects the item to remove as the third argument, not the result of freeing it. The macro needs to access the list pointers of the item being removed, but after `condition_free(c)` is called, those pointers are in freed memory.
+
+3. **The fundamental problem**: The original code uses `LIST_FOREACH` which continues iterating after freeing an item, causing it to access the freed item's `next` pointer (heap-use-after-free).
+
+## Root Cause Analysis
+
+From the crash log at line 100 (`condition.c:100:9`), the code is trying to read from freed memory. The issue is that `LIST_FOREACH` internally accesses `c->conditions_next` after `condition_free(c)` has already freed `c`.
+
+## The Correct Fix
+
+We need to:
+1. Save the next pointer BEFORE freeing the current item
+2. Remove the item from the list BEFORE freeing it
+3. Update the head pointer correctly when removing items
+
+Let me first read the relevant files to understand the list macros:
+
+================================================================================
+Response 2
+================================================================================
+Perfect! Now I understand the issue. Let me also look at the condition.h file to understand the structure:
+
+================================================================================
+Response 3
+================================================================================
+Now I understand the complete picture. Let me analyze the issue and provide the correct fix.
+
+## Analysis
+
+The issue is clear from the crash log and code:
+
+1. **Line 100 in condition.c** (`condition_free_list_type`): The function uses `LIST_FOREACH(conditions, c, head)` which internally saves `c->conditions_next` at the start of each iteration.
+2. **Line 102**: Inside the loop, `condition_free(c)` is called, which frees the memory.
+3. **Next iteration**: The loop tries to access `c->conditions_next` from the already-freed memory → **heap-use-after-free**.
+
+The failed patch tried to:
+- Use `LIST_FOREACH_WITH_NEXT` (correct idea)
+- But then incorrectly used `LIST_REMOVE(conditions, head, condition_free(c))` which won't work because `condition_free()` returns `NULL`.
+
+## The Correct Solution
+
+We need to:
+1. Save the next pointer BEFORE freeing
+2. Remove from the list BEFORE freeing (so list pointers are valid)
+3. Then free the item
+4. Update the head pointer correctly
+
+Looking at the `list.h` file, I can see there's a `LIST_POP` macro (line 186-193) that removes and returns an item, which is perfect for this use case. However, for selective removal by type, we need a different approach.
+
+The correct fix is to use `LIST_FOREACH_WITH_NEXT` to save the next pointer, then manually remove the item from the list before freeing it.
+
+Here's the patch:
+
+```diff
+diff --git a/src/shared/condition.c b/src/shared/condition.c
+index 67894f9319..XXXXXX 100644
+--- a/src/shared/condition.c
++++ b/src/shared/condition.c
+@@ -97,12 +97,13 @@ Condition* condition_free(Condition *c) {
+ }
+ 
+ Condition* condition_free_list_type(Condition *head, ConditionType type) {
+-        LIST_FOREACH(conditions, c, head)
+-                if (type < 0 || c->type == type) {
+-                        condition_free(c);
+-                }
++        LIST_FOREACH_WITH_NEXT(conditions, c, n, head)
++                if (type < 0 || c->type == type)
++                        LIST_REMOVE(conditions, head, c);
++                        condition_free(c);
++                }
+ 
+-        assert(type >= 0 || !head);
++        assert(type >= 0 || head == NULL);
+         return head;
+ }
+ 
+```
+
+Wait, I made a brace error. Let me correct this:
+
+================================================================================
+Response 4
+================================================================================
+## Explanation
+
+### Why the Previous Patch Failed:
+
+1. **Incorrect use of `LIST_REMOVE`**: The previous patch tried `LIST_REMOVE(conditions, head, condition_free(c))`, but:
+   - `condition_free(c)` returns `NULL` (see line 96 in condition.c: `return mfree(c)`)
+   - `LIST_REMOVE` needs the actual item pointer to remove, not `NULL`
+   - `LIST_REMOVE` accesses the list pointers (`conditions_next`, `conditions_prev`) of the item being removed, so the item must not be freed yet
+
+2. **Wrong order of operations**: The patch freed the item and then tried to remove it from the list, but removal requires accessing the item's list pointers.
+
+### Why the New Patch is Correct:
+
+1. **`LIST_FOREACH_WITH_NEXT(conditions, c, n, head)`**: This macro saves the next pointer (`n = c->conditions_next`) at the start of each iteration, BEFORE any modifications. This is safe because we save it before freeing.
+
+2. **`LIST_REMOVE(conditions, head, c)`**: This removes `c` from the list by:
+   - Updating the prev/next pointers of adjacent items
+   - Updating `head` if we're removing the head item
+   - Setting `c->conditions_next` and `c->conditions_prev` to `NULL`
+   - Returning the removed item
+   - The item is still allocated at this point, so accessing its pointers is safe
+
+3. **`condition_free(c)`**: Only after removing from the list do we free the memory. This is safe because we're no longer trying to access this memory.
+
+4. **Loop continues with saved `n`**: The loop uses the saved `n` pointer from step 1, which was captured before any modifications, so it's safe.
+
+This approach ensures we never access freed memory, fixing the heap-use-after-free vulnerability.

@@ -1,0 +1,80 @@
+
+================================================================================
+Response 1
+================================================================================
+I'll analyze the crash log and create a patch to fix the timeout issue.
+
+From the crash log, I can see that the timeout occurs in `Type1Lexer.readToken()` at line 247, which is called during PDF parsing. This suggests an infinite loop or very slow processing in the Type1 lexer.
+
+Let me first explore the codebase to locate the relevant files:
+
+================================================================================
+Response 2
+================================================================================
+Now let me read the Type1Lexer.java file to understand the issue:
+
+================================================================================
+Response 3
+================================================================================
+Now I need to understand the issue. Looking at line 247, which corresponds to the `while (skip);` loop. The problem is that the code can get stuck in an infinite loop in the `readToken` method. Looking at the logic:
+
+1. The outer `do-while` loop at lines 120-247 continues while `skip` is true
+2. Inside, there's a `while (buffer.hasRemaining())` loop at line 123
+3. If the buffer runs out while `skip` is true, the inner loop exits, but the outer `do-while` continues because `skip` is still true
+4. This creates an infinite loop when `skip=true` and `buffer.hasRemaining()=false`
+
+The fix is to ensure we exit the outer loop when the buffer is exhausted. Let me create a patch:
+
+================================================================================
+Response 4
+================================================================================
+Perfect! The patch has been successfully applied. Let me verify the fix is in the source directory and explain what was done:
+
+================================================================================
+Response 5
+================================================================================
+Great! The file exists in the source directory. Let me verify the patch was applied correctly:
+
+================================================================================
+Response 6
+================================================================================
+Perfect! The patch has been successfully applied to the code. Let me create a summary document explaining the fix:
+
+## Summary
+
+I've successfully created and applied a patch to fix the **timeout after 25 seconds bug** in the Type1Lexer class.
+
+### Root Cause Analysis
+
+The bug was caused by an **infinite loop** in the `readToken()` method of `Type1Lexer.java` at line 247. The problematic logic flow was:
+
+1. An outer `do-while` loop continues while `skip == true` (line 120-247)
+2. An inner `while` loop processes buffer content while `buffer.hasRemaining()` returns true (line 123)
+3. When certain characters like whitespace or NULL bytes are encountered, `skip` is set to `true` but no token is returned
+4. If the buffer becomes exhausted (`buffer.hasRemaining()` returns false) while `skip` is still `true`, the inner loop exits
+5. The outer `do-while` loop then continues indefinitely because:
+   - `skip` remains `true` 
+   - The inner loop immediately exits since `buffer.hasRemaining()` is `false`
+   - No code path exists to break the outer loop in this scenario
+
+### The Fix
+
+Added a buffer exhaustion check after the inner loop to prevent the infinite loop:
+
+```java
+// Exit the loop if buffer is exhausted to prevent infinite loop
+if (!buffer.hasRemaining())
+{
+    break;
+}
+```
+
+This ensures that when the buffer is exhausted, the outer loop exits properly and returns `null`, preventing the timeout.
+
+### File Modified
+
+- **Location**: `fontbox/src/main/java/org/apache/fontbox/type1/Type1Lexer.java`
+- **Lines modified**: Added lines 246-250 (buffer exhaustion check)
+- **Impact**: Prevents infinite loop when parsing malformed or specially crafted Type1 fonts
+
+The patch is minimal, safe, and directly addresses the root cause identified in the crash log.

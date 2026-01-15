@@ -1,0 +1,52 @@
+
+================================================================================
+Response 1
+================================================================================
+Let me find the source directory for the wireshark code:
+
+================================================================================
+Response 2
+================================================================================
+Now I can see the issue. Looking at line 705 in the `dissect_bat_vis_v24` function:
+
+```c
+if ((vis_packeth_raw_data_size > 4) && (strlen(vis_packeth_raw_data) > 4))
+    fprintf(stderr, d_output_buffer);
+```
+
+The problem is that `d_output_buffer` is used as a format string directly in `fprintf()`. This is a **format string vulnerability**. The `d_output_buffer` is constructed from packet data (via `vis_packeth_raw_data`), and if it contains format specifiers like `%s`, `%x`, `%n`, etc., it can cause crashes (SEGV) or worse.
+
+Looking at the crash log test case, it contains format specifiers like `%x`, `%s`, `%n` which are being interpreted by `fprintf`.
+
+The fix is to use `%s` format specifier instead of using the buffer directly as the format string:
+
+```c
+fprintf(stderr, "%s", d_output_buffer);
+```
+
+Let me apply the fix:
+
+================================================================================
+Response 3
+================================================================================
+The fix has been applied. Here's a summary of the vulnerability and the fix:
+
+## Bug Analysis
+
+**Vulnerability Type:** Format String Vulnerability leading to SEGV (AddressSanitizer: SEGV)
+
+**Root Cause:** In the `dissect_bat_vis_v24` function at line 705, `d_output_buffer` was being passed directly as the format string argument to `fprintf()`:
+
+```c
+fprintf(stderr, d_output_buffer);  // VULNERABLE
+```
+
+The `d_output_buffer` was constructed from untrusted packet data (`vis_packeth_raw_data`). When the packet contains format specifiers like `%s`, `%x`, `%n`, etc., the `fprintf` function interprets these as format specifiers and attempts to read values from the stack. The `%s` specifier in particular will try to dereference a pointer from the stack, which can point to an invalid/unmapped memory address, causing the SEGV.
+
+**The Fix:** Changed the `fprintf` call to use a proper format string with `%s` to treat the buffer content as a literal string:
+
+```c
+fprintf(stderr, "%s", d_output_buffer);  // FIXED
+```
+
+This ensures that any format specifiers in `d_output_buffer` are printed literally rather than being interpreted as format specifiers.

@@ -1,0 +1,32 @@
+diff --git a/pdfbox/src/main/java/org/apache/pdfbox/pdmodel/font/PDCIDFont.java b/pdfbox/src/main/java/org/apache/pdfbox/pdmodel/font/PDCIDFont.java
+index 8c7600ca3..7c98e3917 100644
+--- a/pdfbox/src/main/java/org/apache/pdfbox/pdmodel/font/PDCIDFont.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/pdmodel/font/PDCIDFont.java
+@@ -128,6 +128,12 @@ public abstract class PDCIDFont implements COSObjectable, PDFontLike, PDVectorFo
+                     COSNumber rangeWidth = (COSNumber) rangeWidthBase;
+                     int startRange = firstCode.intValue();
+                     int endRange = secondCode.intValue();
++                    // PDFBOX-5873: Prevent timeout from malicious PDF with extremely large range
++                    if (endRange - startRange > 0xFFFF)
++                    {
++                        LOG.warn("Width range too large, skipping {} to {}", startRange, endRange);
++                        continue;
++                    }
+                     float width = rangeWidth.floatValue();
+                     for (int i = startRange; i <= endRange; i++)
+                     {
+@@ -178,6 +184,14 @@ public abstract class PDCIDFont implements COSObjectable, PDFontLike, PDVectorFo
+                 {
+                     int first = c.intValue();
+                     int last = ((COSNumber) next).intValue();
++                    // PDFBOX-5873: Prevent timeout from malicious PDF with extremely large range
++                    if (last - first > 0xFFFF)
++                    {
++                        LOG.warn("Vertical displacement range too large, skipping {} to {}", first, last);
++                        // Skip the w1y, v1x, v1y values
++                        i += 3;
++                        continue;
++                    }
+                     COSNumber w1y = (COSNumber) w2Array.getObject(++i);
+                     COSNumber v1x = (COSNumber) w2Array.getObject(++i);
+                     COSNumber v1y = (COSNumber) w2Array.getObject(++i);

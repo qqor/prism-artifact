@@ -1,0 +1,47 @@
+diff --git a/poi/src/main/java/org/apache/poi/hssf/record/common/ExtRst.java b/poi/src/main/java/org/apache/poi/hssf/record/common/ExtRst.java
+index d798b0cc3..8dfd09fef 100644
+--- a/poi/src/main/java/org/apache/poi/hssf/record/common/ExtRst.java
++++ b/poi/src/main/java/org/apache/poi/hssf/record/common/ExtRst.java
+@@ -92,6 +92,19 @@ public class ExtRst implements Comparable<ExtRst>, GenericRecord {
+         // Carry on reading in as normal
+         short stringDataSize = in.readShort();
+ 
++        // Validate stringDataSize is reasonable - it should not exceed expectedLength minus what we've already read
++        // We've read 2 bytes (reserved) + 2 bytes (stringDataSize) = 4 bytes so far
++        // stringDataSize should be consistent with remaining expected data
++        if (stringDataSize < 0 || stringDataSize > expectedLength - 4) {
++            LOG.atWarn().log("ExtRst has invalid stringDataSize {}, expected max {} - ignoring", box(stringDataSize), box(expectedLength - 4));
++            // Read remaining bytes and ignore
++            for(int i=0; i<expectedLength-4; i++) {
++                in.readByte();
++            }
++            populateEmpty();
++            return;
++        }
++
+         formattingFontIndex = in.readShort();
+         formattingOptions   = in.readShort();
+ 
+@@ -111,9 +124,22 @@ public class ExtRst implements Comparable<ExtRst>, GenericRecord {
+                             length1 + " vs " + length2
+             );
+         }
++
++        // Validate length1 before reading phoneticText to prevent reading beyond available data
++        // length1 specifies number of Unicode characters, each taking 2 bytes
++        // Minimum stringDataSize is 4 (formatting) + 6 (RPHSSub header) = 10 bytes
++        if (length1 < 0 || (2 * length1) > stringDataSize - 10) {
++            throw new IllegalStateException(
++                    "Invalid phonetic text length: " + length1 + " (stringDataSize=" + stringDataSize + ")"
++            );
++        }
+         phoneticText = StringUtil.readUnicodeLE(in, length1);
+ 
+         int runData = stringDataSize - 4 - 6 - (2*phoneticText.length());
++        // runData should be non-negative and a multiple of 6 (or close to it with possible extra bytes)
++        if (runData < 0) {
++            throw new IllegalStateException("Invalid ExtRst record: runData is negative (" + runData + ")");
++        }
+         int numRuns = (runData / 6);
+         phRuns = new PhRun[numRuns];
+         for(int i=0; i<phRuns.length; i++) {

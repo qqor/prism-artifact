@@ -1,0 +1,38 @@
+diff --git a/fontbox/src/main/java/org/apache/fontbox/type1/Type1Parser.java b/fontbox/src/main/java/org/apache/fontbox/type1/Type1Parser.java
+index 4f30741d2..80f185fa5 100644
+--- a/fontbox/src/main/java/org/apache/fontbox/type1/Type1Parser.java
++++ b/fontbox/src/main/java/org/apache/fontbox/type1/Type1Parser.java
+@@ -214,11 +214,17 @@ final class Type1Parser
+             // 0 1 255 {1 index exch /.notdef put } for
+             // we have to check "readonly" and "def" too
+             // as some fonts don't provide any dup-values, see PDFBOX-2134
++            int maxIterations = 10000; // Prevent infinite loops
++            int iterations = 0;
+             while (!(lexer.peekKind(Token.NAME)
+                     && (lexer.peekToken().getText().equals("dup")
+                             || lexer.peekToken().getText().equals("readonly")
+                             || lexer.peekToken().getText().equals("def"))))
+             {
++                if (lexer.peekToken() == null || iterations++ >= maxIterations)
++                {
++                    throw new IOException("Malformed encoding: expected 'dup', 'readonly', or 'def' but reached end of data or iteration limit");
++                }
+                 lexer.nextToken();
+             }
+             
+@@ -637,9 +643,15 @@ final class Type1Parser
+         // some fonts have "2 index" here, others have "end noaccess put"
+         // sometimes followed by "put". Either way, we just skip until
+         // the /CharStrings dict is found
++        int maxIterations = 10000; // Prevent infinite loops
++        int iterations = 0;
+         while (!(lexer.peekKind(Token.LITERAL)
+                 && lexer.peekToken().getText().equals("CharStrings")))
+         {
++            if (lexer.peekToken() == null || iterations++ >= maxIterations)
++            {
++                throw new IOException("Malformed font: expected 'CharStrings' but reached end of data or iteration limit");
++            }
+             lexer.nextToken();
+         }
+ 

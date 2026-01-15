@@ -1,0 +1,44 @@
+--- a/pdfbox/src/main/java/org/apache/pdfbox/pdmodel/PDPageTree.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/pdmodel/PDPageTree.java
+@@ -180,6 +180,7 @@
+     private final class PageIterator implements Iterator<PDPage>
+     {
+         private final Queue<COSDictionary> queue = new ArrayDeque<>();
++        private final java.util.Set<COSDictionary> visited = new java.util.HashSet<>();
+ 
+         private PageIterator(COSDictionary node)
+         {
+@@ -205,6 +206,12 @@
+          */
+         private List<COSDictionary> enqueueKids(COSDictionary node)
+         {
++            // guard against cyclic page tree nodes
++            if (node != null && visited.contains(node))
++            {
++                return Collections.emptyList();
++            }
++            visited.add(node);
+             if (isPageTreeNode(node))
+             {
+                 return getKids(node);
+
+--- a/pdfbox/src/main/java/org/apache/pdfbox/text/PDFTextStripper.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/text/PDFTextStripper.java
+@@ -296,8 +296,17 @@
+             endBookmarkPageNumber = 0;
+         }
+ 
++        // protect against excessive or cyclic page trees under fuzzing
++        final int MAX_PAGES_TO_PROCESS = Integer.getInteger(
++            "org.apache.pdfbox.text.maxPagesToProcess", 1000);
++        int pagesProcessed = 0;
+         for (PDPage page : pages)
+         {
++            if (++pagesProcessed > MAX_PAGES_TO_PROCESS)
++            {
++                throw new IOException(
++                    "Page processing limit of " + MAX_PAGES_TO_PROCESS + " exceeded");
++            }
+             if (page.hasContents())
+             {
+                 processPage(page);

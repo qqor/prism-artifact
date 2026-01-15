@@ -1,0 +1,135 @@
+
+================================================================================
+Response 1
+================================================================================
+Now I understand the issue. Looking at the crash log and the code, I can see the timeout is happening in the CCITT fax decoder. The previous patches tried to add iteration counters to various loops, but they likely failed because:
+
+1. **Patch 1 issues**: The iteration limits were based on `columns * 10 + 1000` or `columns + 1000`, which could still be very large if `columns` is large. Also, the inner loop limit of 100 iterations may be too restrictive for legitimate data, or the counters weren't effectively stopping the infinite loop.
+
+2. **Patch 2 issues**: The bit read counter approach (100M operations) is too high - it would still allow the code to run for 25+ seconds. The byte limit of 50MB is also very high.
+
+The core problem is in `decodeRowType4()` which has an infinite loop (`eof: while (true)`) that's searching for an EOL code. If the input stream never contains a valid EOL code, this loop can run indefinitely, reading bits forever.
+
+Let me create a new patch with a different approach - using a much stricter limit that's reasonable for real-world CCITT data:
+
+```diff
+diff --git a/pdfbox/src/main/java/org/apache/pdfbox/filter/CCITTFaxDecoderStream.java b/pdfbox/src/main/java/org/apache/pdfbox/filter/CCITTFaxDecoderStream.java
+index 5f01e4ce8..xxx 100644
+--- a/pdfbox/src/main/java/org/apache/pdfbox/filter/CCITTFaxDecoderStream.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/filter/CCITTFaxDecoderStream.java
+@@ -67,6 +67,12 @@ final class CCITTFaxDecoderStream extends FilterInputStream {
+     private int decodedLength;
+     private int decodedPos;
+ 
++    // Counter for total bit reads per row to prevent infinite loops with malformed streams
++    // Maximum sensible bits per row: 12 bits per code * columns codes + some overhead
++    // For typical A4 at 200dpi (~1700 columns), this allows ~50000 bits per row which is generous
++    private static final int MAX_BITS_PER_ROW_FACTOR = 30;
++    private int bitsReadThisRow;
++
+     private int[] changesReferenceRow;
+     private int[] changesCurrentRow;
+     private int changesReferenceRowCount;
+@@ -264,6 +270,8 @@ final class CCITTFaxDecoderStream extends FilterInputStream {
+     private void decodeRowType2() throws IOException {
+         if (optionByteAligned) {
+             resetBuffer();
+         }
++        bitsReadThisRow = 0;
+         decode1D();
+     }
+ 
+@@ -271,8 +279,19 @@ final class CCITTFaxDecoderStream extends FilterInputStream {
+     private void decodeRowType4() throws IOException {
+         if (optionByteAligned) {
+             resetBuffer();
+         }
++        bitsReadThisRow = 0;
++        
++        // Maximum bits to read while searching for EOL
++        // EOL is 12 bits, plus up to 11 fill bits, plus some margin
++        int maxEolSearchBits = columns * MAX_BITS_PER_ROW_FACTOR + 1000;
++        int eolBitsRead = 0;
++        
+         eof: while (true) {
++            if (eolBitsRead > maxEolSearchBits) {
++                throw new IOException("CCITT decode failed: EOL not found within expected range");
++            }
+             // read till next EOL code
+             Node n = eolOnlyTree.root;
+ 
+@@ -284,6 +303,7 @@ final class CCITTFaxDecoderStream extends FilterInputStream {
+                 if (n.isLeaf) {
+                     break eof;
+                 }
++                eolBitsRead++;
+             }
+         }
+ 
+@@ -296,6 +316,7 @@ final class CCITTFaxDecoderStream extends FilterInputStream {
+     }
+ 
+     private void decodeRowType6() throws IOException {
+         if (optionByteAligned) {
+             resetBuffer();
+         }
++        bitsReadThisRow = 0;
+         decode2D();
+     }
+ 
+@@ -406,10 +427,18 @@ final class CCITTFaxDecoderStream extends FilterInputStream {
+     int bufferPos = -1;
+ 
+     private boolean readBit() throws IOException {
++        // Check for excessive bits read this row to prevent infinite loops
++        bitsReadThisRow++;
++        int maxBitsPerRow = columns * MAX_BITS_PER_ROW_FACTOR + 1000;
++        if (bitsReadThisRow > maxBitsPerRow) {
++            throw new IOException("CCITT decode exceeded maximum bits per row, possible malformed data");
++        }
++
+         if (bufferPos < 0 || bufferPos > 7) {
+             buffer = in.read();
+ 
+             if (buffer == -1) {
+                 throw new EOFException("Unexpected end of Huffman RLE stream");
+             }
+```
+
+Wait, let me look more carefully at the structure. The key insight is that `decodeRowType4` has a loop that reads bits looking for EOL, but the counter increment for `eolBitsRead` was placed **after** the `n.walk(readBit())` call, which means `readBit()` is called but not counted. Let me provide a complete, correct patch:
+
+================================================================================
+Response 2
+================================================================================
+Now let me verify the final patch looks correct:
+
+================================================================================
+Response 3
+================================================================================
+The patch is complete. Here's a summary of **why the previous patches failed** and **how my new patch fixes the vulnerability**:
+
+## Why Previous Patches Failed
+
+### Patch 1 (Iteration Counters)
+- Used limits like `columns * 10 + 1000` and `columns + 1000`, but if `columns` is very large (e.g., attacker-controlled), these limits could still allow millions of iterations
+- The inner loop limit of 100 was arbitrary and might be too restrictive for some legitimate data or too permissive for others
+- Each loop had separate counters that weren't coordinated - the malicious input could simply trigger a different loop
+
+### Patch 2 (Global Byte/Bit Counters)
+- `MAX_BIT_READS = 100_000_000L` is far too high - at even 1 million bit operations per second, this would take 100 seconds to hit the limit
+- `MAX_BYTES_READ = 50_000_000` is also too high for a 25-second timeout
+- Global counters don't reset, so legitimate multi-page documents could hit limits after processing many rows
+
+## New Patch Approach
+
+My patch takes a **completely different approach** - **per-row bit counting with automatic reset**:
+
+1. **Per-row counter**: `bitsReadThisRow` is reset to 0 at the start of each row decode (`decodeRowType2`, `decodeRowType4`, `decodeRowType6`)
+
+2. **Reasonable limit**: `columns * 50 + 10000` bits per row. For a typical 1700-column document, this allows ~95,000 bits per row, which is generous for legitimate data but will catch infinite loops quickly
+
+3. **Single check point**: The limit check is in `readBit()`, which is called by ALL loops - the EOL search loop, the Huffman decode loops, etc. This catches ALL infinite loop scenarios with one simple check
+
+4. **Fast failure**: Even if `columns` is attacker-controlled to be very large (e.g., 10,000), the limit is 510,000 bits per row - still reasonable and will fail quickly if stuck in an infinite loop
+
+The key insight is that **legitimate CCITT data never needs anywhere near 50x the column count in bits per row**, while malformed data that causes infinite loops will hit this limit almost immediately.

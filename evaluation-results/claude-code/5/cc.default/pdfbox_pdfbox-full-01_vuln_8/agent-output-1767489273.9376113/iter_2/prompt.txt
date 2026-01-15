@@ -1,0 +1,162 @@
+I tried to fix a timeout after 25 seconds vulnerability causing the crash log in the <crash_log> below.
+I failed to fix the vulnerability with the following patches:
+
+```diff
+diff --git a/pdfbox/src/main/java/org/apache/pdfbox/contentstream/PDFStreamEngine.java b/pdfbox/src/main/java/org/apache/pdfbox/contentstream/PDFStreamEngine.java
+index d8dc8042a..ebe91399c 100644
+--- a/pdfbox/src/main/java/org/apache/pdfbox/contentstream/PDFStreamEngine.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/contentstream/PDFStreamEngine.java
+@@ -870,7 +870,20 @@ public abstract class PDFStreamEngine
+         PDType3CharProc charProc = font.getCharProc(code);
+         if (charProc != null)
+         {
+-            processType3Stream(charProc, textRenderingMatrix);
++            try
++            {
++                increaseLevel();
++                if (level > 50)
++                {
++                    LOG.error("recursion is too deep, skipping type3 glyph");
++                    return;
++                }
++                processType3Stream(charProc, textRenderingMatrix);
++            }
++            finally
++            {
++                decreaseLevel();
++            }
+         }
+     }
+ 
+
+``````diff
+diff --git a/pdfbox/src/main/java/org/apache/pdfbox/contentstream/PDFStreamEngine.java b/pdfbox/src/main/java/org/apache/pdfbox/contentstream/PDFStreamEngine.java
+index d8dc8042a..26effa3ee 100644
+--- a/pdfbox/src/main/java/org/apache/pdfbox/contentstream/PDFStreamEngine.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/contentstream/PDFStreamEngine.java
+@@ -26,8 +26,10 @@ import java.util.ArrayDeque;
+ import java.util.ArrayList;
+ import java.util.Deque;
+ import java.util.HashMap;
++import java.util.HashSet;
+ import java.util.List;
+ import java.util.Map;
++import java.util.Set;
+ import java.util.zip.DataFormatException;
+ 
+ import org.apache.logging.log4j.Logger;
+@@ -91,6 +93,9 @@ public abstract class PDFStreamEngine
+     // used to monitor potentially recursive operations.
+     private int level = 0;
+ 
++    // tracks Type3 CharProcs currently being processed to detect cycles
++    private final Set<COSBase> processingType3CharProcs = new HashSet<>();
++
+     // default font, used if there isn't any font available
+     private PDFont defaultFont;
+ 
+@@ -870,7 +875,21 @@ public abstract class PDFStreamEngine
+         PDType3CharProc charProc = font.getCharProc(code);
+         if (charProc != null)
+         {
+-            processType3Stream(charProc, textRenderingMatrix);
++            COSBase charProcKey = charProc.getCOSObject();
++            if (processingType3CharProcs.contains(charProcKey))
++            {
++                LOG.warn("Skipping recursive Type3 CharProc to prevent infinite loop");
++                return;
++            }
++            processingType3CharProcs.add(charProcKey);
++            try
++            {
++                processType3Stream(charProc, textRenderingMatrix);
++            }
++            finally
++            {
++                processingType3CharProcs.remove(charProcKey);
++            }
+         }
+     }
+ 
+
+```
+
+Explain why the patches failed and provide a new patch to fix the vulnerability.
+Do not repeat the same mistakes in the new patch.
+Try a completely different approach to fix the vulnerability.
+NEVER fix files outside the source directory.
+NEVER do any git operations in or outside the source directory.
+
+Below is the crash log:
+
+<crash_log>
+== ERROR: libFuzzer: timeout after 25 seconds
+
+Stack traces of all JVM threads:
+Thread[Signal Dispatcher,9,system]
+
+Thread[Common-Cleaner,8,InnocuousThreadGroup]
+	at java.base@17.0.2/java.lang.Object.wait(Native Method)
+	at java.base@17.0.2/java.lang.ref.ReferenceQueue.remove(ReferenceQueue.java:155)
+	at java.base@17.0.2/jdk.internal.ref.CleanerImpl.run(CleanerImpl.java:140)
+	at java.base@17.0.2/java.lang.Thread.run(Thread.java:833)
+	at java.base@17.0.2/jdk.internal.misc.InnocuousThread.run(InnocuousThread.java:162)
+
+Thread[Cleaner-0,5,InnocuousThreadGroup]
+	at java.base@17.0.2/java.lang.Object.wait(Native Method)
+	at java.base@17.0.2/java.lang.ref.ReferenceQueue.remove(ReferenceQueue.java:155)
+	at java.base@17.0.2/jdk.internal.ref.CleanerImpl.run(CleanerImpl.java:140)
+	at java.base@17.0.2/java.lang.Thread.run(Thread.java:833)
+	at java.base@17.0.2/jdk.internal.misc.InnocuousThread.run(InnocuousThread.java:162)
+
+Thread[Reference Handler,10,system]
+	at java.base@17.0.2/java.lang.ref.Reference.waitForReferencePendingList(Native Method)
+	at java.base@17.0.2/java.lang.ref.Reference.processPendingReferences(Reference.java:253)
+	at java.base@17.0.2/java.lang.ref.Reference$ReferenceHandler.run(Reference.java:215)
+
+Thread[Attach Listener,9,system]
+
+Thread[Finalizer,8,system]
+	at java.base@17.0.2/java.lang.Object.wait(Native Method)
+	at java.base@17.0.2/java.lang.ref.ReferenceQueue.remove(ReferenceQueue.java:155)
+	at java.base@17.0.2/java.lang.ref.ReferenceQueue.remove(ReferenceQueue.java:176)
+	at java.base@17.0.2/java.lang.ref.Finalizer$FinalizerThread.run(Finalizer.java:172)
+
+Thread[Notification Thread,9,system]
+
+Thread[main,5,main]
+	at app//com.code_intelligence.jazzer.driver.FuzzTargetRunner.dumpAllStackTraces(FuzzTargetRunner.java:534)
+
+Thread[process reaper,10,system]
+	at java.base@17.0.2/jdk.internal.misc.Unsafe.park(Native Method)
+	at java.base@17.0.2/java.util.concurrent.locks.LockSupport.parkNanos(LockSupport.java:252)
+	at java.base@17.0.2/java.util.concurrent.SynchronousQueue$TransferStack.transfer(SynchronousQueue.java:401)
+	at java.base@17.0.2/java.util.concurrent.SynchronousQueue.poll(SynchronousQueue.java:903)
+	at java.base@17.0.2/java.util.concurrent.ThreadPoolExecutor.getTask(ThreadPoolExecutor.java:1061)
+	at java.base@17.0.2/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1122)
+	at java.base@17.0.2/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:635)
+	at java.base@17.0.2/java.lang.Thread.run(Thread.java:833)
+
+Garbage collector stats:
+INFO: Instrumented com.sun.management.internal.PlatformMBeanProviderImpl (took 4 ms, size +14%)
+INFO: detected a native library load, enabling interception for libc functions
+INFO: Instrumented com.sun.management.internal.PlatformMBeanProviderImpl$1 (took 1 ms, size +8%)
+INFO: Instrumented com.sun.management.internal.PlatformMBeanProviderImpl$2 (took 0 ms, size +4%)
+INFO: Instrumented com.sun.management.internal.PlatformMBeanProviderImpl$3 (took 0 ms, size +4%)
+INFO: Instrumented com.sun.management.internal.PlatformMBeanProviderImpl$4 (took 0 ms, size +6%)
+INFO: Instrumented com.sun.management.internal.DiagnosticCommandImpl (took 5 ms, size +16%)
+INFO: Instrumented com.sun.management.DiagnosticCommandMBean (took 0 ms, size +0%)
+INFO: Instrumented com.sun.management.internal.PlatformMBeanProviderImpl$5 (took 0 ms, size +6%)
+INFO: Instrumented com.sun.management.internal.GarbageCollectorExtImpl (took 3 ms, size +13%)
+INFO: Instrumented com.sun.management.GarbageCollectorMXBean (took 0 ms, size +0%)
+INFO: Instrumented com.sun.jmx.mbeanserver.GetPropertyAction (took 0 ms, size +13%)
+INFO: Instrumented com.sun.jmx.mbeanserver.Util (took 3 ms, size +13%)
+
+PS MarkSweep: 0 collections took 0ms
+PS Scavenge: 102 collections took 191ms
+
+SUMMARY: libFuzzer: timeout
+subprocess command returned a non-zero exit status: 70
+INFO:__main__:Running: docker run --privileged --shm-size=2g --platform linux/amd64 --rm -i -e HELPER=True -e ARCHITECTURE=x86_64 -v /home/qqor/crete/packages/python_oss_fuzz/.oss_fuzz/build/out/pdfbox:/out -v /tmp/tmp17du11cd:/testcase -t ghcr.io/aixcc-finals/base-runner:v1.3.0 reproduce PDFExtractTextFuzzer -runs=100.
+
+</crash_log>

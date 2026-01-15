@@ -1,0 +1,14 @@
+{
+  "project_name": "tika",
+  "vulnerability_identifier": "tika_tk-delta-04_vuln_5",
+  "source_directory": "/home/qqor/crete/.cache/official-afc-tika",
+  "llm_usage": {
+    "total_cost": 0.0,
+    "prompt_tokens": 0,
+    "completion_tokens": 0
+  },
+  "variant": "sound",
+  "diff": "diff --git a/tika-pipes/tika-emitters/tika-emitter-fs/src/main/java/org/apache/tika/pipes/emitter/fs/FileSystemEmitter.java b/tika-pipes/tika-emitters/tika-emitter-fs/src/main/java/org/apache/tika/pipes/emitter/fs/FileSystemEmitter.java\nindex 9142c9b7b..dea1104b7 100644\n--- a/tika-pipes/tika-emitters/tika-emitter-fs/src/main/java/org/apache/tika/pipes/emitter/fs/FileSystemEmitter.java\n+++ b/tika-pipes/tika-emitters/tika-emitter-fs/src/main/java/org/apache/tika/pipes/emitter/fs/FileSystemEmitter.java\n@@ -84,7 +84,11 @@ public class FileSystemEmitter extends AbstractEmitter implements StreamEmitter\n             emitKey += \".\" + fileExtension;\n         }\n         if (basePath != null) {\n-            output = basePath.resolve(emitKey);\n+            output = basePath.resolve(emitKey).normalize();\n+            // Validate that the resolved path is within basePath to prevent path traversal attacks\n+            if (!output.startsWith(basePath.normalize())) {\n+                throw new TikaEmitterException(\"Path traversal detected: resolved path \" + output + \" is outside basePath \" + basePath);\n+            }\n         } else {\n             output = Paths.get(emitKey);\n         }\n@@ -144,7 +148,12 @@ public class FileSystemEmitter extends AbstractEmitter implements StreamEmitter\n \n     @Override\n     public void emit(String path, InputStream inputStream, Metadata userMetadata, ParseContext parseContext) throws IOException, TikaEmitterException {\n-        Path target = basePath.resolve(path);\n+        Path target = basePath.resolve(path).normalize();\n+\n+        // Validate that the resolved path is within basePath to prevent path traversal attacks\n+        if (!target.startsWith(basePath.normalize())) {\n+            throw new TikaEmitterException(\"Path traversal detected: resolved path \" + target + \" is outside basePath \" + basePath);\n+        }\n \n         if (!Files.isDirectory(target.getParent())) {\n             Files.createDirectories(target.getParent());\n",
+  "stdout": "",
+  "stderr": ""
+}

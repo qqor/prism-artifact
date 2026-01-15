@@ -1,0 +1,57 @@
+
+================================================================================
+Response 1
+================================================================================
+Let me find the curl source directory:
+
+================================================================================
+Response 2
+================================================================================
+Now I understand the bug. The `Curl_seconds` array has 60 elements (indices 0-59) for regular seconds. The issue is that when using `TZ=right/UTC` timezone, leap seconds can occur, so `tm->tm_sec` can be 60 (or theoretically higher). This causes an out-of-bounds access when `tm->tm_sec >= 60`.
+
+Let me verify the array size and understand the fix needed:
+
+================================================================================
+Response 3
+================================================================================
+The `Curl_seconds` array has 60 elements (0-59), but leap seconds can cause `tm->tm_sec` to be 60. I need to add bounds checking in `ftp.c` at line 2107 to prevent the buffer overflow.
+
+Let me look at the full context around line 2107 to create a proper fix:
+
+================================================================================
+Response 4
+================================================================================
+Now I understand the issue. The fix needs to ensure `tm->tm_sec` is within bounds (0-59) before accessing `Curl_seconds`. The simplest fix is to clamp the seconds value.
+
+Let me create a patch that adds bounds checking:
+
+================================================================================
+Response 5
+================================================================================
+The patch has been applied. Let me also apply the same fix to the Debug+Cached version to ensure consistency:
+
+================================================================================
+Response 6
+================================================================================
+The fix has been applied to both source directories. Here's a summary of the patch:
+
+## Summary
+
+**Bug**: AddressSanitizer detected a global-buffer-overflow in `ftp_state_mdtm_resp` at `/src/curl/lib/ftp.c:2107` when accessing `Curl_seconds[tm->tm_sec]`.
+
+**Root Cause**: The `Curl_seconds` array (defined in `parsedate.c`) has 60 elements (indices 0-59), but when using `TZ=right/UTC` timezone, leap seconds can occur causing `tm->tm_sec` to be 60 (or potentially higher), resulting in an out-of-bounds array access.
+
+**Fix**: Added bounds checking to clamp the seconds value to the valid range 0-59 before using it as an index into the `Curl_seconds` array:
+
+```c
+/* Clamp seconds to valid range 0-59 to handle leap seconds */
+int sec = tm->tm_sec;
+if(sec < 0)
+  sec = 0;
+else if(sec > 59)
+  sec = 59;
+```
+
+The fix has been applied to:
+1. `/home/qqor/crete/.cache/environments/curl/Cached/address/src/lib/ftp.c`
+2. `/home/qqor/crete/.cache/environments/curl/Debug+Cached/address/src/lib/ftp.c`

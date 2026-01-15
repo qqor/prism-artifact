@@ -1,0 +1,14 @@
+{
+  "project_name": "lcms",
+  "vulnerability_identifier": "lcms_cm-full-01_lcms-002",
+  "source_directory": "/home/qqor/crete/.cache/official-afc-little-cms",
+  "llm_usage": {
+    "total_cost": 0.2074072,
+    "prompt_tokens": 90572,
+    "completion_tokens": 24495
+  },
+  "variant": "sound",
+  "diff": "--- a/src/cmsvirt.c\n+++ b/src/cmsvirt.c\n@@ -1098,9 +1098,32 @@\n         FLOAT_SH(0) | COLORSPACE_SH(_cmsLCMScolorSpace(v ->ExitColorSpace))\n         | BYTES_SH(2) | CHANNELS_SH(cmsChannelsOfColorSpace(v ->ExitColorSpace)));\n \n-    // Apply the transfor to colorants.\n-    for (i=0; i < nColors; i++) {\n-        cmsDoTransform(xform, &i, nc2 ->List[i].DeviceColorant, 1);\n+    // Prepare input buffer parameters for named color index\n+    {\n+        cmsUInt32Number InputFmt = v->InputFormat;\n+        cmsUInt32Number nChan    = T_CHANNELS(InputFmt);\n+        cmsUInt32Number BPC      = T_BYTES(InputFmt);\n+        cmsUInt32Number Stride   = nChan * BPC;\n+\n+        // Apply the transform to colorants.\n+        for (i = 0; i < nColors; i++) {\n+            cmsUInt8Number inBuf[Stride];\n+            memset(inBuf, 0, Stride);\n+            switch (BPC) {\n+                case 1:\n+                    inBuf[0] = (cmsUInt8Number) i;\n+                    break;\n+                case 2:\n+                    ((cmsUInt16Number*)inBuf)[0] = (cmsUInt16Number) i;\n+                    break;\n+                case 4:\n+                    ((cmsUInt32Number*)inBuf)[0] = (cmsUInt32Number) i;\n+                    break;\n+                default:\n+                    memcpy(inBuf, &i, (Stride < sizeof(i)) ? Stride : sizeof(i));\n+            }\n+            cmsDoTransform(xform, inBuf, nc2->List[i].DeviceColorant, 1);\n+        }\n     }\n \n     if (!cmsWriteTag(hICC, cmsSigNamedColor2Tag, (void*) nc2)) goto Error;\n",
+  "stdout": "",
+  "stderr": ""
+}

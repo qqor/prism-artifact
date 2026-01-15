@@ -1,0 +1,29 @@
+diff --git a/libexif/exif-data.c b/libexif/exif-data.c
+index f3f6dbc..46093f5 100644
+--- a/libexif/exif-data.c
++++ b/libexif/exif-data.c
+@@ -167,6 +167,11 @@ exif_data_load_data_entry (ExifData *data, ExifEntry *entry,
+ {
+ 	unsigned int s, doff;
+ 
++	/* Validate that the 12-byte IFD entry fits within the buffer before any reads */
++	if (CHECKOVERFLOW(offset, size, 12)) {
++		return 0;
++	}
++
+ 	entry->tag        = exif_get_short (d + offset + 0, data->priv->order);
+ 	entry->format     = exif_get_short (d + offset + 2, data->priv->order);
+ 	entry->components = exif_get_long  (d + offset + 4, data->priv->order);
+@@ -925,7 +930,11 @@ exif_data_load_data (ExifData *data, const unsigned char *d_orig,
+ 			  "We have to deal with %i byte(s) of EXIF data.",
+ 			  len);
+ 		d += 2;
+-		ds = len - 2;	/* we do not want the full rest size, but only the size of the tag */
++		/* Ensure the claimed length doesn't exceed the actual buffer */
++		if (len > ds)
++			ds -= 2;
++		else
++			ds = len - 2;	/* we do not want the full rest size, but only the size of the tag */
+ 	}
+ 
+ 	/*

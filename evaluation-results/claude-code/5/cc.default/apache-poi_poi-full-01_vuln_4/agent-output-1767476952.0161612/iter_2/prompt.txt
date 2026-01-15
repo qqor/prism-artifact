@@ -1,0 +1,116 @@
+I tried to fix a fuzz target exited vulnerability causing the crash log in the <crash_log> below.
+I failed to fix the vulnerability with the following patches:
+
+```diff
+diff --git a/poi-ooxml/src/main/java/org/apache/poi/xssf/streaming/SXSSFCell.java b/poi-ooxml/src/main/java/org/apache/poi/xssf/streaming/SXSSFCell.java
+index 50f87b0d5..a1fd96c1b 100644
+--- a/poi-ooxml/src/main/java/org/apache/poi/xssf/streaming/SXSSFCell.java
++++ b/poi-ooxml/src/main/java/org/apache/poi/xssf/streaming/SXSSFCell.java
+@@ -300,7 +300,7 @@ public class SXSSFCell extends CellBase {
+                 ((ErrorValue) _value).setValue(errorValue);
+                 break;
+             default:
+-                throw new AssertionError();
++                throw new IllegalStateException("Unexpected cached formula result type: " + getCachedFormulaResultType());
+         }
+     }
+ 
+@@ -879,7 +879,7 @@ public class SXSSFCell extends CellBase {
+                     _value = new ErrorFormulaValue(getCellFormula(), FormulaError._NO_ERROR.getCode());
+                     break;
+                 default:
+-                    throw new AssertionError();
++                    throw new IllegalStateException("Unexpected cell type: " + type);
+             }
+             return;
+         }
+diff --git a/poi-ooxml/src/main/java/org/apache/poi/xssf/usermodel/XSSFCell.java b/poi-ooxml/src/main/java/org/apache/poi/xssf/usermodel/XSSFCell.java
+index 29088a5b4..c0f716458 100644
+--- a/poi-ooxml/src/main/java/org/apache/poi/xssf/usermodel/XSSFCell.java
++++ b/poi-ooxml/src/main/java/org/apache/poi/xssf/usermodel/XSSFCell.java
+@@ -252,7 +252,7 @@ public final class XSSFCell extends CellBase {
+                     return 0.0;
+                 }
+             case FORMULA:
+-                throw new AssertionError();
++                throw new IllegalStateException("Unexpected FORMULA cell type");
+             default:
+                 throw typeMismatch(CellType.NUMERIC, valueType, false);
+         }
+diff --git a/poi-ooxml/src/main/java/org/apache/poi/xssf/usermodel/XSSFRow.java b/poi-ooxml/src/main/java/org/apache/poi/xssf/usermodel/XSSFRow.java
+index 5e6bd25c4..37b6174ea 100644
+--- a/poi-ooxml/src/main/java/org/apache/poi/xssf/usermodel/XSSFRow.java
++++ b/poi-ooxml/src/main/java/org/apache/poi/xssf/usermodel/XSSFRow.java
+@@ -253,7 +253,7 @@ public class XSSFRow implements Row, Comparable<XSSFRow> {
+                 cell.setCellErrorValue(FormulaError._NO_ERROR);
+                 break;
+             default:
+-                throw new AssertionError("Unknown cell-type specified: " + type);
++                throw new IllegalStateException("Unknown cell-type specified: " + type);
+         }
+     }
+ 
+diff --git a/poi/src/main/java/org/apache/poi/hssf/usermodel/HSSFCell.java b/poi/src/main/java/org/apache/poi/hssf/usermodel/HSSFCell.java
+index fd4f97365..b41c94c43 100644
+--- a/poi/src/main/java/org/apache/poi/hssf/usermodel/HSSFCell.java
++++ b/poi/src/main/java/org/apache/poi/hssf/usermodel/HSSFCell.java
+@@ -620,7 +620,7 @@ public class HSSFCell extends CellBase {
+                 _cellType = CellType.ERROR;
+                 break;
+             default:
+-                throw new AssertionError();
++                throw new IllegalStateException("Unexpected cell type: " + _cellType);
+         }
+     }
+ 
+diff --git a/poi/src/main/java/org/apache/poi/ss/formula/functions/MultiOperandNumericFunction.java b/poi/src/main/java/org/apache/poi/ss/formula/functions/MultiOperandNumericFunction.java
+index ea18a7c3e..ac3696516 100644
+--- a/poi/src/main/java/org/apache/poi/ss/formula/functions/MultiOperandNumericFunction.java
++++ b/poi/src/main/java/org/apache/poi/ss/formula/functions/MultiOperandNumericFunction.java
+@@ -256,7 +256,7 @@ public abstract class MultiOperandNumericFunction implements Function {
+                 case ERROR:
+                     return throwValueInvalid();
+                 default:
+-                    throw new AssertionError();
++                    throw new IllegalStateException("Unexpected policy: " + policy);
+             }
+         }
+ 
+
+``````diff
+diff --git a/poi-ooxml/src/main/java/org/apache/poi/xssf/usermodel/XSSFCell.java b/poi-ooxml/src/main/java/org/apache/poi/xssf/usermodel/XSSFCell.java
+index 29088a5b4..78f4c87c1 100644
+--- a/poi-ooxml/src/main/java/org/apache/poi/xssf/usermodel/XSSFCell.java
++++ b/poi-ooxml/src/main/java/org/apache/poi/xssf/usermodel/XSSFCell.java
+@@ -697,7 +697,12 @@ public final class XSSFCell extends CellBase {
+             case STCellType.INT_STR:
+                 return CellType.STRING;
+             default:
+-                throw new IllegalStateException("Illegal cell type: " + this._cell.getT());
++                // Handle unknown/invalid cell types gracefully by treating them as blank or string cells
++                // This can occur when parsing malformed OOXML files
++                if (!_cell.isSetV() && blankCells) {
++                    return CellType.BLANK;
++                }
++                return CellType.STRING;
+         }
+     }
+ 
+
+```
+
+Explain why the patches failed and provide a new patch to fix the vulnerability.
+Do not repeat the same mistakes in the new patch.
+Try a completely different approach to fix the vulnerability.
+NEVER fix files outside the source directory.
+NEVER do any git operations in or outside the source directory.
+
+Below is the crash log:
+
+<crash_log>
+== ERROR: libFuzzer: fuzz target exited
+SUMMARY: libFuzzer: fuzz target exited
+subprocess command returned a non-zero exit status: 77
+INFO:__main__:Running: docker run --privileged --shm-size=2g --platform linux/amd64 --rm -i -e HELPER=True -e ARCHITECTURE=x86_64 -v /home/qqor/crete/packages/python_oss_fuzz/.oss_fuzz/build/out/apache-poi:/out -v /tmp/tmpije_fuzg:/testcase -t ghcr.io/aixcc-finals/base-runner:v1.3.0 reproduce POIXSSFFuzzer -runs=100.
+
+</crash_log>

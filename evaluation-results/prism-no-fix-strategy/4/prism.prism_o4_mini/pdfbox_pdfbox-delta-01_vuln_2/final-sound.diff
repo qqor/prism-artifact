@@ -1,0 +1,39 @@
+--- a/pdfbox/src/main/java/org/apache/pdfbox/ocr/OCRStreamEngine.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/ocr/OCRStreamEngine.java
+@@ -13,6 +13,7 @@
+ import java.nio.file.Files;
+ import java.nio.file.Path;
+ import java.nio.file.Paths;
++import java.nio.file.InvalidPathException;
+ import java.nio.file.SimpleFileVisitor;
+ import java.nio.file.attribute.BasicFileAttributes;
+ import java.util.ArrayList;
+@@ -155,11 +156,24 @@
+     }
+ 
+     private String runTesseract(Path image) throws IOException {
+-        String actualTessPath = pdDocument.getDocumentInformation()
++        String candidateTessPath = pdDocument.getDocumentInformation()
+                 .getCustomMetadataValue(TESSERACT_PATH_KEY);
+-        if (actualTessPath == null || actualTessPath.isEmpty()) {
+-            actualTessPath = tesseractPath;
+-        }
++        Path tessExecutablePath;
++        try {
++            if (candidateTessPath != null && !candidateTessPath.isEmpty()) {
++                tessExecutablePath = Paths.get(candidateTessPath);
++                if (!Files.exists(tessExecutablePath)
++                    || !Files.isRegularFile(tessExecutablePath)
++                    || !Files.isExecutable(tessExecutablePath)) {
++                    throw new IOException("Invalid tesseract executable path: " + candidateTessPath);
++                }
++            } else {
++                tessExecutablePath = Paths.get(tesseractPath);
++            }
++        } catch (InvalidPathException e) {
++            throw new IOException("Invalid tesseract executable path: " + candidateTessPath, e);
++        }
++        String actualTessPath = tessExecutablePath.toRealPath().toString();
+ 
+         Path txt = Paths.get(image.toAbsolutePath().toString());
+         doOCR(actualTessPath, image, txt);

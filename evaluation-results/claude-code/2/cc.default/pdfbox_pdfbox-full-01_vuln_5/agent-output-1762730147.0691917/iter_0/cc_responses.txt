@@ -1,0 +1,70 @@
+
+================================================================================
+Response 1
+================================================================================
+I'll analyze the crash log and create a patch to fix the Out of Memory issue in the Apache PDFBox Type1Lexer.
+
+Let me start by exploring the source code to understand the issue:
+
+================================================================================
+Response 2
+================================================================================
+Now I can see the issue. At line 507, the `readCharString` method creates a byte array with the `length` parameter without any validation. The crash shows that a malformed PDF tries to allocate an array that exceeds the VM limit, causing an `OutOfMemoryError`.
+
+The fix is to add validation to prevent extremely large array allocations. Let me check if there are any similar patterns or constants defined in the codebase:
+
+================================================================================
+Response 3
+================================================================================
+Good! I can see that `PfbParser.java` has a `MAX_LENGTH` constant of 100,000,000 bytes. Let me check that file to understand the pattern better:
+
+================================================================================
+Response 4
+================================================================================
+Perfect! Now I'll create a patch that adds validation to the `readCharString` method to prevent excessively large allocations. The fix will:
+
+1. Add a maximum length constant (similar to PfbParser)
+2. Validate the length parameter before attempting to allocate the byte array
+3. Throw an appropriate exception if the length exceeds the maximum
+
+Let me create the patch:
+
+================================================================================
+Response 5
+================================================================================
+Now let's add the validation in the `readCharString` method:
+
+================================================================================
+Response 6
+================================================================================
+Perfect! Now let's verify the changes by reading the modified section:
+
+================================================================================
+Response 7
+================================================================================
+Excellent! The patch has been successfully applied. Let me create a summary of the changes:
+
+## Summary
+
+I've successfully created and applied a patch to fix the **Out of Memory (OOM)** bug in `Type1Lexer.java`. The issue occurred when processing malformed PDF files with Type1 fonts that specified extremely large CharString lengths, causing the JVM to attempt allocating arrays that exceeded the VM limit.
+
+### Changes Made:
+
+**File: `./fontbox/src/main/java/org/apache/fontbox/type1/Type1Lexer.java`**
+
+1. **Added a maximum length constant** (line 52-56):
+   - `MAX_CHARSTRING_LENGTH = 10_000_000` (10 MB)
+   - This provides a reasonable upper bound for legitimate Type1 font CharStrings
+   - Similar pattern used in `PfbParser.java` which has `MAX_LENGTH = 100_000_000`
+
+2. **Added validation in `readCharString()` method** (lines 510-519):
+   - Check for negative length values (invalid input)
+   - Check if length exceeds `MAX_CHARSTRING_LENGTH`
+   - Throw descriptive `IOException` instead of allowing `OutOfMemoryError`
+
+### How This Fixes the Bug:
+
+- **Before**: Malformed PDFs could specify arbitrary CharString lengths (e.g., `Integer.MAX_VALUE`), causing the JVM to attempt allocating massive arrays and crash with OOM
+- **After**: The code validates the length parameter before allocation and throws a controlled exception with a clear error message, preventing the OOM crash
+
+The fix ensures that fuzzing tools and real-world malformed PDFs will be handled gracefully with proper error messages instead of crashing the application.

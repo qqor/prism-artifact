@@ -1,0 +1,14 @@
+{
+  "project_name": "tika",
+  "vulnerability_identifier": "tika_tk-delta-01_vuln_9",
+  "source_directory": "/home/qqor/aixcc/crete/.cache/official-afc-tika",
+  "llm_usage": {
+    "total_cost": 2.7608713000000003,
+    "prompt_tokens": 2325843,
+    "completion_tokens": 46010
+  },
+  "variant": "sound",
+  "diff": "--- a/tika-core/src/main/java/org/apache/tika/parser/external/ExternalParser.java\n+++ b/tika-core/src/main/java/org/apache/tika/parser/external/ExternalParser.java\n@@ -25,6 +25,7 @@\n import java.io.InputStream;\n import java.io.InputStreamReader;\n import java.io.OutputStream;\n+import java.util.regex.Pattern;\n import java.io.Reader;\n import java.io.Serializable;\n import java.util.Collections;\n@@ -307,14 +308,30 @@\n \n         // Execute\n         Process process = null;\n-        try {\n-            if (cmd.length == 1) {\n-                process = Runtime.getRuntime().exec(cmd[0]);\n-            } else {\n-                process = Runtime.getRuntime().exec(cmd);\n-            }\n+        // Validate and sanitize external command before execution\n+        if (cmd.length == 0) {\n+            throw new IOException(\"No external command configured\");\n+        }\n+        File execFile = new File(cmd[0]);\n+        if (!execFile.isAbsolute()) {\n+            throw new IOException(\"Executable path must be absolute: \" + cmd[0]);\n+        }\n+        Pattern unsafe = Pattern.compile(\"[&;|<>$`\\\"\\\\\\\\]\");\n+        for (String arg : cmd) {\n+            if (unsafe.matcher(arg).find()) {\n+                throw new IOException(\"Unsafe command argument: \" + arg);\n+            }\n+        }\n+        try {\n+            ProcessBuilder pb = new ProcessBuilder(cmd);\n+            pb.redirectError(ProcessBuilder.Redirect.INHERIT);\n+            process = pb.start();\n+        } catch (IOException e) {\n+            // Propagate I/O failures directly\n+            throw e;\n         } catch (Exception e) {\n-            LOG.warn(\"problem with process exec\", e);\n+            LOG.warn(\"problem with external process execution\", e);\n+            throw new IOException(\"Failed to execute external process\", e);\n         }\n \n         try {\n",
+  "stdout": "",
+  "stderr": ""
+}

@@ -1,0 +1,31 @@
+
+================================================================================
+Response 1
+================================================================================
+I can see the vulnerability. The `getDocument()` method at line 133-143 creates a `DocumentBuilderFactory` without properly securing it against XML External Entity (XXE) attacks, which can lead to SSRF. The XML parser is attempting to resolve external entities from untrusted URLs (like `jazze.com:80`).
+
+The fix needs to disable external entity processing in the `DocumentBuilderFactory`. Let me create a patch:
+
+================================================================================
+Response 2
+================================================================================
+The patch has been applied to fix the SSRF vulnerability. Here's a summary of the fix:
+
+## Summary
+
+**File Modified:** `pdfbox/src/main/java/org/apache/pdfbox/pdmodel/interactive/form/PDXFAResource.java`
+
+**Vulnerability:** Server Side Request Forgery (SSRF) via XML External Entity (XXE) injection
+
+**Root Cause:** The `getDocument()` method was creating a `DocumentBuilderFactory` without disabling external entity processing. When parsing untrusted XML content, the parser would attempt to resolve external entity references, leading to outbound network requests to attacker-controlled URLs (e.g., `jazze.com:80`).
+
+**Fix Applied:** Added the following security configurations to the `DocumentBuilderFactory`:
+
+1. `disallow-doctype-decl` = true - Disallows DOCTYPE declarations entirely
+2. `external-general-entities` = false - Disables external general entities
+3. `external-parameter-entities` = false - Disables external parameter entities  
+4. `load-external-dtd` = false - Prevents loading external DTDs
+5. `setXIncludeAware(false)` - Disables XInclude processing
+6. `setExpandEntityReferences(false)` - Prevents entity reference expansion
+
+These settings follow OWASP recommendations for preventing XXE attacks in Java XML parsers.

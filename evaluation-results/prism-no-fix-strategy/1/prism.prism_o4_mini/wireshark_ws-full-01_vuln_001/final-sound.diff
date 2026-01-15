@@ -1,0 +1,28 @@
+--- a/epan/dissectors/packet-openvpn.c
++++ b/epan/dissectors/packet-openvpn.c
+@@ -307,11 +307,20 @@
+   if ((openvpn_opcode == P_CONTROL_HARD_RESET_CLIENT_V3 || openvpn_opcode == P_CONTROL_WKC_V1)
+       &&  msg_length_remaining >= 2) {
+ 
+-    wkc_len = tvb_get_ntohs(tvb, tvb_reported_length(tvb) - 2);
+-    data_len = msg_length_remaining - wkc_len;
+-    tvb_memcpy(tvb, buf, offset, data_len);
+-    if (!strcmp((char*)&buf[0], "OpenVPN"))
+-        return 0;
++            wkc_len =
++                tvb_get_ntohs (tvb,
++                               tvb_reported_length (tvb) - 2);
++            data_len = msg_length_remaining - wkc_len;
++            /* Copy only up to buf capacity minus one for null terminator to avoid overflow */
++            {
++                size_t copy_len = (size_t)data_len;
++                if (copy_len > sizeof(buf) - 1)
++                    copy_len = sizeof(buf) - 1;
++                tvb_memcpy (tvb, buf, offset, copy_len);
++                buf[copy_len] = '\0';
++            }
++            if (strcmp ((char *)buf, "OpenVPN") == 0)
++                return 0;
+   }
+ 
+   if (openvpn_opcode != P_CONTROL_V1) {

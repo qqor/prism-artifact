@@ -1,0 +1,40 @@
+diff --git a/src/udev/fuzz-udev-rule-parse-value.c b/src/udev/fuzz-udev-rule-parse-value.c
+index 57951bd461..059f0f46c5 100644
+--- a/src/udev/fuzz-udev-rule-parse-value.c
++++ b/src/udev/fuzz-udev-rule-parse-value.c
+@@ -15,9 +15,22 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
+ 
+         fuzz_setup_logging();
+ 
+-        assert_se(str = malloc(size + 1));
++        /* udev_rule_parse_value() modifies the string in-place. When handling prefix
++         * matches (with 'p' flag), it may write beyond the original string length:
++         * - It copies unescaped content to str + pos - 1
++         * - Then writes '*' at pos + l - 1
++         * - Then writes two NULL terminators at pos + l and pos + l + 1
++         *
++         * In the worst case, pos could be near the end (e.g., "eip\"...\"" has pos=3),
++         * and l could be large. To safely handle all cases, we double the size allocation
++         * to ensure there's always enough room for in-place modifications and terminators.
++         */
++        size_t alloc_size = (size * 2) + 4;
++        assert_se(str = malloc(alloc_size));
+         memcpy(str, data, size);
+         str[size] = '\0';
++        /* Zero out the extra space to prevent undefined behavior */
++        memset(str + size + 1, 0, alloc_size - size - 1);
+ 
+         r = udev_rule_parse_value(str, &value, &endpos, &is_case_sensitive);
+         if (r < 0) {
+@@ -25,8 +38,9 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
+                 assert_se(value == UINT_TO_PTR(0x12345678U));
+                 assert_se(endpos == UINT_TO_PTR(0x87654321U));
+         } else {
+-                assert_se(endpos <= str + size);
+-                assert_se(endpos > str + 1);
++                /* endpos can point beyond original size after in-place modifications */
++                assert_se(endpos <= str + alloc_size);
++                assert_se(endpos > str);
+         }
+ 
+         return 0;

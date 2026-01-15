@@ -1,0 +1,38 @@
+diff --git a/src/main/java/org/apache/commons/compress/compressors/lzw/LZWInputStream.java b/src/main/java/org/apache/commons/compress/compressors/lzw/LZWInputStream.java
+index 6aef44a30..4e854d4b2 100644
+--- a/src/main/java/org/apache/commons/compress/compressors/lzw/LZWInputStream.java
++++ b/src/main/java/org/apache/commons/compress/compressors/lzw/LZWInputStream.java
+@@ -39,6 +39,7 @@
+ public abstract class LZWInputStream extends CompressorInputStream implements InputStreamStatistics {
+     protected static final int DEFAULT_CODE_SIZE = 9;
+     protected static final int UNUSED_PREFIX = -1;
++    private static final int MAX_CODE_SIZE_LIMIT = 20;
+ 
+     private final byte[] oneByte = new byte[1];
+ 
+@@ -176,10 +177,13 @@ protected void incrementCodeSize() {
+      * @throws IllegalArgumentException if {@code maxCodeSize} is out of bounds for {@code prefixes} and {@code characters}.
+      */
+     protected void initializeTables(final int maxCodeSize) {
++        // Enforce a reasonable upper limit to prevent out-of-memory attacks
++        if (maxCodeSize > MAX_CODE_SIZE_LIMIT) {
++            throw new IllegalArgumentException("maxCodeSize " + maxCodeSize + " exceeds maximum allowed " + MAX_CODE_SIZE_LIMIT);
++        }
+         // maxCodeSize shifted cannot be less than 256, otherwise the loop in initializeTables() will throw an ArrayIndexOutOfBoundsException
+         // maxCodeSize cannot be smaller than getCodeSize(), otherwise addEntry() will throw an ArrayIndexOutOfBoundsException
+         if (1 << maxCodeSize < 256 || getCodeSize() > maxCodeSize) {
+-            // TODO test against prefixes.length and characters.length?
+             throw new IllegalArgumentException("maxCodeSize " + maxCodeSize + " is out of bounds.");
+         }
+         final int maxTableSize = 1 << maxCodeSize;
+@@ -203,6 +207,10 @@ protected void initializeTables(final int maxCodeSize) {
+      * @throws IllegalArgumentException if {@code maxCodeSize} is not bigger than 0
+      */
+     protected void initializeTables(final int maxCodeSize, final int memoryLimiKiB) throws MemoryLimitException {
++        // Enforce a reasonable upper limit to prevent out-of-memory attacks
++        if (maxCodeSize > MAX_CODE_SIZE_LIMIT) {
++            throw new IllegalArgumentException("maxCodeSize " + maxCodeSize + " exceeds maximum allowed " + MAX_CODE_SIZE_LIMIT);
++        }
+         if (maxCodeSize <= 0) {
+             throw new IllegalArgumentException("maxCodeSize is " + maxCodeSize + ", must be bigger than 0");
+         }

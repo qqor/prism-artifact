@@ -1,0 +1,91 @@
+--- a/src/main/java/org/apache/commons/compress/archivers/examples/Expander.java
++++ b/src/main/java/org/apache/commons/compress/archivers/examples/Expander.java
+@@ -26,7 +26,9 @@
+ import java.nio.channels.Channels;
+ import java.nio.channels.FileChannel;
+ import java.nio.channels.SeekableByteChannel;
++import java.nio.file.LinkOption;
+ import java.nio.charset.StandardCharsets;
++import org.apache.commons.compress.utils.IOUtils;
+ import java.nio.file.Files;
+ import java.nio.file.Path;
+ import java.nio.file.StandardOpenOption;
+@@ -471,36 +473,54 @@
+         if (! Files.isDirectory(targetDirectory)) {
+             Files.createDirectories(targetDirectory);
+         }
++        // Normalize extraction root once
++        Path absoluteRoot = targetDirectory.toAbsolutePath().normalize();
+         final Enumeration<ZipArchiveEntry> entries = archive.getEntries();
+         while (entries.hasMoreElements()) {
+             ZipArchiveEntry zae = entries.nextElement();
+             if (zae.isUnixSymlink()) {
+-                String targetName = IOUtils.toString(archive.getInputStream(zae),
++                // Read entry name and link target
++                String entryName = zae.getName();
++                String linkTargetName = IOUtils.toString(
++                        archive.getInputStream(zae),
+                         StandardCharsets.UTF_8);
+-                Path link = targetDirectory.resolve(zae.getName());
+-                Path target = targetDirectory.resolve(targetName);
+-                Path parent = createParentDirectory(targetDirectory, link);
+-
+-                if (!Files.isSameFile(link.getParent(), parent)) {
+-                    link = parent.relativize(link.getFileName()).normalize();
+-                }
+-                if (!Files.isRegularFile(link) && !Files.isSymbolicLink(link)) {
+-                    Files.createSymbolicLink(link, target);
+-                }
+-            } else if (! zae.isDirectory()) {
+-                Path target = targetDirectory.resolve(zae.getName()).normalize();
+-                if (!target.startsWith(targetDirectory)) {
+-                    throw new IOException(String.format("Zip slip '%s' + '%s' -> '%s'",
+-                            targetDirectory, zae.getName(), target));
+-                }
+-                Path parent = createParentDirectory(targetDirectory, target);
+-                if (! target.getParent().toAbsolutePath().normalize().equals(
+-                        parent.toAbsolutePath().normalize())) {
+-                    target = parent.normalize().resolve(target.getFileName());
+-                }
++                // Resolve and normalize paths against the fixed root
++                Path linkPath   = absoluteRoot.resolve(entryName).normalize();
++                Path targetPath = absoluteRoot.resolve(linkTargetName).normalize();
++                // Validate link + target do not escape
++                if (!linkPath.startsWith(absoluteRoot) || !targetPath.startsWith(absoluteRoot)) {
++                    throw new IOException("Symlink entry escapes target directory: " + entryName);
++                }
++                // Ensure parent directory exists under the root (no traversal via symlinks)
++                Path parentDir  = createParentDirectory(absoluteRoot, linkPath);
++                Path realParent = parentDir.toRealPath(LinkOption.NOFOLLOW_LINKS);
++                if (!realParent.startsWith(absoluteRoot)) {
++                    throw new IOException("Symlink parent escapes target directory: " + entryName);
++                }
++                // Finally create the symlink
++                Files.createSymbolicLink(linkPath, targetPath);
++
++            } else if (!zae.isDirectory()) {
++                // Handle regular file entry
++                String entryName = zae.getName();
++                Path entryPath = absoluteRoot.resolve(entryName).normalize();
++                // Validate no zip-slip
++                if (!entryPath.startsWith(absoluteRoot)) {
++                    throw new IOException("File entry escapes target directory: " + entryName);
++                }
++                // Create parent directories safely
++                Path parentDir  = createParentDirectory(absoluteRoot, entryPath);
++                Path realParent = parentDir.toRealPath(LinkOption.NOFOLLOW_LINKS);
++                if (!realParent.startsWith(absoluteRoot)) {
++                    throw new IOException("File parent escapes target directory: " + entryName);
++                }
++                // Copy file contents
++                Path filePath = realParent.resolve(entryPath.getFileName());
+                 try (InputStream is = archive.getInputStream(zae)) {
+-                    Files.copy(is, target);
+-                }
++                    Files.copy(is, filePath);
++                }
++            }
++        }
+             }
+         }
+     }

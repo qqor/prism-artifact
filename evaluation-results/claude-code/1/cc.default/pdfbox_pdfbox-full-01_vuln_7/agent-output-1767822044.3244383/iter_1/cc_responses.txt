@@ -1,0 +1,117 @@
+
+================================================================================
+Response 1
+================================================================================
+Now let me look at the `showText` method more closely and understand the failed patch. The failed patch tried to check `codeLength <= 0` after calling `font.readCode(in)`, but this approach is problematic because:
+
+1. The patch added code to skip a byte if `codeLength <= 0`, but this is placed AFTER the `readCode` call already happened
+2. Even after skipping a byte, the loop continues with `continue`, which will try to process more bytes
+3. The real issue is that `font.readCode(in)` may not advance the stream properly for certain malformed fonts
+
+Let me look at how fonts implement `readCode` to understand the root cause better:
+
+================================================================================
+Response 2
+================================================================================
+Now I see the issue! Looking at the `CMap.readCode()` method (lines 171-208), I can see the root cause:
+
+1. The CMap's `readCode` method has `minCodeLength` initialized to 4 (line 46) as a default
+2. On line 174, it reads `minCodeLength` bytes: `in.read(bytes,0,minCodeLength)`
+3. If the CMap has no codespace ranges (empty or malformed), `minCodeLength` stays at 4
+4. The loop on line 176 iterates from `minCodeLength-1` to `maxCodeLength`
+5. If `maxCodeLength` is 0 (no codespace ranges added), the loop never executes, and 0 bytes are consumed by the loop portion BUT 4 bytes were already consumed
+6. However, if both `minCodeLength` and `maxCodeLength` are 0 or misconfigured, this can cause issues
+
+Wait, let me re-examine the issue. The problem is in `CMap.readCode()` - if `maxCodeLength` is 0 and there are no codespace ranges, the read behavior is problematic.
+
+Let me check the key issue more carefully:
+
+================================================================================
+Response 3
+================================================================================
+I see the issue now! In `CMap.readCode()`:
+
+1. Line 173: `byte[] bytes = new byte[maxCodeLength]` - if `maxCodeLength` is 0, creates empty array
+2. Line 174: `in.read(bytes,0,minCodeLength)` - if `minCodeLength` is 4 (default) but `maxCodeLength` is 0, this tries to read 4 bytes into an array of size 0, which throws ArrayIndexOutOfBoundsException
+3. But more importantly, if both are 0 (or if there's a CMap with no codespace ranges), the loop doesn't consume any bytes
+
+However, I see that `maxCodeLength` defaults to 0 (line 47) while `minCodeLength` defaults to 4 (line 46). This is problematic when `addCodespaceRange` is never called.
+
+The key issue: if `maxCodeLength` is 0, then:
+- Line 176 loop condition: `i = minCodeLength-1 = 3; i < maxCodeLength = 0` is false, loop never executes
+- Line 174 reads `minCodeLength` bytes but if the array is size 0, this fails or reads 0 bytes
+
+The real problem is when `maxCodeLength` is 0, the `bytes` array has size 0, so `in.read(bytes, 0, minCodeLength)` returns 0 (reading into 0-size buffer). Then no bytes are consumed.
+
+Let me check the PDType0Font to see how it uses CMap:
+
+================================================================================
+Response 4
+================================================================================
+Now I understand the issue better. Looking at `PDType0Font.readCode()` (lines 625-632), it calls `cMap.readCode(in)`. If the CMap has `maxCodeLength` = 0 (malformed CMap with no codespace ranges), the `CMap.readCode()` method at line 173 creates a 0-byte array, and on line 174 `in.read(bytes,0,minCodeLength)` reads 0 bytes into a 0-byte array. Then, the loop (lines 176-187) never executes because `i = minCodeLength-1 = 3` is not less than `maxCodeLength = 0`. Finally, on line 207 it returns `toInt(bytes, minCodeLength)` which returns 0.
+
+The problem is that if `maxCodeLength` is 0, **no bytes are consumed from the input stream**, causing the infinite loop in `showText()`.
+
+The failed patch tried to detect this in `PDFStreamEngine.showText()` by checking if `codeLength <= 0`, but:
+1. It's applied after `font.readCode(in)` already returned 0 (potentially without consuming bytes)
+2. It skips one byte, but this is a hack that doesn't solve the root cause
+
+**A completely different approach:** Fix the problem at the source - in `CMap.readCode()` method itself. If `maxCodeLength` is 0 (malformed CMap), the method should consume at least 1 byte to prevent infinite loops.
+
+================================================================================
+Response 5
+================================================================================
+## Explanation
+
+### Why the Original Patch Failed:
+
+The original patch tried to fix the infinite loop in `PDFStreamEngine.showText()` by checking if `codeLength <= 0` after calling `font.readCode(in)`:
+
+```java
+int code = font.readCode(in);
+int codeLength = before - in.available();
+if (codeLength <= 0)
+{
+    in.read();
+    continue;
+}
+```
+
+This approach failed because:
+1. **Wrong location**: The fix was applied in the consumer (`PDFStreamEngine.showText()`) rather than at the source of the problem (`CMap.readCode()`)
+2. **Incomplete solution**: The check only worked for this specific call site, but `readCode()` might be called from other places
+3. **The root cause remained**: When `CMap.maxCodeLength` is 0 (due to a malformed CMap with no codespace ranges), `readCode()` creates a 0-byte array and the `in.read(bytes, 0, minCodeLength)` call reads 0 bytes into it, resulting in no bytes being consumed from the stream
+
+### The New Fix:
+
+The new patch fixes the vulnerability at the source - in `CMap.readCode()` itself. When `maxCodeLength` is 0 (indicating a malformed CMap with no codespace ranges defined), the method now:
+
+1. **Early exit check**: Detects the invalid state before any problematic operations
+2. **Consumes one byte**: Reads and returns a single byte from the input stream to ensure forward progress
+3. **Prevents infinite loop**: By always consuming at least one byte, the `showText()` loop will eventually exhaust the input stream and terminate
+
+This is a completely different approach that:
+- Fixes the root cause in the font/CMap layer rather than patching around it
+- Works for all call sites that use `CMap.readCode()`
+- Is more defensive - handles malformed PDF fonts gracefully
+
+### The Patch:
+
+```diff
+diff --git a/fontbox/src/main/java/org/apache/fontbox/cmap/CMap.java b/fontbox/src/main/java/org/apache/fontbox/cmap/CMap.java
+index abc123..def456 100644
+--- a/fontbox/src/main/java/org/apache/fontbox/cmap/CMap.java
++++ b/fontbox/src/main/java/org/apache/fontbox/cmap/CMap.java
+@@ -168,6 +168,11 @@ public class CMap
+      */
+     public int readCode(InputStream in) throws IOException
+     {
++        // PDFBOX-xxxx: malformed CMap with no codespace ranges, consume one byte to avoid infinite loop
++        if (maxCodeLength == 0)
++        {
++            return in.read();
++        }
+         byte[] bytes = new byte[maxCodeLength];
+         in.read(bytes,0,minCodeLength);
+         in.mark(maxCodeLength);
+```

@@ -1,0 +1,24 @@
+
+================================================================================
+Response 1
+================================================================================
+Now I understand the issue. The `readCharString` method at line 502-515 reads a `length` parameter from the previous token (an INTEGER) and creates a byte array of that size. If a malicious or corrupted font file provides an extremely large integer value, it will try to allocate a huge array, causing an `OutOfMemoryError`.
+
+The fix should add a validation check to ensure the `length` parameter is within reasonable bounds before attempting to allocate the array.
+
+================================================================================
+Response 2
+================================================================================
+The patch has been applied. Here's a summary of the fix:
+
+## Summary
+
+**Bug:** Out of memory error in `Type1Lexer.readCharString()` (line 507 in stack trace)
+
+**Root Cause:** The `readCharString(int length)` method creates a byte array using a length value read from the font file without validation. A malicious or corrupted font could specify an arbitrarily large length value, causing `new byte[length]` to request an array size that exceeds VM limits, resulting in `java.lang.OutOfMemoryError: Requested array size exceeds VM limit`.
+
+**Fix:** Added a validation check at the beginning of `readCharString()` that verifies:
+1. The length is not negative (`length < 0`)
+2. The length does not exceed the remaining bytes in the buffer (`length > buffer.remaining()`)
+
+If either condition is violated, a `DamagedFontException` is thrown with a descriptive message instead of attempting to allocate the invalid array size. This prevents the OOM by failing fast with a proper exception when the font data is corrupted or malicious.

@@ -1,0 +1,86 @@
+Create a patch to fix a AddressSanitizer: heap-buffer-overflow bug given below and apply it to the code.
+NEVER fix files outside the source directory.
+NEVER do any git operations in or outside the source directory.
+
+Below is the crash log:
+
+<crash_log>
+==ERROR: AddressSanitizer: heap-buffer-overflow on address 0x523000003471 at pc 0x55e1a0c98c1a bp 0x7fffd6112920 sp 0x7fffd6112918
+WRITE of size 1 at 0x523000003471 thread T0
+SCARINESS: 31 (1-byte-write-heap-buffer-overflow)
+    #0 0x55e1a0c98c19 in UTF32ToUTF8 /src/libxml2/encoding.c:2868:20
+    #1 0x55e1a0c92a26 in xmlEncInputChunk /src/libxml2/encoding.c:1485:15
+    #2 0x55e1a0c938f2 in xmlCharEncInput /src/libxml2/encoding.c:1611:15
+    #3 0x55e1a09bea69 in xmlParserInputBufferGrow /src/libxml2/xmlIO.c:2213:6
+    #4 0x55e1a08e2c9d in xmlParserGrow /src/libxml2/parserInternals.c:585:11
+    #5 0x55e1a0a0a603 in htmlParseCharData /src/libxml2/HTMLparser.c:3033:21
+    #6 0x55e1a09e915c in htmlParseContent /src/libxml2/HTMLparser.c:4142:13
+    #7 0x55e1a09ec95b in htmlParseDocument /src/libxml2/HTMLparser.c:4415:5
+    #8 0x55e1a09f9c5b in htmlCtxtParseDocument /src/libxml2/HTMLparser.c:5927:5
+    #9 0x55e1a09fa8b4 in htmlCtxtReadMemory /src/libxml2/HTMLparser.c:6238:12
+    #10 0x55e1a0823b9b in LLVMFuzzerTestOneInput /src/libxml2/fuzz/html.c:49:15
+    #11 0x55e1a06d8430 in fuzzer::Fuzzer::ExecuteCallback(unsigned char const*, unsigned long) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:614:13
+    #12 0x55e1a06c36a5 in fuzzer::RunOneTest(fuzzer::Fuzzer*, char const*, unsigned long) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerDriver.cpp:327:6
+    #13 0x55e1a06c913f in fuzzer::FuzzerDriver(int*, char***, int (*)(unsigned char const*, unsigned long)) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerDriver.cpp:862:9
+    #14 0x55e1a06f43e2 in main /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerMain.cpp:20:10
+    #15 0x7f6d20997082 in __libc_start_main (/lib/x86_64-linux-gnu/libc.so.6+0x24082) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #16 0x55e1a06bb88d in _start (/out/html+0x18388d)
+
+DEDUP_TOKEN: UTF32ToUTF8--xmlEncInputChunk--xmlCharEncInput
+0x523000003471 is located 0 bytes after 6001-byte region [0x523000001d00,0x523000003471)
+allocated by thread T0 here:
+    #0 0x55e1a07e41ff in malloc /src/llvm-project/compiler-rt/lib/asan/asan_malloc_linux.cpp:68:3
+    #1 0x55e1a0824313 in xmlFuzzMalloc /src/libxml2/fuzz/fuzz.c:127:11
+    #2 0x55e1a0c73fcb in xmlBufCreate /src/libxml2/buf.c:140:16
+    #3 0x55e1a08e7aba in xmlInputSetEncodingHandler /src/libxml2/parserInternals.c:1316:11
+    #4 0x55e1a08e7119 in xmlSwitchToEncoding /src/libxml2/parserInternals.c:1399:12
+    #5 0x55e1a08e6ef1 in xmlSwitchEncoding /src/libxml2/parserInternals.c:1194:11
+    #6 0x55e1a08e95e7 in xmlDetectEncoding /src/libxml2/parserInternals.c:1521:13
+    #7 0x55e1a09eae28 in htmlParseDocument /src/libxml2/HTMLparser.c:4346:5
+    #8 0x55e1a09f9c5b in htmlCtxtParseDocument /src/libxml2/HTMLparser.c:5927:5
+    #9 0x55e1a09fa8b4 in htmlCtxtReadMemory /src/libxml2/HTMLparser.c:6238:12
+    #10 0x55e1a0823b9b in LLVMFuzzerTestOneInput /src/libxml2/fuzz/html.c:49:15
+    #11 0x55e1a06d8430 in fuzzer::Fuzzer::ExecuteCallback(unsigned char const*, unsigned long) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:614:13
+    #12 0x55e1a06c36a5 in fuzzer::RunOneTest(fuzzer::Fuzzer*, char const*, unsigned long) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerDriver.cpp:327:6
+    #13 0x55e1a06c913f in fuzzer::FuzzerDriver(int*, char***, int (*)(unsigned char const*, unsigned long)) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerDriver.cpp:862:9
+    #14 0x55e1a06f43e2 in main /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerMain.cpp:20:10
+    #15 0x7f6d20997082 in __libc_start_main (/lib/x86_64-linux-gnu/libc.so.6+0x24082) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+
+DEDUP_TOKEN: __interceptor_malloc--xmlFuzzMalloc--xmlBufCreate
+SUMMARY: AddressSanitizer: heap-buffer-overflow /src/libxml2/encoding.c:2868:20 in UTF32ToUTF8
+Shadow bytes around the buggy address:
+  0x523000003180: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+  0x523000003200: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+  0x523000003280: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+  0x523000003300: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+  0x523000003380: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+=>0x523000003400: 00 00 00 00 00 00 00 00 00 00 00 00 00 00[01]fa
+  0x523000003480: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa
+  0x523000003500: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa
+  0x523000003580: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa
+  0x523000003600: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa
+  0x523000003680: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa
+Shadow byte legend (one shadow byte represents 8 application bytes):
+  Addressable:           00
+  Partially addressable: 01 02 03 04 05 06 07 
+  Heap left redzone:       fa
+  Freed heap region:       fd
+  Stack left redzone:      f1
+  Stack mid redzone:       f2
+  Stack right redzone:     f3
+  Stack after return:      f5
+  Stack use after scope:   f8
+  Global redzone:          f9
+  Global init order:       f6
+  Poisoned by user:        f7
+  Container overflow:      fc
+  Array cookie:            ac
+  Intra object redzone:    bb
+  ASan internal:           fe
+  Left alloca redzone:     ca
+  Right alloca redzone:    cb
+==18==ABORTING
+subprocess command returned a non-zero exit status: 1
+INFO:__main__:Running: docker run --privileged --shm-size=2g --platform linux/amd64 --rm -i -e HELPER=True -e ARCHITECTURE=x86_64 -v /home/qqor/crete/packages/python_oss_fuzz/.oss_fuzz/build/out/libxml2:/out -v /tmp/tmp6ixw01gz:/testcase -t ghcr.io/aixcc-finals/base-runner:v1.3.0 reproduce html -runs=100.
+
+</crash_log>

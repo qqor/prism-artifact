@@ -1,0 +1,39 @@
+--- a/poi-ooxml/src/main/java/org/apache/poi/xssf/extractor/XSSFEventBasedExcelExtractor.java
++++ b/poi-ooxml/src/main/java/org/apache/poi/xssf/extractor/XSSFEventBasedExcelExtractor.java
+@@ -73,7 +73,8 @@
+     implements POIXMLTextExtractor, ExcelExtractor {
+ 
+     private static final Logger LOGGER = PoiLogManager.getLogger(XSSFEventBasedExcelExtractor.class);
+-    private static final Pattern MAJOR_VERSION_PATTERN = Pattern.compile("(-?(?:\\d{1,30})*)(?:\\.(\\dc?)*)");
++    private static final Pattern MAJOR_VERSION_PATTERN =
++        Pattern.compile("(-?\\d{1,30})(?:\\.(\\d{1,30}))?");
+     protected final OPCPackage container;
+     protected final POIXMLProperties properties;
+ 
+@@ -523,14 +524,20 @@
+ 
+         private void handleAppVersion() {
+             String appVersionString = appVersionBuffer.toString();
+-            if (appVersionString.isEmpty()) {
++            appVersionBuffer.setLength(0);  // reset buffer immediately
++
++            // skip empty or excessively long inputs
++            if (appVersionString.isEmpty() || appVersionString.length() > 200) {
+                 return;
+             }
+-            Matcher m = MAJOR_VERSION_PATTERN.matcher(appVersionString);
+-            if (m.find()) {
+-                text.append("MajorVersion: ").append(m.group(1)).append("\n");
+-            }
+-            appVersionBuffer.setLength(0);
++            try {
++                Matcher m = MAJOR_VERSION_PATTERN.matcher(appVersionString);
++                if (m.find()) {
++                    text.append("MajorVersion: ").append(m.group(1)).append("\n");
++                }
++            } catch (StackOverflowError soe) {
++                LOGGER.warn("Skipped AppVersion regex due to overflow: {}", appVersionString, soe);
++            }
+         }
+ 
+         @Override

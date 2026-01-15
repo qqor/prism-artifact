@@ -1,0 +1,62 @@
+Create a patch to fix a AddressSanitizer: heap-buffer-overflow bug given below and apply it to the code.
+NEVER fix files outside the source directory.
+NEVER do any git operations in or outside the source directory.
+
+Below is the crash log:
+
+<crash_log>
+==ERROR: AddressSanitizer: heap-buffer-overflow on address 0x502000010230 at pc 0x563c93457353 bp 0x7ffc76419610 sp 0x7ffc76419608
+WRITE of size 1 at 0x502000010230 thread T0
+SCARINESS: 41 (1-byte-write-heap-buffer-overflow-far-from-bounds)
+    #0 0x563c93457352 in freerdp_bio_read_pem_with_policy /src/FreeRDP/libfreerdp/crypto/certificate.c:1570:14
+    #1 0x563c93456cc8 in freerdp_certificate_get_pem_ex /src/FreeRDP/libfreerdp/crypto/certificate.c:1634:9
+    #2 0x563c93450cbd in freerdp_certificate_data_load_cache /src/FreeRDP/libfreerdp/crypto/certificate_data.c:84:21
+    #3 0x563c9344f6ef in freerdp_certificate_data_new_nocopy /src/FreeRDP/libfreerdp/crypto/certificate_data.c:126:7
+    #4 0x563c9344f89b in freerdp_certificate_data_new_from_pem /src/FreeRDP/libfreerdp/crypto/certificate_data.c:155:29
+    #5 0x563c9344f2cd in LLVMFuzzerTestOneInput /src/FreeRDP/libfreerdp/core/test/TestFuzzCryptoCertificateDataSetPEM.c:13:9
+    #6 0x563c933060f0 in fuzzer::Fuzzer::ExecuteCallback(unsigned char const*, unsigned long) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:614:13
+    #7 0x563c932f1365 in fuzzer::RunOneTest(fuzzer::Fuzzer*, char const*, unsigned long) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerDriver.cpp:327:6
+    #8 0x563c932f6dff in fuzzer::FuzzerDriver(int*, char***, int (*)(unsigned char const*, unsigned long)) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerDriver.cpp:862:9
+    #9 0x563c933220a2 in main /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerMain.cpp:20:10
+    #10 0x7f0f66e52082 in __libc_start_main (/lib/x86_64-linux-gnu/libc.so.6+0x24082) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #11 0x563c932e954d in _start (/out/TestFuzzCryptoCertificateDataSetPEM+0xcf54d)
+
+DEDUP_TOKEN: freerdp_bio_read_pem_with_policy--freerdp_certificate_get_pem_ex--freerdp_certificate_data_load_cache
+Address 0x502000010230 is a wild pointer inside of access range of size 0x000000000001.
+SUMMARY: AddressSanitizer: heap-buffer-overflow /src/FreeRDP/libfreerdp/crypto/certificate.c:1570:14 in freerdp_bio_read_pem_with_policy
+Shadow bytes around the buggy address:
+  0x50200000ff80: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa
+  0x502000010000: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa
+  0x502000010080: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa
+  0x502000010100: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa
+  0x502000010180: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa
+=>0x502000010200: fa fa fa fa fa fa[fa]fa fa fa fa fa fa fa fa fa
+  0x502000010280: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa
+  0x502000010300: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa
+  0x502000010380: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa
+  0x502000010400: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa
+  0x502000010480: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa
+Shadow byte legend (one shadow byte represents 8 application bytes):
+  Addressable:           00
+  Partially addressable: 01 02 03 04 05 06 07 
+  Heap left redzone:       fa
+  Freed heap region:       fd
+  Stack left redzone:      f1
+  Stack mid redzone:       f2
+  Stack right redzone:     f3
+  Stack after return:      f5
+  Stack use after scope:   f8
+  Global redzone:          f9
+  Global init order:       f6
+  Poisoned by user:        f7
+  Container overflow:      fc
+  Array cookie:            ac
+  Intra object redzone:    bb
+  ASan internal:           fe
+  Left alloca redzone:     ca
+  Right alloca redzone:    cb
+==18==ABORTING
+subprocess command returned a non-zero exit status: 1
+INFO:__main__:Running: docker run --privileged --shm-size=2g --platform linux/amd64 --rm -i -e HELPER=True -e ARCHITECTURE=x86_64 -v /home/qqor/aixcc/crete/packages/python_oss_fuzz/.oss_fuzz/build/out/freerdp:/out -v /tmp/tmpaw02926v:/testcase -t ghcr.io/aixcc-finals/base-runner:v1.3.0 reproduce TestFuzzCryptoCertificateDataSetPEM -runs=100.
+
+</crash_log>

@@ -1,0 +1,96 @@
+I tried to fix a com.code_intelligence.jazzer.api.FuzzerSecurityIssueCritical: OS Command Injection vulnerability causing the crash log in the <crash_log> below.
+I failed to fix the vulnerability with the following patches:
+
+```diff
+diff --git a/pdfbox/src/main/java/org/apache/pdfbox/ocr/OCRStreamEngine.java b/pdfbox/src/main/java/org/apache/pdfbox/ocr/OCRStreamEngine.java
+index eb0a9f79a..fcd6595e6 100644
+--- a/pdfbox/src/main/java/org/apache/pdfbox/ocr/OCRStreamEngine.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/ocr/OCRStreamEngine.java
+@@ -161,11 +161,50 @@ public class OCRStreamEngine {
+             actualTessPath = tesseractPath;
+         }
+ 
++        // Validate tesseract path to prevent command injection
++        actualTessPath = validateTesseractPath(actualTessPath);
++
+         Path txt = Paths.get(image.toAbsolutePath().toString());
+         doOCR(actualTessPath, image, txt);
+         return extractContent(txt);
+     }
+ 
++    /**
++     * Validates the tesseract path to prevent OS command injection attacks.
++     * Only allows safe characters and rejects paths containing command separators,
++     * shell metacharacters, or other potentially dangerous patterns.
++     *
++     * @param path The tesseract path to validate
++     * @return The validated path
++     * @throws IOException if the path contains unsafe characters
++     */
++    private String validateTesseractPath(String path) throws IOException {
++        if (path == null || path.isEmpty()) {
++            throw new IOException("Tesseract path cannot be null or empty");
++        }
++
++        // Reject paths containing shell metacharacters and command injection patterns
++        // This includes: command separators (;|&), redirects (<>), command substitution ($`),
++        // wildcards (*?[]), quotes that could break out of arguments, and newlines/nulls
++        String dangerousChars = "[;&|<>$`*?\\[\\]'\"\\n\\r\\0]";
++        if (path.matches(".*" + dangerousChars + ".*")) {
++            throw new IOException("Tesseract path contains invalid characters: " + path);
++        }
++
++        // Reject paths with consecutive dots that could be used for directory traversal attacks
++        if (path.contains("..")) {
++            throw new IOException("Tesseract path cannot contain '..': " + path);
++        }
++
++        // Additional safety: only allow alphanumeric, dash, underscore, dot, slash, and backslash
++        // This covers typical executable paths on Unix (/usr/bin/tesseract) and Windows (C:\Program Files\Tesseract\tesseract.exe)
++        if (!path.matches("^[a-zA-Z0-9/_\\-.:,\\\\]+$")) {
++            throw new IOException("Tesseract path contains disallowed characters: " + path);
++        }
++
++        return path;
++    }
++
+     private String extractContent(Path base) throws IOException {
+         Path txt = Paths.get(base.toAbsolutePath() + ".txt");
+         if (Files.isRegularFile(txt)) {
+
+```
+
+Explain why the patches failed and provide a new patch to fix the vulnerability.
+Do not repeat the same mistakes in the new patch.
+Try a completely different approach to fix the vulnerability.
+NEVER fix files outside the source directory.
+NEVER do any git operations in or outside the source directory.
+
+Below is the crash log:
+
+<crash_log>
+== Java Exception: com.code_intelligence.jazzer.api.FuzzerSecurityIssueCritical: OS Command Injection
+Executing OS commands with attacker-controlled data can lead to remote code execution.
+	at com.code_intelligence.jazzer.sanitizers.OsCommandInjection.processImplStartHook(OsCommandInjection.kt:60)
+	at java.base/java.lang.ProcessBuilder.start(ProcessBuilder.java:1110)
+	at java.base/java.lang.ProcessBuilder.start(ProcessBuilder.java:1073)
+	at org.apache.pdfbox.ocr.OCRStreamEngine.doOCR(OCRStreamEngine.java:190)
+	at org.apache.pdfbox.ocr.OCRStreamEngine.runTesseract(OCRStreamEngine.java:165)
+	at org.apache.pdfbox.ocr.OCRStreamEngine.processPage(OCRStreamEngine.java:150)
+	at org.apache.pdfbox.ocr.OCRStreamEngine.processPages(OCRStreamEngine.java:140)
+	at org.apache.pdfbox.ocr.OCRStreamEngine.writeText(OCRStreamEngine.java:129)
+	at org.apache.pdfbox.ocr.OCRStreamEngine.getText(OCRStreamEngine.java:88)
+	at org.apache.pdfbox.ocr.OCRStreamEngine.getText(OCRStreamEngine.java:71)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:77)
+	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:568)
+	at com.example.PDFOCRFuzzer.fuzzerTestOneInput(PDFOCRFuzzer.java:75)
+DEDUP_TOKEN: af83c7db521bbc07
+== libFuzzer crashing input ==
+reproducer_path='.'; Java reproducer written to ./Crash_ec4b6a88ecc66256ef568f9c1c52a006a3415395.java
+
+subprocess command returned a non-zero exit status: 77
+INFO:__main__:Running: docker run --privileged --shm-size=2g --platform linux/amd64 --rm -i -e HELPER=True -e ARCHITECTURE=x86_64 -v /home/qqor/aixcc/crete/packages/python_oss_fuzz/.oss_fuzz/build/out/pdfbox:/out -v /tmp/tmpkxdhaefh:/testcase -t ghcr.io/aixcc-finals/base-runner:v1.3.0 reproduce PDFOCRFuzzer -runs=100.
+
+</crash_log>

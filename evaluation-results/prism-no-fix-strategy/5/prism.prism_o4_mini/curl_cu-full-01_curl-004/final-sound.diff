@@ -1,0 +1,24 @@
+--- a/lib/file.c
++++ b/lib/file.c
+@@ -491,12 +491,19 @@
+       return result;
+ 
+     if(data->req.no_body) {
++      /* format suppressed-body notice safely into header */
+       headerlen =
+-      msnprintf(header, sizeof(no_body), "%s (%ld bytes) \r\n",
++        msnprintf(header, sizeof(header),
++                  "%s (%" FMT_OFF_T " bytes)\r\n",
+                   no_body, expected_size);
+-      result = Curl_client_write(data, CLIENTWRITE_HEADER, header, headerlen);
++      if((size_t)headerlen >= sizeof(header))
++        headerlen = sizeof(header) - 1;
++      header[headerlen] = '\0';
++      result = Curl_client_write(data, CLIENTWRITE_HEADER,
++                                 header, headerlen);
+     }
+     else {
++      /* emit File-body: included safely */
+       result = Curl_client_write(data, CLIENTWRITE_HEADER,
+                                  body_msg, sizeof(body_msg) - 1);
+     }

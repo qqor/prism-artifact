@@ -1,0 +1,46 @@
+--- a/src/net_builtin.c
++++ b/src/net_builtin.c
+@@ -380,19 +380,30 @@
+ }
+ 
+ static void rx_icmp(struct mg_tcpip_if *ifp, struct pkt *pkt) {
+-  // MG_DEBUG(("ICMP %d", (int) len));
+-  if (pkt->icmp->type == 8 && pkt->ip != NULL && pkt->ip->dst == ifp->ip) {
+-    size_t hlen = sizeof(struct eth) + sizeof(struct ip) + sizeof(struct icmp);
+-    size_t space = ifp->tx.len - hlen, plen = pkt->pay.len;
+-    if (plen > space) plen = space;
+-    struct ip *ip = tx_ip(ifp, pkt->eth->src, 1, ifp->ip, pkt->ip->src,
+-                          sizeof(struct icmp) + plen);
+-    struct icmp *icmp = (struct icmp *) (ip + 1);
+-    memset(icmp, 0, sizeof(*icmp));        // Set csum to 0
+-    memcpy(icmp + 1, pkt->pay.buf, plen);  // Copy RX payload to TX
+-    icmp->csum = ipcsum(icmp, sizeof(*icmp) + plen);
+-    ether_output(ifp, hlen + plen);
+-  }
++  // MG_DEBUG(("ICMP payload length %u", (unsigned) pkt->pay.len));
++  if (pkt->ip == NULL) return;
++  size_t eth_hlen = sizeof(struct eth);
++  size_t ihl = (pkt->ip->ver & 0xF) * 4;
++  size_t in_hlen = eth_hlen + ihl + sizeof(struct icmp);
++  // ensure full ICMP header present in received buffer
++  if (pkt->raw.len < in_hlen) return;
++  // clamp received payload length
++  size_t avail = pkt->raw.len - in_hlen, plen = pkt->pay.len;
++  if (plen > avail) plen = avail;
++  // only echo requests for this interface
++  if (pkt->icmp->type != 8 || pkt->ip->dst != ifp->ip) return;
++  // prepare echo reply transmit buffer
++  size_t out_hlen = eth_hlen + ihl + sizeof(struct icmp);
++  size_t space = ifp->tx.len - out_hlen;
++  if (plen > space) plen = space;
++  if (plen & 1) plen--;  // even length for checksum
++  struct ip *ip = tx_ip(ifp, pkt->eth->src, 1, ifp->ip, pkt->ip->src,
++                        sizeof(struct icmp) + plen);
++  struct icmp *icmp = (struct icmp *)(ip + 1);
++  memset(icmp, 0, sizeof(*icmp));
++  memcpy(icmp + 1, pkt->pay.buf, plen);
++  icmp->csum = ipcsum(icmp, sizeof(*icmp) + plen);
++  ether_output(ifp, out_hlen + plen);
+ }
+ 
+ static void rx_dhcp_client(struct mg_tcpip_if *ifp, struct pkt *pkt) {

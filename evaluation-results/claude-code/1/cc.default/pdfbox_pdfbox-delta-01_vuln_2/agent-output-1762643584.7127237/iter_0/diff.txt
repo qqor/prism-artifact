@@ -1,0 +1,55 @@
+diff --git a/pdfbox/src/main/java/org/apache/pdfbox/ocr/OCRStreamEngine.java b/pdfbox/src/main/java/org/apache/pdfbox/ocr/OCRStreamEngine.java
+index eb0a9f79a..fcd6595e6 100644
+--- a/pdfbox/src/main/java/org/apache/pdfbox/ocr/OCRStreamEngine.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/ocr/OCRStreamEngine.java
+@@ -161,11 +161,50 @@ public class OCRStreamEngine {
+             actualTessPath = tesseractPath;
+         }
+ 
++        // Validate tesseract path to prevent command injection
++        actualTessPath = validateTesseractPath(actualTessPath);
++
+         Path txt = Paths.get(image.toAbsolutePath().toString());
+         doOCR(actualTessPath, image, txt);
+         return extractContent(txt);
+     }
+ 
++    /**
++     * Validates the tesseract path to prevent OS command injection attacks.
++     * Only allows safe characters and rejects paths containing command separators,
++     * shell metacharacters, or other potentially dangerous patterns.
++     *
++     * @param path The tesseract path to validate
++     * @return The validated path
++     * @throws IOException if the path contains unsafe characters
++     */
++    private String validateTesseractPath(String path) throws IOException {
++        if (path == null || path.isEmpty()) {
++            throw new IOException("Tesseract path cannot be null or empty");
++        }
++
++        // Reject paths containing shell metacharacters and command injection patterns
++        // This includes: command separators (;|&), redirects (<>), command substitution ($`),
++        // wildcards (*?[]), quotes that could break out of arguments, and newlines/nulls
++        String dangerousChars = "[;&|<>$`*?\\[\\]'\"\\n\\r\\0]";
++        if (path.matches(".*" + dangerousChars + ".*")) {
++            throw new IOException("Tesseract path contains invalid characters: " + path);
++        }
++
++        // Reject paths with consecutive dots that could be used for directory traversal attacks
++        if (path.contains("..")) {
++            throw new IOException("Tesseract path cannot contain '..': " + path);
++        }
++
++        // Additional safety: only allow alphanumeric, dash, underscore, dot, slash, and backslash
++        // This covers typical executable paths on Unix (/usr/bin/tesseract) and Windows (C:\Program Files\Tesseract\tesseract.exe)
++        if (!path.matches("^[a-zA-Z0-9/_\\-.:,\\\\]+$")) {
++            throw new IOException("Tesseract path contains disallowed characters: " + path);
++        }
++
++        return path;
++    }
++
+     private String extractContent(Path base) throws IOException {
+         Path txt = Paths.get(base.toAbsolutePath() + ".txt");
+         if (Files.isRegularFile(txt)) {

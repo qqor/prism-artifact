@@ -1,0 +1,173 @@
+
+================================================================================
+Response 1
+================================================================================
+Looking at the crash log and the failed patches, I can see the issue. The timeout is occurring in the CSV parsing logic, but the previous patches failed because:
+
+1. **First patch**: Only added a check in the `consumeQuoted` method, but the infinite loop could be in other places
+2. **Second patch**: Added iteration counting, but the counter is instance-level and would accumulate across the entire sniffing process, not per individual loop
+
+The fundamental problem is that `loopIterations` is being incremented across multiple different loops, so it reaches the limit even for legitimate parsing. Also, the counter persists across multiple `consume()` calls, making it ineffective.
+
+Let me first examine the CSVSniffer.java file to understand the structure better:
+
+================================================================================
+Response 2
+================================================================================
+Let me search in the working directory:
+
+================================================================================
+Response 3
+================================================================================
+Now I understand the issue. Looking at the code, the problem is:
+
+## Why the patches failed:
+
+1. **First patch**: Only checked in `consumeQuoted()`, but the timeout could happen in the main loop or other consume methods that don't properly check limits.
+
+2. **Second patch**: Added a global `loopIterations` counter, but this is fundamentally flawed because:
+   - It's an instance variable that persists across the entire sniffing process
+   - Multiple loops (`consumeQuoted`, `consumeSpaceCharacters`, `consumeNewLines`, main loop) all increment it
+   - Even legitimate parsing would quickly exceed `markLimit * 2`
+   - The counter never resets between different loops
+
+## The Real Problem:
+
+Looking at the code, the `read()` method (lines 292-302) already checks `charsRead >= markLimit - 1` and throws `HitMarkLimitException`. However, the infinite loop can still occur in these scenarios:
+
+1. **consumeSpaceCharacters** (line 233-242): Infinite loop if the input is all spaces
+2. **consumeNewLines** (line 312-321): Infinite loop if the input is all newlines  
+3. **consumeQuoted** (line 253-290): Infinite loop with pathological quoted content
+
+The issue is that these loops can iterate many times **without calling `read()`** if they keep calling `unread()` and `read()` in a pattern that doesn't advance `charsRead`.
+
+## The Solution:
+
+Add **per-loop iteration limits** for each individual loop, not a global counter. Each loop should have its own safety check:
+
+================================================================================
+Response 4
+================================================================================
+Now let me also add protection to the main parsing loop in the `sniff()` method:
+
+================================================================================
+Response 5
+================================================================================
+Perfect! Now let me generate the complete patch file showing all the changes:
+
+================================================================================
+Response 6
+================================================================================
+Excellent! Now let me provide a summary of the fix:
+
+## Summary: Why the Previous Patches Failed and the New Solution
+
+### **Why the Previous Patches Failed:**
+
+1. **First Patch (only in `consumeQuoted`):**
+   - Only protected one loop method
+   - The timeout could occur in other loops (`consumeSpaceCharacters`, `consumeNewLines`, main loop)
+   - Too narrow in scope
+
+2. **Second Patch (global `loopIterations` counter):**
+   - **Fatal flaw**: Used a single instance-level counter that accumulated across ALL loops
+   - Even legitimate CSV parsing would quickly exceed `markLimit * 2` because:
+     - Main loop iterations + consumeQuoted iterations + consumeSpaceCharacters iterations + consumeNewLines iterations all added to the same counter
+     - A normal CSV file with 1000 rows might iterate 1000 times in main loop + 1000 times across other methods = 2000 iterations
+     - With default `markLimit = 10000`, the limit of `20000` could still be exceeded or cause false positives
+   - The counter never reset between different loops
+
+### **The New Approach - Per-Loop Iteration Limits:**
+
+Instead of a global counter, I added **independent local counters** for each individual loop:
+
+1. **`mainLoopIterations`** in the main `sniff()` loop
+2. **`iterations`** in `consumeSpaceCharacters()` 
+3. **`iterations`** in `consumeQuoted()`
+4. **`iterations`** in `consumeNewLines()`
+
+Each counter:
+- Is **local to its specific loop** (not shared)
+- **Resets** when entering a new loop
+- Limits iterations to `markLimit` (reasonable since we can't read more than `markLimit` chars anyway)
+- Throws `HitMarkLimitException` when exceeded, which is already handled in the exception handling
+
+### **Why This Fix Works:**
+
+1. **No false positives**: Each loop is independently bounded, so normal parsing won't trigger limits
+2. **Prevents all infinite loops**: Every while loop now has a safety check
+3. **Reasonable limits**: Using `markLimit` as the bound makes sense - no single loop should iterate more times than the total characters we can read
+4. **Consistent with existing design**: Reuses the existing `HitMarkLimitException` mechanism already in place
+
+Here's the complete patch:
+
+```diff
+diff --git a/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-text-module/src/main/java/org/apache/tika/parser/csv/CSVSniffer.java b/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-text-module/src/main/java/org/apache/tika/parser/csv/CSVSniffer.java
+index 9075a74db..9ba575155 100644
+--- a/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-text-module/src/main/java/org/apache/tika/parser/csv/CSVSniffer.java
++++ b/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-text-module/src/main/java/org/apache/tika/parser/csv/CSVSniffer.java
+@@ -152,10 +152,17 @@ class CSVSniffer {
+             boolean eof = false;
+             boolean hitMarkLimit = false;
+             int lastC = -1;
++            int mainLoopIterations = 0;
+             StringBuilder unquoted = new StringBuilder();
+             try (PushbackReader reader = new PushbackReader(new CloseShieldReader(r), PUSH_BACK)) {
+                 int c = read(reader);
+                 while (c != EOF) {
++                    mainLoopIterations++;
++                    // Prevent infinite loops in main parsing loop
++                    // Use markLimit as upper bound since we can't read more chars than that
++                    if (mainLoopIterations > markLimit) {
++                        throw new HitMarkLimitException();
++                    }
+                     if (c == quoteCharacter) {
+                         handleUnquoted(unquoted);
+                         //test to make sure there isn't an unencapsulated quote character
+@@ -232,8 +239,14 @@ class CSVSniffer {
+ 
+         void consumeSpaceCharacters(PushbackReader reader) throws IOException {
+             int c = read(reader);
++            int iterations = 0;
+             while (c == SPACE) {
+                 c = read(reader);
++                iterations++;
++                // Prevent infinite loops - no legitimate CSV should have more than markLimit consecutive spaces
++                if (iterations > markLimit) {
++                    throw new HitMarkLimitException();
++                }
+             }
+             if (c == EOF) {
+                 throw new UnsurprisingEOF();
+@@ -256,7 +269,13 @@ class CSVSniffer {
+             //we can make this more interesting later with other
+             //escaping options
+             int c = read(reader);
++            int iterations = 0;
+             while (c != -1) {
++                iterations++;
++                // Prevent infinite loops - no legitimate quoted field should exceed markLimit characters
++                if (iterations > markLimit) {
++                    throw new HitMarkLimitException();
++                }
+                 if (c == quoteCharacter) {
+                     int nextC = read(reader);
+                     if (nextC == EOF) {
+@@ -311,8 +330,14 @@ class CSVSniffer {
+         //consume all consecutive '\r\n' in any order
+         void consumeNewLines(PushbackReader reader) throws IOException {
+             int c = read(reader);
++            int iterations = 0;
+             while (c == NEW_LINE || c == CARRIAGE_RETURN) {
+                 c = read(reader);
++                iterations++;
++                // Prevent infinite loops - no legitimate CSV should have more than markLimit consecutive newlines
++                if (iterations > markLimit) {
++                    throw new HitMarkLimitException();
++                }
+             }
+             if (c == EOF) {
+                 throw new EOFException();
+```
+
+This patch fixes the timeout vulnerability by adding independent iteration limits to each loop, preventing any single loop from running indefinitely while avoiding false positives from accumulated iteration counts.

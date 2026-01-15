@@ -1,0 +1,102 @@
+--- a/pdfbox/src/main/java/org/apache/pdfbox/pdmodel/PDPageTree.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/pdmodel/PDPageTree.java
+@@ -20,6 +20,8 @@
+ import java.util.Collections;
+ import java.util.Iterator;
+ import java.util.Queue;
++import java.util.Set;
++import java.util.HashSet;
+ import org.apache.pdfbox.cos.COSArray;
+ import org.apache.pdfbox.cos.COSBase;
+ import org.apache.pdfbox.cos.COSDictionary;
+@@ -180,21 +182,25 @@
+     private final class PageIterator implements Iterator<PDPage>
+     {
+         private final Queue<COSDictionary> queue = new ArrayDeque<>();
+-
+-        private PageIterator(COSDictionary node)
+-        {
+-            List<COSDictionary> kids = enqueueKids(node);
+-            while (!kids.isEmpty())
+-            {
+-                List<COSDictionary> newKids = new ArrayList<>();
+-
+-                for (COSDictionary kid : kids)
++        private final Set<COSDictionary> pageSet = new HashSet<>();
++
++    private PageIterator(COSDictionary node)
++    {
++        List<COSDictionary> kids = enqueueKids(node);
++        while (!kids.isEmpty())
++        {
++            List<COSDictionary> nextKids = new ArrayList<>();
++            for (COSDictionary kid : kids)
++            {
++                if (pageSet.add(kid))
+                 {
+-                    newKids.addAll(enqueueKids(kid));
++                    queue.add(kid);
++                    nextKids.addAll(enqueueKids(kid));
+                 }
+-                kids = newKids;
+-            }
+-        }
++            }
++            kids = nextKids;
++        }
++    }
+ 
+         /**
+          * This takes a node, and, if it is a page adds it to the queue.
+@@ -203,26 +209,36 @@
+          * @param node
+          * @return
+          */
+-        private List<COSDictionary> enqueueKids(COSDictionary node)
+-        {
+-            if (isPageTreeNode(node))
+-            {
+-                return getKids(node);
+-            }
+-            else
+-            {
+-                if (node != null && COSName.PAGE.equals(node.getCOSName(COSName.TYPE)))
++    private List<COSDictionary> enqueueKids(COSDictionary node)
++    {
++        if (node == null)
++        {
++            return Collections.emptyList();
++        }
++        COSArray kidsArray = node.getCOSArray(COSName.KIDS);
++        if (kidsArray == null)
++        {
++            return Collections.emptyList();
++        }
++        List<COSDictionary> result = new ArrayList<>();
++        for (COSBase base : kidsArray)
++        {
++            if (base instanceof COSDictionary)
++            {
++                COSDictionary kidDict = (COSDictionary) base;
++                COSName type = kidDict.getCOSName(COSName.TYPE);
++                if (COSName.PAGE.equals(type))
+                 {
+-                    queue.add(node);
++                    result.add(kidDict);
+                 }
+-                else
++                else if (COSName.PAGES.equals(type))
+                 {
+-                    LOG.error("Page skipped due to an invalid or missing type {}",
+-                            () -> (node == null ? "(null)" : node.getCOSName(COSName.TYPE)));
++                    result.addAll(enqueueKids(kidDict));
+                 }
+             }
+-            return Collections.EMPTY_LIST;
+-        }
++        }
++        return result;
++    }
+ 
+         @Override
+         public boolean hasNext()

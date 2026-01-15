@@ -1,0 +1,24 @@
+--- a/tika-pipes/tika-emitters/tika-emitter-fs/src/main/java/org/apache/tika/pipes/emitter/fs/FileSystemEmitter.java
++++ b/tika-pipes/tika-emitters/tika-emitter-fs/src/main/java/org/apache/tika/pipes/emitter/fs/FileSystemEmitter.java
+@@ -143,8 +143,19 @@
+     }
+ 
+     @Override
+-    public void emit(String path, InputStream inputStream, Metadata userMetadata, ParseContext parseContext) throws IOException, TikaEmitterException {
+-        Path target = basePath.resolve(path);
++    public void emit(String path, InputStream inputStream, Metadata userMetadata, ParseContext parseContext)
++            throws IOException, TikaEmitterException {
++        // Early reject any raw traversal segments before normalization
++        for (String segment : path.split("[/\\\\]")) {
++            if ("..".equals(segment)) {
++                throw new TikaEmitterException("Invalid path traversal: " + path);
++            }
++        }
++        // Resolve and normalize against basePath, then verify prefix
++        Path target = basePath.resolve(path).normalize();
++        if (!target.startsWith(basePath)) {
++            throw new TikaEmitterException("Invalid path traversal: " + path);
++        }
+ 
+         if (!Files.isDirectory(target.getParent())) {
+             Files.createDirectories(target.getParent());

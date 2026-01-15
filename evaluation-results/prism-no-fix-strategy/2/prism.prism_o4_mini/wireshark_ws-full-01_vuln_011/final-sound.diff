@@ -1,0 +1,62 @@
+--- a/epan/tvbuff.h
++++ b/epan/tvbuff.h
+@@ -46,6 +46,8 @@
+ 
+ struct tvbuff;
+ typedef struct tvbuff tvbuff_t;
++/* Ensure a buffer range is present in the tvb, or throw a BoundsError */
++WS_DLL_PUBLIC void tvb_ensure_bytes_exist(const tvbuff_t *tvb, int offset, int length);
+ 
+ /** @defgroup tvbuff Testy, Virtual(-izable) Buffers
+  *
+
+--- a/epan/dissectors/packet-aim.c
++++ b/epan/dissectors/packet-aim.c
+@@ -15,14 +15,15 @@
+ 
+ 
+ #include <epan/packet.h>
++#include <epan/tvbuff.h>
+ #include <epan/strutil.h>
+ #include <epan/to_str.h>
+ #include <epan/tfs.h>
++#include <epan/prefs.h>
++#include <epan/expert.h>
+ 
+ #include "packet-tcp.h"
+ #include "packet-tls.h"
+-#include <epan/prefs.h>
+-#include <epan/expert.h>
+ 
+ void proto_register_aim(void);
+ void proto_reg_handoff_aim(void);
+@@ -583,14 +584,21 @@
+ {
+ 	uint16_t buddyname_length;
+ 
+-	*name = wmem_alloc(pool, 256);
+-
+-	buddyname_length = tvb_get_ntohs(tvb, offset);
+-
+-	if (pool)
+-		memcpy(*name, tvb_get_ptr(tvb,offset,1), buddyname_length);
+-
+-	return buddyname_length;
++    *name = wmem_alloc(pool, 256);
++
++    buddyname_length = tvb_get_ntohs(tvb, offset);
++
++    /* Clamp buddyname_length to the allocated buffer size and ensure enough data */
++    if (buddyname_length > 256)
++        buddyname_length = 256;
++    tvb_ensure_bytes_exist(tvb, offset, buddyname_length);
++
++    if (pool)
++        memcpy(*name,
++               tvb_get_ptr(tvb, offset, buddyname_length),
++               buddyname_length);
++
++    return buddyname_length;
+ }
+ 
+ 

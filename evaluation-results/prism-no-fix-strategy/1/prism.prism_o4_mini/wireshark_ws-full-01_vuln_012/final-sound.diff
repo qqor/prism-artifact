@@ -1,0 +1,38 @@
+--- a/epan/dissectors/packet-zbee-zdp-management.c
++++ b/epan/dissectors/packet-zbee-zdp-management.c
+@@ -209,7 +209,11 @@
+     channels_arr = (struct ZBChannel**)malloc(sizeof(struct ZBChannel*) * max_channel_count);
+     for (i=0; i < max_channel_count; i++) {
+         channels_arr[i] = (struct ZBChannel*)malloc(sizeof(struct ZBChannel));
++        channels_arr[i] =
++            (struct ZBChannel *)malloc(sizeof(struct ZBChannel));
+         channels_arr[i]->free_text = 0;
++        /* Initialize text pointer to NULL to avoid wild pointer use */
++        channels_arr[i]->text = NULL;
+     }
+ 
+     if (tree) {
+@@ -239,13 +243,16 @@
+         if (first)
+             proto_item_append_text(ti, "None");
+         if (channels_and_flags & 0xfff4131b) {
+-            for (i=0; i <= channels; i++) {
+-                printf("DEBUG:\t(0x%x/0x%x)\t%d / 0x%x\t%s\n",
+-                        i, channels,
+-                        channels_arr[i]->channel_id,
+-                        channels_arr[i]->channels,
+-                        channels_arr[i]->free_text,
+-                        channels_arr[i]->text);
++            for (i = 0; i < max_channel_count; i++) {
++                /* only print entries with valid text */
++                if (!channels_arr[i] || !channels_arr[i]->free_text)
++                    continue;
++                printf("DEBUG:\t(0x%x/0x%x)\t%d / 0x%x\t%u\t%s\n",
++                       i, channels,
++                       channels_arr[i]->channel_id,
++                       channels_arr[i]->channels,
++                       channels_arr[i]->free_text,
++                       channels_arr[i]->text ? channels_arr[i]->text : "(null)");
+             }
+         }
+     }

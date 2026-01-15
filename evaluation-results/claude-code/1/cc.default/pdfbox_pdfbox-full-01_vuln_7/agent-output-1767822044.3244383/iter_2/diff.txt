@@ -1,0 +1,31 @@
+diff --git a/fontbox/src/main/java/org/apache/fontbox/cmap/CMap.java b/fontbox/src/main/java/org/apache/fontbox/cmap/CMap.java
+index df50a55b1..2a204972d 100644
+--- a/fontbox/src/main/java/org/apache/fontbox/cmap/CMap.java
++++ b/fontbox/src/main/java/org/apache/fontbox/cmap/CMap.java
+@@ -170,6 +170,12 @@ public class CMap
+      */
+     public int readCode(InputStream in) throws IOException
+     {
++        // PDFBOX-xxxx: If no valid codespace ranges exist, consume and return one byte
++        // to avoid infinite loop
++        if (maxCodeLength == 0 || codespaceRanges.isEmpty())
++        {
++            return in.read();
++        }
+         byte[] bytes = new byte[maxCodeLength];
+         in.read(bytes,0,minCodeLength);
+         in.mark(maxCodeLength);
+@@ -438,6 +444,13 @@ public class CMap
+      */
+     void addCodespaceRange( CodespaceRange range )
+     {
++        // PDFBOX-xxxx: Ignore codespace ranges with zero code length to avoid infinite loop
++        // in readCode() when no bytes are consumed
++        if (range.getCodeLength() == 0)
++        {
++            LOG.warn("Ignoring codespace range with zero code length in CMap {}", cmapName);
++            return;
++        }
+         codespaceRanges.add(range);
+         maxCodeLength = Math.max(maxCodeLength, range.getCodeLength());
+         minCodeLength = Math.min(minCodeLength, range.getCodeLength());

@@ -1,0 +1,70 @@
+--- a/src/udev/udev-rules.c
++++ b/src/udev/udev-rules.c
+@@ -1,6 +1,16 @@
+ /* SPDX-License-Identifier: GPL-2.0-or-later */
+ 
+-#include <ctype.h>
++ #include "udev-util.h"
++ 
++ /* Thread-local buffer to avoid per-call malloc and prevent leaks */
++ static __thread char *udev_tls_buf = NULL;
++ static __thread size_t udev_tls_buf_size = 0;
++ static void udev_rule_free_tls_buf(void) __attribute__((destructor));
++ static void udev_rule_free_tls_buf(void) {
++     free(udev_tls_buf);
++     udev_tls_buf = NULL;
++     udev_tls_buf_size = 0;
++ }
+ 
+ #include "alloc-util.h"
+ #include "architecture.h"
+@@ -1217,16 +1227,41 @@
+                 */
+                 if (is_prefix_match){
+                         /* need more room to make rule glob match */
+-                        memcpy(str + pos - 1, unescaped, l + 1);
+-                        str[pos + l - 1] = '*';
+-                        str[pos + l] = '\0';
+-                        str[pos + l + 1] = '\0';
+-                        m = str + pos - 1;
++                        {
++                                size_t out_len = l + 3; /* star + data + two NULs */
++                                char *buf;
++                                if (udev_tls_buf_size < out_len) {
++                                        char *new_buf = realloc(udev_tls_buf, out_len);
++                                        if (!new_buf)
++                                                return -ENOMEM;
++                                        udev_tls_buf = new_buf;
++                                        udev_tls_buf_size = out_len;
++                                }
++                                buf = udev_tls_buf;
++                                buf[0] = '*';
++                                memcpy(buf + 1, unescaped, l);
++                                buf[l + 1] = '\0';
++                                buf[l + 2] = '\0';
++                                m = buf;
++                        }
+ 
+                 } else {
+-                        memcpy(m, unescaped, l + 1);
+-                        m[l] = '\0';
+-                        m[l + 1] = '\0';
++                        {
++                                size_t out_len = l + 2; /* data + two NULs */
++                                char *buf;
++                                if (udev_tls_buf_size < out_len) {
++                                        char *new_buf = realloc(udev_tls_buf, out_len);
++                                        if (!new_buf)
++                                                return -ENOMEM;
++                                        udev_tls_buf = new_buf;
++                                        udev_tls_buf_size = out_len;
++                                }
++                                buf = udev_tls_buf;
++                                memcpy(buf, unescaped, l);
++                                buf[l] = '\0';
++                                buf[l + 1] = '\0';
++                                m = buf;
++                        }
+                 }
+                 str = m;
+ 

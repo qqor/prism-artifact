@@ -1,0 +1,119 @@
+diff --git a/tika-core/src/main/java/org/apache/tika/parser/external/ExternalParser.java b/tika-core/src/main/java/org/apache/tika/parser/external/ExternalParser.java
+index 429258e46..9c124e50f 100644
+--- a/tika-core/src/main/java/org/apache/tika/parser/external/ExternalParser.java
++++ b/tika-core/src/main/java/org/apache/tika/parser/external/ExternalParser.java
+@@ -277,12 +277,80 @@ public class ExternalParser implements Parser {
+         }
+     }
+ 
++    /**
++     * Validates that a command array does not contain shell injection attempts.
++     * This checks for common shell metacharacters and injection patterns.
++     *
++     * @param cmd The command array to validate
++     * @return true if the command is safe, false otherwise
++     */
++    private boolean isCommandSafe(String[] cmd) {
++        if (cmd == null || cmd.length == 0) {
++            return false;
++        }
++
++        // Dangerous shell metacharacters and patterns
++        String[] dangerousPatterns = {
++            ";", "|", "&", "$", "`", "\\n", "\\r",
++            "$(", "||", "&&", ">", "<", ">>", "<<",
++            "\n", "\r"
++        };
++
++        for (String cmdPart : cmd) {
++            if (cmdPart == null) {
++                continue;
++            }
++
++            // Check for dangerous patterns
++            for (String pattern : dangerousPatterns) {
++                if (cmdPart.contains(pattern)) {
++                    LOG.warn("Potentially unsafe command detected: contains '{}' in '{}'", pattern, cmdPart);
++                    return false;
++                }
++            }
++        }
++
++        return true;
++    }
++
++    /**
++     * Validates that a file path does not contain shell injection attempts.
++     *
++     * @param path The file path to validate
++     * @return true if the path is safe, false otherwise
++     */
++    private boolean isPathSafe(String path) {
++        if (path == null) {
++            return false;
++        }
++
++        // Dangerous characters in file paths
++        String[] dangerousChars = {
++            ";", "|", "&", "$", "`", "\\n", "\\r",
++            "$(", "\n", "\r", "||", "&&"
++        };
++
++        for (String dangerous : dangerousChars) {
++            if (path.contains(dangerous)) {
++                LOG.warn("Potentially unsafe file path detected: contains '{}' in '{}'", dangerous, path);
++                return false;
++            }
++        }
++
++        return true;
++    }
++
+     private void parse(TikaInputStream stream, XHTMLContentHandler xhtml, Metadata metadata,
+                        TemporaryResources tmp) throws IOException, SAXException, TikaException {
+         boolean inputToStdIn = true;
+         boolean outputFromStdOut = true;
+         boolean hasPatterns = (metadataPatterns != null && !metadataPatterns.isEmpty());
+ 
++        // Security validation: Check if the command contains shell metacharacters or suspicious patterns
++        if (!isCommandSafe(command)) {
++            throw new TikaException("Unsafe command detected: command contains shell metacharacters or suspicious patterns");
++        }
++
+         File output = null;
+ 
+         // Build our command
+@@ -295,16 +363,31 @@ public class ExternalParser implements Parser {
+         }
+         for (int i = 0; i < cmd.length; i++) {
+             if (cmd[i].contains(INPUT_FILE_TOKEN)) {
+-                cmd[i] = cmd[i].replace(INPUT_FILE_TOKEN, stream.getFile().getPath());
++                String inputPath = stream.getFile().getPath();
++                // Validate the file path doesn't contain shell metacharacters
++                if (!isPathSafe(inputPath)) {
++                    throw new TikaException("Unsafe input file path detected: " + inputPath);
++                }
++                cmd[i] = cmd[i].replace(INPUT_FILE_TOKEN, inputPath);
+                 inputToStdIn = false;
+             }
+             if (cmd[i].contains(OUTPUT_FILE_TOKEN)) {
+                 output = tmp.createTemporaryFile();
+                 outputFromStdOut = false;
+-                cmd[i] = cmd[i].replace(OUTPUT_FILE_TOKEN, output.getPath());
++                String outputPath = output.getPath();
++                // Validate the output file path doesn't contain shell metacharacters
++                if (!isPathSafe(outputPath)) {
++                    throw new TikaException("Unsafe output file path detected: " + outputPath);
++                }
++                cmd[i] = cmd[i].replace(OUTPUT_FILE_TOKEN, outputPath);
+             }
+         }
+ 
++        // Final validation of the complete command before execution
++        if (!isCommandSafe(cmd)) {
++            throw new TikaException("Unsafe command detected after path substitution");
++        }
++
+         // Execute
+         Process process = null;
+         try {

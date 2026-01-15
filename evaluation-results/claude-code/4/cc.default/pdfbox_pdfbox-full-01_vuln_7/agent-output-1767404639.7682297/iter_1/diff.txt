@@ -1,0 +1,145 @@
+diff --git a/pdfbox/src/main/java/org/apache/pdfbox/pdmodel/font/PDCIDFont.java b/pdfbox/src/main/java/org/apache/pdfbox/pdmodel/font/PDCIDFont.java
+index 8c7600ca3..e6890b222 100644
+--- a/pdfbox/src/main/java/org/apache/pdfbox/pdmodel/font/PDCIDFont.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/pdmodel/font/PDCIDFont.java
+@@ -18,7 +18,9 @@ package org.apache.pdfbox.pdmodel.font;
+ 
+ import java.io.IOException;
+ import java.io.InputStream;
++import java.util.ArrayList;
+ import java.util.HashMap;
++import java.util.List;
+ import java.util.Map;
+ import org.apache.logging.log4j.Logger;
+ import org.apache.logging.log4j.LogManager;
+@@ -48,10 +50,14 @@ public abstract class PDCIDFont implements COSObjectable, PDFontLike, PDVectorFo
+     protected final PDType0Font parent;
+ 
+     private Map<Integer, Float> widths;
++    // PDFBOX-5873: Store width ranges for lazy lookup to prevent timeout attacks
++    private List<int[]> widthRanges; // each entry: [startCID, endCID, width*1000]
+     private float defaultWidth;
+     private float averageWidth;
+ 
+     private final Map<Integer, Float> verticalDisplacementY = new HashMap<>(); // w1y
++    // PDFBOX-5873: Store vertical displacement ranges for lazy lookup
++    private List<float[]> verticalRanges; // each entry: [startCID, endCID, w1y, v1x, v1y]
+     private final Map<Integer, Vector> positionVectors = new HashMap<>();     // v
+     private final float[] dw2 = { 880, -1000 };
+ 
+@@ -75,6 +81,8 @@ public abstract class PDCIDFont implements COSObjectable, PDFontLike, PDVectorFo
+     {
+         // see 9.7.4.3, "Glyph Metrics in CIDFonts"
+         widths = new HashMap<>();
++        // PDFBOX-5873: Use lazy range lookup to prevent timeout from malicious PDFs with large ranges
++        widthRanges = new ArrayList<>();
+         COSArray wArray = dict.getCOSArray(COSName.W);
+         if (wArray != null)
+         {
+@@ -129,10 +137,9 @@ public abstract class PDCIDFont implements COSObjectable, PDFontLike, PDVectorFo
+                     int startRange = firstCode.intValue();
+                     int endRange = secondCode.intValue();
+                     float width = rangeWidth.floatValue();
+-                    for (int i = startRange; i <= endRange; i++)
+-                    {
+-                        widths.put(i, width);
+-                    }
++                    // PDFBOX-5873: Store range instead of iterating to prevent timeout attack
++                    // Only store as range; lookup happens lazily in getWidthForCID
++                    widthRanges.add(new int[] { startRange, endRange, Math.round(width * 1000) });
+                 }
+             }
+         }
+@@ -141,6 +148,8 @@ public abstract class PDCIDFont implements COSObjectable, PDFontLike, PDVectorFo
+     private void readVerticalDisplacements()
+     {
+         // default position vector and vertical displacement vector
++        // PDFBOX-5873: Use lazy range lookup to prevent timeout from malicious PDFs with large ranges
++        verticalRanges = new ArrayList<>();
+         COSArray dw2Array = dict.getCOSArray(COSName.DW2);
+         if (dw2Array != null)
+         {
+@@ -181,11 +190,10 @@ public abstract class PDCIDFont implements COSObjectable, PDFontLike, PDVectorFo
+                     COSNumber w1y = (COSNumber) w2Array.getObject(++i);
+                     COSNumber v1x = (COSNumber) w2Array.getObject(++i);
+                     COSNumber v1y = (COSNumber) w2Array.getObject(++i);
+-                    for (int cid = first; cid <= last; cid++)
+-                    {
+-                        verticalDisplacementY.put(cid, w1y.floatValue());
+-                        positionVectors.put(cid, new Vector(v1x.floatValue(), v1y.floatValue()));
+-                    }
++                    // PDFBOX-5873: Store range instead of iterating to prevent timeout attack
++                    // Only store as range; lookup happens lazily
++                    verticalRanges.add(new float[] { first, last, w1y.floatValue(),
++                            v1x.floatValue(), v1y.floatValue() });
+                 }
+             }
+         }
+@@ -274,6 +282,15 @@ public abstract class PDCIDFont implements COSObjectable, PDFontLike, PDVectorFo
+         Float width = widths.get(cid);
+         if (width == null)
+         {
++            // PDFBOX-5873: Lazy lookup from ranges to prevent timeout attack
++            for (int[] range : widthRanges)
++            {
++                if (cid >= range[0] && cid <= range[1])
++                {
++                    // range[2] is width * 1000, so divide by 1000
++                    return range[2] / 1000f;
++                }
++            }
+             width = getDefaultWidth();
+         }
+         return width;
+@@ -282,7 +299,20 @@ public abstract class PDCIDFont implements COSObjectable, PDFontLike, PDVectorFo
+     @Override
+     public boolean hasExplicitWidth(int code) throws IOException
+     {
+-        return widths.get(codeToCID(code)) != null;
++        int cid = codeToCID(code);
++        if (widths.get(cid) != null)
++        {
++            return true;
++        }
++        // PDFBOX-5873: Also check ranges for explicit width
++        for (int[] range : widthRanges)
++        {
++            if (cid >= range[0] && cid <= range[1])
++            {
++                return true;
++            }
++        }
++        return false;
+     }
+ 
+     @Override
+@@ -292,6 +322,14 @@ public abstract class PDCIDFont implements COSObjectable, PDFontLike, PDVectorFo
+         Vector v = positionVectors.get(cid);
+         if (v == null)
+         {
++            // PDFBOX-5873: Lazy lookup from ranges to prevent timeout attack
++            for (float[] range : verticalRanges)
++            {
++                if (cid >= range[0] && cid <= range[1])
++                {
++                    return new Vector(range[3], range[4]);
++                }
++            }
+             v = getDefaultPositionVector(cid);
+         }
+         return v;
+@@ -309,6 +347,14 @@ public abstract class PDCIDFont implements COSObjectable, PDFontLike, PDVectorFo
+         Float w1y = verticalDisplacementY.get(cid);
+         if (w1y == null)
+         {
++            // PDFBOX-5873: Lazy lookup from ranges to prevent timeout attack
++            for (float[] range : verticalRanges)
++            {
++                if (cid >= range[0] && cid <= range[1])
++                {
++                    return range[2];
++                }
++            }
+             w1y = dw2[1];
+         }
+         return w1y;

@@ -1,0 +1,27 @@
+diff --git a/src/main/java/org/apache/commons/compress/compressors/lzw/LZWInputStream.java b/src/main/java/org/apache/commons/compress/compressors/lzw/LZWInputStream.java
+index 6aef44a30..e9f8e0c63 100644
+--- a/src/main/java/org/apache/commons/compress/compressors/lzw/LZWInputStream.java
++++ b/src/main/java/org/apache/commons/compress/compressors/lzw/LZWInputStream.java
+@@ -176,12 +176,22 @@ protected void incrementCodeSize() {
+      * @throws IllegalArgumentException if {@code maxCodeSize} is out of bounds for {@code prefixes} and {@code characters}.
+      */
+     protected void initializeTables(final int maxCodeSize) {
++        // Add reasonable upper limit to prevent OOM attacks
++        // Max reasonable code size is 16 bits (64KB table), though LZW typically uses 9-16 bits
++        // We allow up to 20 bits (1MB table) as a safety margin
++        final int MAX_REASONABLE_CODE_SIZE = 20;
++        if (maxCodeSize > MAX_REASONABLE_CODE_SIZE) {
++            throw new IllegalArgumentException("maxCodeSize " + maxCodeSize +
++                " is too large (max " + MAX_REASONABLE_CODE_SIZE + " allowed to prevent OutOfMemoryError)");
++        }
++
+         // maxCodeSize shifted cannot be less than 256, otherwise the loop in initializeTables() will throw an ArrayIndexOutOfBoundsException
+         // maxCodeSize cannot be smaller than getCodeSize(), otherwise addEntry() will throw an ArrayIndexOutOfBoundsException
+         if (1 << maxCodeSize < 256 || getCodeSize() > maxCodeSize) {
+             // TODO test against prefixes.length and characters.length?
+             throw new IllegalArgumentException("maxCodeSize " + maxCodeSize + " is out of bounds.");
+         }
++
+         final int maxTableSize = 1 << maxCodeSize;
+         prefixes = new int[maxTableSize];
+         characters = new byte[maxTableSize];

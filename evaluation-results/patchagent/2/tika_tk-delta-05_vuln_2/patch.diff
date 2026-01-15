@@ -1,0 +1,26 @@
+diff --git a/tika-app/src/main/java/org/apache/tika/cli/TikaCLI.java b/tika-app/src/main/java/org/apache/tika/cli/TikaCLI.java
+index 703e21c..8e536f2 100644
+--- a/tika-app/src/main/java/org/apache/tika/cli/TikaCLI.java
++++ b/tika-app/src/main/java/org/apache/tika/cli/TikaCLI.java
+@@ -1098,6 +1098,21 @@ public class TikaCLI {
+                 name = "file" + count++;
+             }
+             outputFile = getOutputFile(name, metadata, contentType);
++            // validate outputFile to prevent path traversal
++            try {
++                String basePath = extractDir.getCanonicalPath();
++                String targetPath = outputFile.getCanonicalPath();
++                if (!targetPath.equals(basePath) &&
++                    !targetPath.startsWith(basePath + File.separator)) {
++                    LOG.warn("Skipping extraction of embedded file {} due to potential path traversal: {}",
++                             name, outputFile);
++                    return;
++                }
++            } catch (IOException e) {
++                LOG.warn("Error validating path for embedded file {}: {}", name, e.getMessage());
++                return;
++            }
++            outputFile = getOutputFile(name, metadata, contentType);
+ 
+ 
+             File parent = outputFile.getParentFile();

@@ -1,0 +1,58 @@
+diff --git a/pdfbox/src/main/java/org/apache/pdfbox/filter/CCITTFaxDecoderStream.java b/pdfbox/src/main/java/org/apache/pdfbox/filter/CCITTFaxDecoderStream.java
+index 5f01e4ce8..b35b84968 100644
+--- a/pdfbox/src/main/java/org/apache/pdfbox/filter/CCITTFaxDecoderStream.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/filter/CCITTFaxDecoderStream.java
+@@ -181,12 +181,18 @@ final class CCITTFaxDecoderStream extends FilterInputStream {
+         boolean white = true;
+         int index = 0;
+         changesCurrentRowCount = 0;
++        // PDFBOX-5765: limit iterations to prevent infinite loop with malformed data
++        int maxIterations = Math.max(columns * 16, 65536);
++        int iterations = 0;
+ 
+         mode: while (index < columns) {
+             // read mode
+             Node n = codeTree.root;
+ 
+             while (true) {
++                if (++iterations > maxIterations) {
++                    throw new IOException("Maximum iterations exceeded while decoding 2D data");
++                }
+                 n = n.walk(readBit());
+ 
+                 if (n == null) {
+@@ -272,11 +278,18 @@ final class CCITTFaxDecoderStream extends FilterInputStream {
+         if (optionByteAligned) {
+             resetBuffer();
+         }
++        // PDFBOX-5765: limit iterations to prevent infinite loop with malformed data
++        // Maximum iterations based on columns * 16 bits (reasonable upper bound for EOL search)
++        int maxIterations = Math.max(columns * 16, 65536);
++        int iterations = 0;
+         eof: while (true) {
+             // read till next EOL code
+             Node n = eolOnlyTree.root;
+ 
+             while (true) {
++                if (++iterations > maxIterations) {
++                    throw new IOException("Maximum iterations exceeded while searching for EOL code");
++                }
+                 n = n.walk(readBit());
+ 
+                 if (n == null) {
+@@ -375,8 +388,15 @@ final class CCITTFaxDecoderStream extends FilterInputStream {
+         int total = 0;
+ 
+         Node n = tree.root;
++        // PDFBOX-5765: limit iterations to prevent infinite loop with malformed data
++        // 13 bits is the maximum code length, so columns * 13 should be enough for any valid run
++        int maxIterations = Math.max(columns * 13, 65536);
++        int iterations = 0;
+ 
+         while (true) {
++            if (++iterations > maxIterations) {
++                throw new IOException("Maximum iterations exceeded while decoding run");
++            }
+             boolean bit = readBit();
+             n = n.walk(bit);
+ 

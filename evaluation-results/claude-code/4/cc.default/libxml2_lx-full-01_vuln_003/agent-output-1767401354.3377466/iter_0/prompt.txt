@@ -1,0 +1,89 @@
+Create a patch to fix a AddressSanitizer: heap-buffer-overflow bug given below and apply it to the code.
+NEVER fix files outside the source directory.
+NEVER do any git operations in or outside the source directory.
+
+Below is the crash log:
+
+<crash_log>
+==ERROR: AddressSanitizer: heap-buffer-overflow on address 0x502000000b37 at pc 0x560e7eb830f2 bp 0x7ffd87f05720 sp 0x7ffd87f04ee0
+READ of size 48 at 0x502000000b37 thread T0
+SCARINESS: 26 (multi-byte-read-heap-buffer-overflow)
+    #0 0x560e7eb830f1 in __asan_memcpy /src/llvm-project/compiler-rt/lib/asan/asan_interceptors_memintrinsics.cpp:63:3
+    #1 0x560e7ec68310 in xmlSBufAddEntitySecure /src/libxml2/parser.c:777:9
+    #2 0x560e7ebf33ec in xmlExpandPEsInEntityValue /src/libxml2/parser.c:4005:17
+    #3 0x560e7ebf1d49 in xmlParseEntityValue /src/libxml2/parser.c:4119:5
+    #4 0x560e7ec0d78a in xmlParseEntityDecl /src/libxml2/parser.c:5940:18
+    #5 0x560e7ec25379 in xmlParseMarkupDecl /src/libxml2/parser.c:7313:4
+    #6 0x560e7ec4a819 in xmlParseInternalSubset /src/libxml2/parser.c:8422:10
+    #7 0x560e7ec48f6b in xmlParseDocument /src/libxml2/parser.c:10878:6
+    #8 0x560e7ec5ed48 in xmlCtxtParseDocument /src/libxml2/parser.c:13991:5
+    #9 0x560e7ec621e4 in xmlCtxtReadMemory /src/libxml2/parser.c:14317:12
+    #10 0x560e7ebc4bd4 in LLVMFuzzerTestOneInput /src/libxml2/fuzz/xml.c:68:15
+    #11 0x560e7ea79430 in fuzzer::Fuzzer::ExecuteCallback(unsigned char const*, unsigned long) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:614:13
+    #12 0x560e7ea646a5 in fuzzer::RunOneTest(fuzzer::Fuzzer*, char const*, unsigned long) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerDriver.cpp:327:6
+    #13 0x560e7ea6a13f in fuzzer::FuzzerDriver(int*, char***, int (*)(unsigned char const*, unsigned long)) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerDriver.cpp:862:9
+    #14 0x560e7ea953e2 in main /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerMain.cpp:20:10
+    #15 0x7f065ad71082 in __libc_start_main (/lib/x86_64-linux-gnu/libc.so.6+0x24082) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #16 0x560e7ea5c88d in _start (/out/xml+0x18388d)
+
+DEDUP_TOKEN: __asan_memcpy--xmlSBufAddEntitySecure--xmlExpandPEsInEntityValue
+0x502000000b37 is located 0 bytes after 7-byte region [0x502000000b30,0x502000000b37)
+allocated by thread T0 here:
+    #0 0x560e7eb851ff in malloc /src/llvm-project/compiler-rt/lib/asan/asan_malloc_linux.cpp:68:3
+    #1 0x560e7ebc5403 in xmlFuzzMalloc /src/libxml2/fuzz/fuzz.c:127:11
+    #2 0x560e7ed6555a in xmlStrndup /src/libxml2/xmlstring.c:57:11
+    #3 0x560e7ed65721 in xmlStrdup /src/libxml2/xmlstring.c:82:12
+    #4 0x560e7f02a6e1 in xmlCreateEntity /src/libxml2/entities.c:137:14
+    #5 0x560e7f029ce4 in xmlAddEntity /src/libxml2/entities.c:269:11
+    #6 0x560e7ec9a1f8 in xmlSAX2EntityDecl /src/libxml2/SAX2.c:537:11
+    #7 0x560e7ec0d21e in xmlParseEntityDecl /src/libxml2/parser.c:5916:4
+    #8 0x560e7ec25379 in xmlParseMarkupDecl /src/libxml2/parser.c:7313:4
+    #9 0x560e7ec4a819 in xmlParseInternalSubset /src/libxml2/parser.c:8422:10
+    #10 0x560e7ec48f6b in xmlParseDocument /src/libxml2/parser.c:10878:6
+    #11 0x560e7ec5ed48 in xmlCtxtParseDocument /src/libxml2/parser.c:13991:5
+    #12 0x560e7ec621e4 in xmlCtxtReadMemory /src/libxml2/parser.c:14317:12
+    #13 0x560e7ebc4bd4 in LLVMFuzzerTestOneInput /src/libxml2/fuzz/xml.c:68:15
+    #14 0x560e7ea79430 in fuzzer::Fuzzer::ExecuteCallback(unsigned char const*, unsigned long) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:614:13
+    #15 0x560e7ea646a5 in fuzzer::RunOneTest(fuzzer::Fuzzer*, char const*, unsigned long) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerDriver.cpp:327:6
+    #16 0x560e7ea6a13f in fuzzer::FuzzerDriver(int*, char***, int (*)(unsigned char const*, unsigned long)) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerDriver.cpp:862:9
+    #17 0x560e7ea953e2 in main /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerMain.cpp:20:10
+    #18 0x7f065ad71082 in __libc_start_main (/lib/x86_64-linux-gnu/libc.so.6+0x24082) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+
+DEDUP_TOKEN: __interceptor_malloc--xmlFuzzMalloc--xmlStrndup
+SUMMARY: AddressSanitizer: heap-buffer-overflow /src/libxml2/parser.c:777:9 in xmlSBufAddEntitySecure
+Shadow bytes around the buggy address:
+  0x502000000880: fa fa 05 fa fa fa 00 fa fa fa 00 fa fa fa 06 fa
+  0x502000000900: fa fa 07 fa fa fa 06 fa fa fa 06 fa fa fa 00 05
+  0x502000000980: fa fa 00 04 fa fa 05 fa fa fa 05 fa fa fa 06 fa
+  0x502000000a00: fa fa 06 fa fa fa 07 fa fa fa 07 fa fa fa 00 01
+  0x502000000a80: fa fa fd fa fa fa 07 fa fa fa 07 fa fa fa 00 01
+=>0x502000000b00: fa fa fd fa fa fa[07]fa fa fa 07 fa fa fa 00 01
+  0x502000000b80: fa fa fd fa fa fa 06 fa fa fa 06 fa fa fa 00 02
+  0x502000000c00: fa fa fd fa fa fa fa fa fa fa fa fa fa fa fa fa
+  0x502000000c80: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa
+  0x502000000d00: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa
+  0x502000000d80: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa
+Shadow byte legend (one shadow byte represents 8 application bytes):
+  Addressable:           00
+  Partially addressable: 01 02 03 04 05 06 07 
+  Heap left redzone:       fa
+  Freed heap region:       fd
+  Stack left redzone:      f1
+  Stack mid redzone:       f2
+  Stack right redzone:     f3
+  Stack after return:      f5
+  Stack use after scope:   f8
+  Global redzone:          f9
+  Global init order:       f6
+  Poisoned by user:        f7
+  Container overflow:      fc
+  Array cookie:            ac
+  Intra object redzone:    bb
+  ASan internal:           fe
+  Left alloca redzone:     ca
+  Right alloca redzone:    cb
+==18==ABORTING
+subprocess command returned a non-zero exit status: 1
+INFO:__main__:Running: docker run --privileged --shm-size=2g --platform linux/amd64 --rm -i -e HELPER=True -e ARCHITECTURE=x86_64 -v /home/qqor/crete/packages/python_oss_fuzz/.oss_fuzz/build/out/libxml2:/out -v /tmp/tmpy236dyoh:/testcase -t ghcr.io/aixcc-finals/base-runner:v1.3.0 reproduce xml -runs=100.
+
+</crash_log>

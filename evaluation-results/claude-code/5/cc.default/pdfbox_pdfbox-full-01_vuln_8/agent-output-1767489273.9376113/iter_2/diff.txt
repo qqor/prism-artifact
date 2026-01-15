@@ -1,0 +1,38 @@
+diff --git a/pdfbox/src/main/java/org/apache/pdfbox/contentstream/PDFStreamEngine.java b/pdfbox/src/main/java/org/apache/pdfbox/contentstream/PDFStreamEngine.java
+index d8dc8042a..922b99b7c 100644
+--- a/pdfbox/src/main/java/org/apache/pdfbox/contentstream/PDFStreamEngine.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/contentstream/PDFStreamEngine.java
+@@ -91,6 +91,12 @@ public abstract class PDFStreamEngine
+     // used to monitor potentially recursive operations.
+     private int level = 0;
+ 
++    // Maximum number of operators to process across all streams to prevent denial of service
++    private static final int MAX_TOTAL_OPERATIONS = 1000000;
++
++    // Counter for total operations processed
++    private int totalOperationsProcessed = 0;
++
+     // default font, used if there isn't any font available
+     private PDFont defaultFont;
+ 
+@@ -126,6 +132,7 @@ public abstract class PDFStreamEngine
+         currentPage = page;
+         graphicsStack.clear();
+         graphicsStack.push(new PDGraphicsState(page.getCropBox()));
++        totalOperationsProcessed = 0;
+         resources = null;
+         initialMatrix = page.getMatrix();
+     }
+@@ -554,6 +561,12 @@ public abstract class PDFStreamEngine
+                         shouldProcessColorOperators = false;
+                     }
+                     isFirstOperator = false;
++                    totalOperationsProcessed++;
++                    if (totalOperationsProcessed > MAX_TOTAL_OPERATIONS)
++                    {
++                        LOG.warn("Maximum number of operations exceeded, stopping processing");
++                        break;
++                    }
+                     processOperator((Operator) token, arguments);
+                     arguments.clear();
+                 }

@@ -1,0 +1,38 @@
+
+================================================================================
+Response 1
+================================================================================
+I can see the OS Command Injection vulnerability. The issue is in the `runTesseract` method (lines 157-167) where the `tesseract-path` is read from the PDF document's custom metadata:
+
+```java
+String actualTessPath = pdDocument.getDocumentInformation()
+        .getCustomMetadataValue(TESSERACT_PATH_KEY);
+```
+
+This allows an attacker to craft a malicious PDF that specifies an arbitrary command path in the metadata, which is then executed via `ProcessBuilder`. This is a classic OS Command Injection vulnerability.
+
+The fix is to **not** allow the tesseract path to be controlled by untrusted input (the PDF document metadata). The code should only use the configured `tesseractPath` field and ignore any path specified in the document metadata.
+
+================================================================================
+Response 2
+================================================================================
+Now let me also remove the unused constant `TESSERACT_PATH_KEY` since it's no longer needed:
+
+================================================================================
+Response 3
+================================================================================
+The patch has been applied. Here's a summary of the fix:
+
+## OS Command Injection Fix Applied
+
+**Vulnerability:** The `runTesseract` method was reading the `tesseract-path` from the PDF document's custom metadata (`pdDocument.getDocumentInformation().getCustomMetadataValue(TESSERACT_PATH_KEY)`). An attacker could craft a malicious PDF with a custom metadata field containing an arbitrary executable path, which would then be executed via `ProcessBuilder.start()`.
+
+**Fix:** Removed the code that reads the tesseract path from user-controlled PDF metadata. The method now only uses the configured `tesseractPath` field that is set programmatically via `setTesseractPath()`.
+
+**Changes made to `/home/qqor/crete/.cache/official-afc-pdfbox/pdfbox/src/main/java/org/apache/pdfbox/ocr/OCRStreamEngine.java`:**
+
+1. Removed the vulnerable code that allowed PDF metadata to override the tesseract executable path
+2. Removed the unused `TESSERACT_PATH_KEY` constant
+3. Added a comment explaining why metadata-based path configuration was removed
+
+The tesseract path can still be configured via the `setTesseractPath()` method, which must be called by trusted application code rather than being controlled by untrusted input from the PDF document.

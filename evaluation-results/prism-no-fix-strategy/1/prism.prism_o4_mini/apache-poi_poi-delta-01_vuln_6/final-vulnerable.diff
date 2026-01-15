@@ -1,0 +1,77 @@
+--- a/poi/src/main/java/org/apache/poi/ss/formula/functions/Countif.java
++++ b/poi/src/main/java/org/apache/poi/ss/formula/functions/Countif.java
+@@ -18,7 +18,7 @@
+ package org.apache.poi.ss.formula.functions;
+ 
+ import java.util.regex.Pattern;
+-
++import java.util.Locale;
+ import org.apache.poi.ss.formula.ThreeDEval;
+ import org.apache.poi.ss.formula.eval.BlankEval;
+ import org.apache.poi.ss.formula.eval.BoolEval;
+@@ -366,12 +366,63 @@
+                 return false;
+             }
+             if (_pattern != null) {
+-                return evaluate(_pattern.matcher(testedValue).matches());
++                // Use custom wildcard matching to avoid regex stack overflows
++                boolean matches = wildcardMatch(_value, testedValue);
++                return evaluate(matches);
+             }
+             // String criteria in COUNTIF are case insensitive:
+             // for example, the string "apples" and the string "APPLES" will match the same cells.
+             return evaluate(testedValue.compareToIgnoreCase(_value));
+-        }
++    }
++
++    /**
++     * Implements Excel-style wildcard matching without using regex to avoid recursion issues.
++     * Supports '?' for single-character, '*' for zero-or-more, and '~' to escape the next character.
++     */
++    private static boolean wildcardMatch(String pattern, String str) {
++        String pat = pattern == null ? "" : pattern.toLowerCase(Locale.ROOT);
++        String s = str == null ? "" : str.toLowerCase(Locale.ROOT);
++        int p = 0, t = 0, star = -1, tp = -1;
++        int pLen = pat.length(), sLen = s.length();
++        while (t < sLen) {
++            if (p < pLen) {
++                char pc = pat.charAt(p);
++                if (pc == '~' && p + 1 < pLen) {
++                    // Escaped literal
++                    pc = pat.charAt(++p);
++                    if (s.charAt(t) == pc) {
++                        p++; t++;
++                        continue;
++                    }
++                } else if (pc == '?') {
++                    // Match exactly one character
++                    p++; t++;
++                    continue;
++                } else if (pc == '*') {
++                    // Record position of '*' and advance
++                    star = p++;
++                    tp = t;
++                    continue;
++                } else if (s.charAt(t) == pc) {
++                    // Literal match
++                    p++; t++;
++                    continue;
++                }
++            }
++            // Mismatch: backtrack if '*' seen
++            if (star != -1) {
++                p = star + 1;
++                t = ++tp;
++            } else {
++                return false;
++            }
++        }
++        // Skip trailing '*' in pattern
++        while (p < pLen && pat.charAt(p) == '*') {
++            p++;
++        }
++        return p == pLen;
++    }
+         /**
+          * Translates Excel countif wildcard strings into java regex strings
+          * @return {@code null} if the specified value contains no special wildcard characters.

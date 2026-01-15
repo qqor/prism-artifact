@@ -1,0 +1,36 @@
+diff --git a/src/udev/fuzz-udev-rule-parse-value.c b/src/udev/fuzz-udev-rule-parse-value.c
+index 57951bd461..f18e7206a2 100644
+--- a/src/udev/fuzz-udev-rule-parse-value.c
++++ b/src/udev/fuzz-udev-rule-parse-value.c
+@@ -15,9 +15,18 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
+ 
+         fuzz_setup_logging();
+ 
+-        assert_se(str = malloc(size + 1));
++        /* udev_rule_parse_value() modifies the string in-place and writes two
++         * extra NULL terminators beyond the parsed content. To prevent
++         * heap-buffer-overflow, we need to ensure there's room for these writes.
++         * Allocate size + 3 to handle: original content + terminating NULL + 2 extra NULLs */
++        if (size > SIZE_MAX - 3)
++                return 0;
++
++        assert_se(str = malloc(size + 3));
+         memcpy(str, data, size);
+         str[size] = '\0';
++        str[size + 1] = '\0';
++        str[size + 2] = '\0';
+ 
+         r = udev_rule_parse_value(str, &value, &endpos, &is_case_sensitive);
+         if (r < 0) {
+@@ -25,8 +34,9 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
+                 assert_se(value == UINT_TO_PTR(0x12345678U));
+                 assert_se(endpos == UINT_TO_PTR(0x87654321U));
+         } else {
+-                assert_se(endpos <= str + size);
+-                assert_se(endpos > str + 1);
++                /* endpos can point beyond the original size due to in-place modifications */
++                assert_se(endpos <= str + size + 3);
++                assert_se(endpos > str);
+         }
+ 
+         return 0;

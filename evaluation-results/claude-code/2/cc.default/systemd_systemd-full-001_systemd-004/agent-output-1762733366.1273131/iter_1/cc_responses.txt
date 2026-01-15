@@ -1,0 +1,115 @@
+
+================================================================================
+Response 1
+================================================================================
+Looking at the crash log and the failed patch, I can see the issue clearly.
+
+## Why the Previous Patch Failed
+
+The previous patch attempted to fix the use-after-free by:
+1. Using `LIST_FOREACH_WITH_NEXT` to safely iterate
+2. Manually removing items from the list with `LIST_REMOVE` before freeing them
+
+However, this approach **failed** because:
+- The `condition_free()` function (line 96) already calls `LIST_REMOVE` internally to unlink the condition from the list
+- The patch added a **second** `LIST_REMOVE` call before `condition_free()`, which caused double-manipulation of list pointers
+- After the first `LIST_REMOVE`, the list structure is modified, but then `condition_free()` tries to remove it again
+- The core issue is that `LIST_FOREACH` continues iterating using pointers from already-freed memory (the `next` pointer in the freed condition)
+
+## The Real Problem
+
+Looking at the crash, the issue occurs at line 100 in the original code:
+```c
+LIST_FOREACH(conditions, c, head)
+    if (type < 0 || c->type == type) {
+        condition_free(c);  // This frees c and removes it from list
+    }
+// But LIST_FOREACH tries to advance to c->conditions_next which is now freed!
+```
+
+The `LIST_FOREACH` macro internally accesses `c->conditions_next` **after** `condition_free(c)` is called, causing the heap-use-after-free.
+
+## Correct Fix
+
+The solution is to save the `next` pointer **before** freeing, and iterate manually:
+
+================================================================================
+Response 2
+================================================================================
+Let me find the correct path:
+
+================================================================================
+Response 3
+================================================================================
+Now let me check what LIST_FOREACH looks like and understand the list structure better:
+
+================================================================================
+Response 4
+================================================================================
+Perfect! Now I understand the macros. Let me also check how `condition_free` works and if it manipulates the list:
+
+================================================================================
+Response 5
+================================================================================
+I see that `condition_free()` does NOT remove the item from the list - it just frees the memory. Let me check if there's a Condition struct definition to understand the list structure:
+
+================================================================================
+Response 6
+================================================================================
+Perfect! Now I understand the structure. The `LIST_FIELDS` macro creates `conditions_next` and `conditions_prev` fields. Now let me check if there's a safer way to remove items. Let me look at LIST_REMOVE:
+
+================================================================================
+Response 7
+================================================================================
+Now I have a complete understanding. Let me create the correct fix:
+
+## Analysis Summary
+
+**Why the previous patch failed:**
+1. The `condition_free()` function does NOT remove items from the list - it only frees memory
+2. The previous patch added `LIST_REMOVE` before `condition_free()`, but `condition_free()` doesn't do list manipulation
+3. The real problem is that `LIST_FOREACH` expands to access `c->conditions_next` **after** `condition_free(c)` frees the memory containing that pointer
+4. The macro expansion is: `for (...; i && (n = i->conditions_next, true); i = n)` - so when we free `i`, we can't safely access `i->conditions_next` in the loop condition
+
+**The correct fix:**
+We need to manually iterate and save the `next` pointer **before** freeing. But we also need to properly handle list removal since `condition_free()` doesn't do it.
+
+Here's the correct patch:
+
+```diff
+diff --git a/src/shared/condition.c b/src/shared/condition.c
+index 67894f9319..a1b2e3c8e1 100644
+--- a/src/shared/condition.c
++++ b/src/shared/condition.c
+@@ -98,11 +98,17 @@ Condition* condition_free(Condition *c) {
+ }
+ 
+ Condition* condition_free_list_type(Condition *head, ConditionType type) {
+-        LIST_FOREACH(conditions, c, head)
+-                if (type < 0 || c->type == type) {
+-                        condition_free(c);
++        Condition *c, *next;
++
++        c = head;
++        while (c) {
++                next = c->conditions_next;
++                
++                if (type < 0 || c->type == type) {
++                        LIST_REMOVE(conditions, head, c);
++                        condition_free(c);
+                 }
++                c = next;
++        }
+ 
+         assert(type >= 0 || !head);
+         return head;
+```
+
+**Why this approach works:**
+1. **Manual iteration with saved next pointer**: We save `next = c->conditions_next` BEFORE any freeing or list manipulation
+2. **Proper list removal**: We call `LIST_REMOVE` to properly unlink the item from the list BEFORE freeing it
+3. **No use-after-free**: We never access `c` after calling `condition_free(c)` because we already saved the `next` pointer
+4. **Correct list structure**: The `head` pointer is properly updated by `LIST_REMOVE` when we remove items, so the assert at the end will work correctly
+5. **Different from failed patch**: Unlike the failed attempt, we use a proper while loop with manual next-pointer saving, not `LIST_FOREACH_WITH_NEXT`
+
+The key insight is that we need **both** proper next-pointer saving AND proper list removal, done in the correct order: save next → remove from list → free → advance to next.

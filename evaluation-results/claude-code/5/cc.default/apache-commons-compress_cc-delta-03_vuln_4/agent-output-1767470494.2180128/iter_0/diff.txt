@@ -1,0 +1,28 @@
+diff --git a/src/main/java/org/apache/commons/compress/archivers/tar/TarUtils.java b/src/main/java/org/apache/commons/compress/archivers/tar/TarUtils.java
+index 3b2b5be88..0f5ec4e11 100644
+--- a/src/main/java/org/apache/commons/compress/archivers/tar/TarUtils.java
++++ b/src/main/java/org/apache/commons/compress/archivers/tar/TarUtils.java
+@@ -540,6 +540,13 @@ protected static List<TarArchiveStructSparse> parsePAX01SparseHeaders(final Stri
+         }
+     }
+ 
++    /**
++     * Maximum number of sparse headers that can be read in a PAX 1.X sparse file.
++     * This limit prevents denial-of-service attacks using malicious tar files that
++     * specify an astronomically large sparse header count.
++     */
++    private static final int MAX_SPARSE_HEADERS_PAX1X = 1024 * 1024;
++
+     /**
+      * For PAX Format 1.X: The sparse map itself is stored in the file data block, preceding the actual file data. It consists of a series of decimal numbers
+      * delimited by newlines. The map is padded with nulls to the nearest block boundary. The first number gives the number of entries in the map. Following are
+@@ -560,6 +567,9 @@ protected static List<TarArchiveStructSparse> parsePAX1XSparseHeaders(final Inpu
+             // overflow while reading number?
+             throw new IOException("Corrupted TAR archive. Negative value in sparse headers block");
+         }
++        if (sparseHeadersCount > MAX_SPARSE_HEADERS_PAX1X) {
++            throw new IOException("Corrupted TAR archive. Sparse headers count " + sparseHeadersCount + " exceeds maximum " + MAX_SPARSE_HEADERS_PAX1X);
++        }
+         bytesRead += readResult[1];
+         while (sparseHeadersCount-- > 0) {
+             readResult = readLineOfNumberForPax1X(inputStream);

@@ -1,0 +1,14 @@
+{
+  "project_name": "pdfbox",
+  "vulnerability_identifier": "pdfbox_pdfbox-full-01_vuln_6",
+  "source_directory": "/home/qqor/crete/.cache/official-afc-pdfbox",
+  "llm_usage": {
+    "total_cost": 0.30094350000000003,
+    "prompt_tokens": 141945,
+    "completion_tokens": 32910
+  },
+  "variant": "sound",
+  "diff": "--- a/fontbox/src/main/java/org/apache/fontbox/pfb/PfbParser.java\n+++ b/fontbox/src/main/java/org/apache/fontbox/pfb/PfbParser.java\n@@ -131,7 +131,7 @@\n         List<Integer> typeList = new ArrayList<>(3);\n         List<byte[]> barrList = new ArrayList<>(3);\n         ByteArrayInputStream in = new ByteArrayInputStream(pfb);\n-        int total = 0;\n+        long total = 0;\n         do\n         {\n             int r = in.read();\n@@ -153,23 +153,24 @@\n                 throw new IOException(\"Incorrect record type: \" + recordType);\n             }\n \n-            int size = in.read();\n-            size += in.read() << 8;\n-            size += in.read() << 16;\n-            size += in.read() << 24;\n+            long size = (long)(in.read() & 0xFF);\n+            size |= (long)(in.read() & 0xFF) << 8;\n+            size |= (long)(in.read() & 0xFF) << 16;\n+            size |= (long)(in.read() & 0xFF) << 24;\n             LOG.debug(\"record type: {}, segment size: {}\", recordType, size);\n             long newTotal = total + size;\n-            if (newTotal > MAX_LENGTH) {\n+            if (size < 0 || newTotal > MAX_LENGTH) {\n                 throw new IOException(\"record size would be too large: \" + newTotal);\n             }\n \n-            byte[] ar = new byte[size];\n+            int intSize = (int) size;\n+            byte[] ar = new byte[intSize];\n             int got = in.read(ar);\n-            if (got != size)\n+            if (got != intSize)\n             {\n                 throw new EOFException(\"EOF while reading PFB font\");\n             }\n-            total += size;\n+            total = newTotal;\n             typeList.add(recordType);\n             barrList.add(ar);\n         }\n@@ -179,7 +180,10 @@\n         // come first, then the binary segments, then the last ASCII segment if it is\n         // 0000... cleartomark\n         \n-        pfbdata = new byte[total];\n+        if (total > Integer.MAX_VALUE) {\n+            throw new IOException(\"PFB data too large: \" + total);\n+        }\n+        pfbdata = new byte[(int) total];\n         byte[] cleartomarkSegment = null;\n         int dstPos = 0;\n         \n",
+  "stdout": "",
+  "stderr": ""
+}

@@ -1,0 +1,54 @@
+
+================================================================================
+Response 1
+================================================================================
+Now I can see the bug. Looking at the code:
+
+1. Line 1016 defines `dissect_netb[]` array with 33 elements (0x00 to 0x20)
+2. Line 1108 uses `MIN(command, array_length(dissect_netb))` - but this should be `array_length(dissect_netb) - 1` to ensure the command value doesn't exceed the valid array index
+3. Line 1144 accesses `dissect_netb[command]` which causes the overflow when command equals `array_length(dissect_netb)`
+
+The bug is that `MIN(command, array_length(dissect_netb))` allows `command` to be exactly equal to the array length (33), but valid indices are 0-32. It should use `array_length(dissect_netb) - 1` to ensure the maximum valid index.
+
+Let me verify by counting the array elements:
+
+================================================================================
+Response 2
+================================================================================
+The array has 33 elements (indices 0-32, corresponding to command codes 0x00 to 0x20). The bug is on line 1108:
+
+```c
+command = MIN(command, array_length(dissect_netb));
+```
+
+This should be:
+```c
+command = MIN(command, array_length(dissect_netb) - 1);
+```
+
+Because when `command` equals `array_length(dissect_netb)` (33), accessing `dissect_netb[33]` causes an out-of-bounds read. The maximum valid index is 32 (array length - 1).
+
+Let me apply the fix:
+
+================================================================================
+Response 3
+================================================================================
+The fix has been applied. 
+
+## Summary
+
+**Bug**: A global-buffer-overflow in `dissect_netbios()` function at line 1144 of `packet-netbios.c`.
+
+**Root Cause**: The `dissect_netb[]` array has 33 elements (indices 0-32). The code on line 1108 was using:
+```c
+command = MIN(command, array_length(dissect_netb));
+```
+
+This allowed `command` to be set to 33 (the array length), but when accessing `dissect_netb[command]` on line 1144, index 33 is out of bounds (valid indices are 0-32).
+
+**Fix**: Changed the bound check to use `array_length(dissect_netb) - 1`:
+```c
+command = MIN(command, array_length(dissect_netb) - 1);
+```
+
+This ensures `command` is clamped to a maximum value of 32, which is the last valid index in the array.

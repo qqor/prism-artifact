@@ -1,0 +1,64 @@
+diff --git a/src/reformat.c b/src/reformat.c
+index f261e07..f016095 100644
+--- a/src/reformat.c
++++ b/src/reformat.c
+@@ -773,11 +773,11 @@ static avifResult avifImageYUVAnyToRGBAnySlow(const avifImage * image,
+                     // now we have generated the spill, get it's neigbors
+                     int adjCol = (i%2) ? -1 : 1;
+                     int adjRow = (j%2) ? -1 : 1;
+-                    // check the bounds
+-                    if (i + adjCol >= image->width){
++                    // clamp neighbor offsets within image bounds (prevent negative and overflow)
++                    if ((int)i + adjCol < 0 || (int)i + adjCol >= (int)image->width) {
+                         adjCol = 0;
+                     }
+-                    if (j + adjRow >= image->height){
++                    if ((int)j + adjRow < 0 || (int)j + adjRow >= (int)image->height) {
+                         adjRow = 0;
+                     }
+                     float pSpillCb = spill_Cb/3;
+@@ -796,25 +796,31 @@ static avifResult avifImageYUVAnyToRGBAnySlow(const avifImage * image,
+                     total_spill += fabs(spill_Cr);
+                     // if spill too high, dampen
+                     if ((image->height * image->width) >= 0x1000 && total_spill > ((image->height * image->width) * 3.8f)){
+-                        int a, b;
+-                        if (i % 2 == 0){
+-                            a = 1;
+-                        }else{
+-                            a = -1;
++                        // determine dampen neighbor offsets
++                        int a = (i % 2 == 0) ? 1 : -1;
++                        // clamp horizontal offset
++                        if ((int)i + a < 0 || (int)i + a >= (int)image->width) {
++                            a = 0;
+                         }
+-                        if (j % 2 == 0){
+-                            b = 1;
+-                        }else{
+-                            b = -1;
++                        int b = (j % 2 == 0) ? 1 : -1;
++                        // clamp vertical offset
++                        if ((int)j + b < 0 || (int)j + b >= (int)image->height) {
++                            b = 0;
+                         }
+                         uspill_image[i][j] -= pSpillCb;
+                         vspill_image[i][j] -= pSpillCb;
+-                        uspill_image[i+a][j] -= pSpillCb;
+-                        vspill_image[i+a][j] -= pSpillCr;
++                        // horizontal neighbor dampen
++                        if ((int)i + a >= 0 && (int)i + a < (int)image->width) {
++                            uspill_image[i+a][j] -= pSpillCb;
++                            vspill_image[i+a][j] -= pSpillCr;
++                        }
+                         uspill_image[i][j+b] -= pSpillCb;
+                         vspill_image[i][j+b] -= pSpillCr;
+-                        uspill_image[i+a][j+b] -= pSpillCb;
+-                        vspill_image[i+a][j+b] -= pSpillCr;
++                        // diagonal neighbor dampen
++                        if ((int)i + a >= 0 && (int)i + a < (int)image->width && (int)j + b >= 0 && (int)j + b < (int)image->height) {
++                            uspill_image[i+a][j+b] -= pSpillCb;
++                            vspill_image[i+a][j+b] -= pSpillCr;
++                        }
+                     }   
+                 }
+             }

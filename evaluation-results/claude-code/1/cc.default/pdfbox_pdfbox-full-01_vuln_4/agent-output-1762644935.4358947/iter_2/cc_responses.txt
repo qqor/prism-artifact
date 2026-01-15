@@ -1,0 +1,161 @@
+
+================================================================================
+Response 1
+================================================================================
+Looking at the crash log and the failed patches, I can see the issue:
+
+The crash occurs at `Type1Lexer.java:247` in the `readToken` method. The problem is that the code is stuck in an **infinite loop** in the outer `do-while` loop, not the inner `while` loop.
+
+## Why the patches failed:
+
+1. **First patch**: Added a check `if (!buffer.hasRemaining()) break;` at the end of the do-while loop. This doesn't work because the `skip` variable can be set to `true` even when the buffer is exhausted, causing the loop to continue forever.
+
+2. **Second patch**: Added iteration counting in the inner `while` loop. This doesn't work because the infinite loop is in the **outer do-while loop**, not the inner while loop. The `skip` variable keeps getting set to `true`, causing the outer loop to repeat indefinitely even when no progress is being made.
+
+## Root cause:
+
+The outer `do-while(skip)` loop can run indefinitely if `skip` keeps getting set to `true` without consuming any characters from the buffer. This can happen when the buffer gets repositioned or in certain edge cases.
+
+## Solution:
+
+We need to track whether the outer loop is making progress. If we go through an iteration without consuming any characters from the buffer, we should break out of the loop.
+
+Let me first examine the code to understand the structure better:
+
+================================================================================
+Response 2
+================================================================================
+Now I can see the issue clearly. The problem is in the `readToken` method at lines 119-248. The outer `do-while(skip)` loop continues as long as `skip` is true. The issue is:
+
+1. When `skip = true` is set (lines 199, 204), the loop continues
+2. If the buffer reaches the end (`!buffer.hasRemaining()`), the inner while loop exits
+3. But `skip` is still `true`, so the outer do-while loop continues
+4. The inner while loop condition `buffer.hasRemaining()` is false, so it immediately exits
+5. The do-while checks `skip` again - still true - infinite loop!
+
+The key insight is that **when we exit the inner while loop because the buffer is exhausted (`!buffer.hasRemaining()`), we should break out of the outer loop regardless of the `skip` flag**.
+
+Here's the correct fix:
+
+```diff
+diff --git a/fontbox/src/main/java/org/apache/fontbox/type1/Type1Lexer.java b/fontbox/src/main/java/org/apache/fontbox/type1/Type1Lexer.java
+index 56aaf64ad..123456789 100644
+--- a/fontbox/src/main/java/org/apache/fontbox/type1/Type1Lexer.java
++++ b/fontbox/src/main/java/org/apache/fontbox/type1/Type1Lexer.java
+@@ -117,10 +117,12 @@ class Type1Lexer
+     private Token readToken(Token prevToken) throws IOException
+     {
+         boolean skip;
++        int previousPosition;
+         do
+         {
+             skip = false;
+-            while (buffer.hasRemaining())
++            previousPosition = buffer.position();
++            while (buffer.hasRemaining() && buffer.position() == previousPosition)
+             {
+                 char c = getChar();
+ 
+@@ -243,6 +245,14 @@ class Type1Lexer
+                     }
+                 }
+             }
++            // If buffer is exhausted or we've already processed this position,
++            // break out to prevent infinite loop
++            if (!buffer.hasRemaining() || buffer.position() == previousPosition)
++            {
++                // No more data to process
++                skip = false;
++                break;
++            }
+         }
+         while (skip);
+         return null;
+```
+
+Wait, let me reconsider this. The logic is getting complex. Let me think of a simpler approach.
+
+The real issue is: **when `skip=true` is set and we reach the end of the buffer, we should stop looping**. The simplest fix is to check if the buffer is empty right after the inner while loop exits:
+
+================================================================================
+Response 3
+================================================================================
+Perfect! Now let me create a summary of the patch in diff format:
+
+## Summary
+
+### Why the previous patches failed:
+
+1. **First patch**: Added a check at the end of the do-while loop to break if `buffer.hasRemaining()` is false. However, this doesn't solve the problem because the infinite loop occurs when `skip=true` but the buffer is already exhausted. The condition is checked AFTER the do-while condition evaluates, so the loop continues before hitting the break.
+
+2. **Second patch**: Added iteration counting in the **inner while loop**. The problem is that the infinite loop happens in the **outer do-while loop**, not the inner one. When `skip=true` and the buffer is exhausted, the inner loop immediately exits (because `!buffer.hasRemaining()`), but the outer do-while loop continues forever because `skip` remains true.
+
+### The root cause:
+
+The infinite loop occurs when:
+- `skip` is set to `true` (e.g., when encountering whitespace or NULL bytes at lines 204, 209)
+- The buffer gets exhausted (`!buffer.hasRemaining()`)
+- The outer `do-while(skip)` loop continues because `skip=true`
+- The inner `while(buffer.hasRemaining())` immediately exits because the buffer is empty
+- This repeats infinitely
+
+### The new approach:
+
+The fix uses a **completely different approach** with multiple safety mechanisms:
+
+1. **Position tracking**: Tracks the buffer position at the start of each outer loop iteration
+2. **Break on no progress**: If `skip=true` but the buffer position hasn't changed, we break (line 254)
+3. **Break on buffer exhaustion**: If the buffer is exhausted, we break immediately (line 254)
+4. **Loop counter safety**: Added a maximum loop count (1,000,000 iterations) as a final safety net (lines 260-264)
+
+### New patch in diff format:
+
+```diff
+diff --git a/fontbox/src/main/java/org/apache/fontbox/type1/Type1Lexer.java b/fontbox/src/main/java/org/apache/fontbox/type1/Type1Lexer.java
+index 56aaf64ad..123456789 100644
+--- a/fontbox/src/main/java/org/apache/fontbox/type1/Type1Lexer.java
++++ b/fontbox/src/main/java/org/apache/fontbox/type1/Type1Lexer.java
+@@ -117,10 +117,13 @@ class Type1Lexer
+     private Token readToken(Token prevToken) throws IOException
+     {
+         boolean skip;
++        int loopCount = 0;
++        final int maxLoops = 1000000; // Prevent infinite loops
+         do
+         {
+             skip = false;
+-            while (buffer.hasRemaining())
++            // Track if we make progress in this iteration
++            int startPosition = buffer.position();
++
++            while (buffer.hasRemaining())
+             {
+                 char c = getChar();
+ 
+@@ -243,6 +249,18 @@ class Type1Lexer
+                     }
+                 }
+             }
++
++            // If buffer is exhausted and skip is true, we're done - no more tokens
++            // If we didn't consume anything and skip is still true, break to prevent infinite loop
++            if (!buffer.hasRemaining() || (skip && buffer.position() == startPosition))
++            {
++                break;
++            }
++
++            // Safety check: prevent infinite loops
++            if (++loopCount > maxLoops)
++            {
++                LOG.warn("Maximum loop iterations exceeded in readToken, possible infinite loop");
++                break;
++            }
+         }
+         while (skip);
+         return null;
+```
+
+This fix prevents the infinite loop by ensuring the outer do-while loop terminates when either:
+1. The buffer is completely exhausted
+2. No progress is being made (position unchanged and skip=true)
+3. The loop has iterated too many times (safety net)

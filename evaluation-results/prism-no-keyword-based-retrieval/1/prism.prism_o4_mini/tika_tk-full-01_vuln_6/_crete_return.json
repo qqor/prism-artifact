@@ -1,0 +1,14 @@
+{
+  "project_name": "tika",
+  "vulnerability_identifier": "tika_tk-full-01_vuln_6",
+  "source_directory": "/home/qqor/crete/.cache/official-afc-tika",
+  "llm_usage": {
+    "total_cost": 0.28145040000000004,
+    "prompt_tokens": 153788,
+    "completion_tokens": 25519
+  },
+  "variant": "sound",
+  "diff": "--- a/tika-app/src/main/java/org/apache/tika/cli/TikaUntar.java\n+++ b/tika-app/src/main/java/org/apache/tika/cli/TikaUntar.java\n@@ -33,6 +33,7 @@\n     public static void main(String[] args) throws IOException {\n         Path inputFile = Paths.get(args[0]);\n         Path extractDir = Paths.get(args[1]);\n+        Path root = extractDir.toAbsolutePath().normalize();\n         try (InputStream is = Files.newInputStream(inputFile);\n                 TarArchiveInputStream tais = new TarArchiveInputStream(is)) {\n \n@@ -40,7 +41,19 @@\n \n             while (tae != null) {\n                 if (tae.isFile()) {\n-                    Path target = extractDir.resolve(tae.getName()).normalize();\n+                    String entryName = tae.getName().replace('\\u0000', ' ');\n+                    String sanitized = org.apache.commons.io.FilenameUtils.normalize(entryName, true);\n+                    if (sanitized == null) {\n+                        System.err.println(\"Skipping malformed entry '\" + tae.getName() + \"'\");\n+                        tae = tais.getNextEntry();\n+                        continue;\n+                    }\n+                    Path target = root.resolve(sanitized).normalize();\n+                    if (!target.startsWith(root)) {\n+                        System.err.println(\"Skipping entry '\" + tae.getName() + \"' as it is outside the target dir\");\n+                        tae = tais.getNextEntry();\n+                        continue;\n+                    }\n                     if (!Files.isDirectory(target.getParent())) {\n                         Files.createDirectories(target.getParent());\n                     }\n",
+  "stdout": "",
+  "stderr": ""
+}

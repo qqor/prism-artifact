@@ -1,0 +1,32 @@
+--- a/libexif/apple/exif-mnote-data-apple.c
++++ b/libexif/apple/exif-mnote-data-apple.c
+@@ -117,7 +117,7 @@
+         } else {
+             dofs = ofs + 8;
+         }
+-	if (dofs > buf_size) {
++    if (dofs >= buf_size) {
+ 		exif_log (md->log, EXIF_LOG_CODE_CORRUPT_DATA,
+                                   "ExifMnoteApplet", "Tag size overflow detected (%u vs size %u)", dofs, buf_size);
+ 		continue;
+@@ -128,8 +128,18 @@
+             EXIF_LOG_NO_MEMORY(md->log, "ExifMnoteApple", dsize);
+             continue;
+         }
+-        memcpy(d->entries[i].data, buf + dofs, dsize);
+-        d->entries[i].size = dsize;
++        {
++            unsigned int copy_size = dsize;
++            if (dofs + dsize > buf_size) {
++                exif_log(md->log, EXIF_LOG_CODE_CORRUPT_DATA,
++                         "ExifMnoteDataApple",
++                         "Tag size overflow detected (%u > available %u)",
++                         dsize, buf_size - dofs);
++                copy_size = buf_size - dofs;
++            }
++            memcpy(d->entries[i].data, buf + dofs, copy_size);
++            d->entries[i].size = copy_size;
++        }
+     }
+     d->count = tcount;
+ 

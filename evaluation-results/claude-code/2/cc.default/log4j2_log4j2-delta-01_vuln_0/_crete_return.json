@@ -1,0 +1,14 @@
+{
+  "project_name": "log4j2",
+  "vulnerability_identifier": "log4j2_log4j2-delta-01_vuln_0",
+  "source_directory": "/home/qqor/crete/.cache/official-afc-logging-log4j2",
+  "llm_usage": {
+    "total_cost": 0.0,
+    "prompt_tokens": 0,
+    "completion_tokens": 0
+  },
+  "variant": "sound",
+  "diff": "diff --git a/core/src/main/java/org/apache/logging/log4j/core/lookup/JndiLookup.java b/core/src/main/java/org/apache/logging/log4j/core/lookup/JndiLookup.java\nindex 90e082a9f..f41b68386 100644\n--- a/core/src/main/java/org/apache/logging/log4j/core/lookup/JndiLookup.java\n+++ b/core/src/main/java/org/apache/logging/log4j/core/lookup/JndiLookup.java\n@@ -28,7 +28,7 @@ import org.apache.logging.log4j.core.config.plugins.Plugin;\n @Plugin(name = \"jndi\", category = \"Lookup\")\n public class JndiLookup implements StrLookup {\n \n-    private static boolean ENABLE_JNDI = true;\n+    private static boolean ENABLE_JNDI = false;\n \n     /** JNDI resourcce path prefix used in a J2EE container */\n     static final String CONTAINER_JNDI_RESOURCE_PATH_PREFIX = \"java:comp/env/\";\n@@ -55,6 +55,11 @@ public class JndiLookup implements StrLookup {\n             return null;\n         }\n \n+        // Validate JNDI name to prevent remote lookups\n+        if (!isValidJndiName(key)) {\n+            return null;\n+        }\n+\n         try {\n             InitialContext ctx = new InitialContext();\n             return (String) ctx.lookup(convertJndiName(key));\n@@ -63,6 +68,35 @@ public class JndiLookup implements StrLookup {\n         }\n     }\n \n+    /**\n+     * Validates that the JNDI name does not contain remote lookup protocols.\n+     * Only allows java: protocol to prevent remote code execution.\n+     * @param jndiName The JNDI name to validate\n+     * @return true if the name is safe, false otherwise\n+     */\n+    private boolean isValidJndiName(String jndiName) {\n+        if (jndiName == null || jndiName.isEmpty()) {\n+            return false;\n+        }\n+\n+        String lowerKey = jndiName.toLowerCase();\n+\n+        // Block all remote protocols\n+        if (lowerKey.contains(\"ldap:\") || lowerKey.contains(\"ldaps:\") ||\n+            lowerKey.contains(\"rmi:\") || lowerKey.contains(\"dns:\") ||\n+            lowerKey.contains(\"nis:\") || lowerKey.contains(\"nds:\") ||\n+            lowerKey.contains(\"corba:\") || lowerKey.contains(\"iiop:\")) {\n+            return false;\n+        }\n+\n+        // Only allow java: protocol (local JNDI)\n+        if (jndiName.indexOf(':') != -1 && !lowerKey.startsWith(\"java:\")) {\n+            return false;\n+        }\n+\n+        return true;\n+    }\n+\n     /**\n      * Convert the given JNDI name to the actual JNDI name to use.\n      * Default implementation applies the \"java:comp/env/\" prefix\n",
+  "stdout": "",
+  "stderr": ""
+}

@@ -1,0 +1,22 @@
+--- a/src/net_builtin.c
++++ b/src/net_builtin.c
+@@ -380,7 +380,18 @@
+ }
+ 
+ static void rx_icmp(struct mg_tcpip_if *ifp, struct pkt *pkt) {
+-  // MG_DEBUG(("ICMP %d", (int) len));
++  {
++    char *raw_buf = pkt->raw.buf;
++    size_t raw_len = pkt->raw.len;
++    /* ICMP must follow Ethernet+IP headers */
++    size_t min_off = sizeof(struct eth) + sizeof(struct ip);
++    char *icmp_start = (char *)pkt->icmp;
++    size_t off = (size_t)(icmp_start - raw_buf);
++    if (pkt->ip == NULL || off < min_off || off + sizeof(*pkt->icmp) > raw_len) {
++      return;
++    }
++  }
++  // MG_DEBUG(("ICMP %d", (int) len))
+   if (pkt->icmp->type == 8 && pkt->ip != NULL && pkt->ip->dst == ifp->ip) {
+     size_t hlen = sizeof(struct eth) + sizeof(struct ip) + sizeof(struct icmp);
+     size_t space = ifp->tx.len - hlen, plen = pkt->pay.len;

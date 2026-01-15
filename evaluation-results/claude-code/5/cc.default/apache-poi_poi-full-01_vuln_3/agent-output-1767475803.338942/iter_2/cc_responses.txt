@@ -1,0 +1,246 @@
+
+================================================================================
+Response 1
+================================================================================
+Let me find the correct path to the source files:
+
+================================================================================
+Response 2
+================================================================================
+Now let me look at the `StringUtil.readUnicodeLE` method to understand how it handles the length parameter:
+
+================================================================================
+Response 3
+================================================================================
+I can see the issue. Looking at the `ExtRst` constructor at line 114:
+
+```java
+phoneticText = StringUtil.readUnicodeLE(in, length1);
+```
+
+The `length1` is read as a `short` at line 100, which can be negative (since `short` is signed in Java). When `length1` is negative, `StringUtil.readUnicodeLE` at line 303-306 allocates `nChars * 2` bytes:
+
+```java
+public static String readUnicodeLE(LittleEndianInput in, int nChars) {
+    byte[] bytes = IOUtils.safelyAllocate(nChars * 2L, MAX_RECORD_LENGTH);
+    in.readFully(bytes);
+    return new String(bytes, UTF16LE);
+}
+```
+
+A negative `length1` would result in a negative `nChars * 2L`, which could cause problems in `safelyAllocate` and `readFully`.
+
+The previous patches tried to:
+1. Validate `runData` being negative (too late)
+2. Validate `stringDataSize` and `length1` (still allowed negative values to get through)
+
+The key issue is that `length1` is a `short` (signed), and when it's negative, it will cause issues. Let me check how `length1` is used:
+
+================================================================================
+Response 4
+================================================================================
+Good. Now I understand the issue better. The `safelyAllocateCheck` at line 579-587 does check for `length < 0L` which would throw a `RecordFormatException`. But here's the key issue:
+
+Looking at line 114 of ExtRst.java:
+```java
+phoneticText = StringUtil.readUnicodeLE(in, length1);
+```
+
+And line 303-306 of StringUtil.java:
+```java
+public static String readUnicodeLE(LittleEndianInput in, int nChars) {
+    byte[] bytes = IOUtils.safelyAllocate(nChars * 2L, MAX_RECORD_LENGTH);
+    ...
+}
+```
+
+`length1` is a signed `short` (can be negative like -32768 to 32767). When passed to `readUnicodeLE`, it's converted to an `int`, which would be negative. When multiplied by 2L, it becomes a negative long. This should be caught by `safelyAllocateCheck`.
+
+But wait - the crash is a "deadly signal" (SIGSEGV), not a Java exception. This suggests the crash might happen at the native/JVM level, possibly in `readFully` if it tries to read with a corrupted length.
+
+Let me look more carefully at the flow and see if there's an unsigned short being treated as signed or vice versa:
+
+================================================================================
+Response 5
+================================================================================
+I see a critical issue now! Looking at line 117-118:
+
+```java
+int runData = stringDataSize - 4 - 6 - (2*phoneticText.length());
+int numRuns = (runData / 6);
+phRuns = new PhRun[numRuns];
+```
+
+If `stringDataSize` is very large (say, 32767), or if `phoneticText.length()` is controlled by an attacker, and/or if `stringDataSize` is a signed short that could be negative, then:
+
+1. `runData` could be a very large positive number if `stringDataSize` is large
+2. `numRuns` could be huge
+3. Creating `phRuns = new PhRun[numRuns]` with a huge `numRuns` could cause memory exhaustion or JVM crashes
+
+The failed patches tried validating `runData` being negative, but they missed the case where `runData` could be huge and positive!
+
+Let me understand the issue better - the key is that `stringDataSize` is read as a signed short, which can be negative. When negative, the subtraction `stringDataSize - 4 - 6 - (2*phoneticText.length())` could result in a very large negative number, and dividing a negative number by 6 gives a negative result. A negative array size would throw `NegativeArraySizeException`.
+
+But wait - the crash is SIGSEGV. Let me check what happens when we pass a large or pathological value to `PhRun[]` allocation:
+
+================================================================================
+Response 6
+================================================================================
+Now let me look at the key issue more carefully. The problem is:
+
+1. `stringDataSize` at line 93 is read as a signed `short` (range: -32768 to 32767)
+2. If a malicious file has `stringDataSize` set to a large negative value (e.g., -1, which is 0xFFFF = 65535 unsigned)
+3. Then `runData = stringDataSize - 4 - 6 - (2*phoneticText.length())` could be negative or unexpectedly large
+4. `numRuns = runData / 6` with negative `runData` results in negative `numRuns`
+5. `phRuns = new PhRun[numRuns]` with negative size will cause `NegativeArraySizeException`
+
+But a SIGSEGV suggests we're hitting a native crash. Let me think about this differently - it could be in `readFully` or array allocation with a huge size causing OOM and JVM crash.
+
+Let me re-analyze the failed patches:
+
+**First patch failures:**
+1. Added `IOUtils.safelyAllocateCheck(_cLines, HSSFWorkbook.getMaxRecordLength())` in LbsDataSubRecord - but that's a different file and might not be related to this crash
+2. Added check `if (runData < 0)` - this catches negative `runData` but doesn't prevent all issues
+
+**Second patch failures:**
+1. Added validation for `stringDataSize` - but the check `stringDataSize > expectedLength - 4` might not catch all cases
+2. Added validation for `length1` - `if (length1 < 0 || (2 * length1) > stringDataSize - 10)` - this should catch negative values but might not
+
+Let me think about what could still cause a crash. If `length1` is within bounds but the calculation of `runData` still produces a huge positive number due to `stringDataSize` being manipulated...
+
+Actually wait - the key insight is: The second failed patch added checks at lines that need specific values of `expectedLength` to work. But if `expectedLength` itself is corrupted (passed from caller), the validation might pass but still cause issues.
+
+Let me take a completely different approach - wrap the entire reading in a try-catch and validate at boundaries. But the real issue might be that we're trying to read beyond the available input stream, causing a native crash.
+
+Let me look at how the `LittleEndianInput` `readFully` works:
+
+================================================================================
+Response 7
+================================================================================
+Now I have a better understanding. Let me take a completely different approach for the fix. The previous patches tried to validate individual values, but there's still a gap.
+
+Looking at the code flow:
+1. `stringDataSize` is read as a signed `short` (line 93)
+2. `length1` is read as a signed `short` (line 100)
+3. These are used to calculate `runData` and `numRuns`
+
+The key issue is that even with individual validations, the combination of values can lead to issues. A completely different approach would be to:
+
+1. **Read `stringDataSize` as unsigned** (since it represents a size, it shouldn't be negative)
+2. **Validate `length1` against the actual available data** before using it
+3. **Validate `numRuns` against a reasonable maximum** before creating the array
+
+Let me try a different approach - use `readUShort()` instead of `readShort()` for `stringDataSize` since it represents a size:
+
+================================================================================
+Response 8
+================================================================================
+Now I understand the complete picture. The key issues are:
+
+1. Line 93: `stringDataSize` is read as `short` (signed), but it represents a size
+2. Line 100: `length1` is read as `short` (signed), but represents a length for phonetic text
+3. Line 116-117: `runData` and `numRuns` calculations can produce negative values if `stringDataSize` is negative
+4. Line 118: Creating `PhRun[numRuns]` with negative `numRuns` causes `NegativeArraySizeException`
+
+The previous patches failed because they:
+1. Only checked `runData < 0` but didn't prevent negative `numRuns` from being passed to array creation
+2. Didn't properly handle the case where `stringDataSize` was smaller than `4 + 6` making subsequent calculations negative
+
+**A completely different approach:** Instead of trying to validate individual fields after reading, wrap the problematic section in validation that uses `IOUtils.safelyAllocateCheck` for the `numRuns` before creating the array, and also read `length1` as unsigned.
+
+Let me create a new patch:
+
+================================================================================
+Response 9
+================================================================================
+Now let me verify the full file to make sure the changes look correct:
+
+================================================================================
+Response 10
+================================================================================
+The file looks good. Now let me explain why the previous patches failed and how this new patch addresses the vulnerability with a completely different approach:
+
+## Why the Previous Patches Failed
+
+### First Patch Issues:
+1. **Wrong approach for `safelyAllocateCheck`**: It added `IOUtils.safelyAllocateCheck(_cLines, HSSFWorkbook.getMaxRecordLength())` in `LbsDataSubRecord.java` which is unrelated to the ExtRst crash
+2. **Incomplete runData check**: Added `if (runData < 0)` but this came after reading `phoneticText` with `StringUtil.readUnicodeLE(in, length1)` where `length1` could still be negative (since it was read as a signed `short`)
+
+### Second Patch Issues:
+1. **Validation logic was correct but the reading was still signed**: Even with validation like `length1 < 0`, the `length1` was still read as a signed `short` with `in.readShort()`, which means a value like `0x8000` (32768 unsigned) would be interpreted as `-32768` and pass the `length1 < 0` check but fail in unexpected ways
+2. **`stringDataSize` validation was too complex**: The condition `stringDataSize > expectedLength - 4` relied on `expectedLength` being correct, but `expectedLength` comes from the caller and could itself be corrupted
+
+## The New Patch: A Completely Different Approach
+
+The new patch takes a fundamentally different approach:
+
+1. **Read sizes as unsigned values**: Changed `in.readShort()` to `in.readUShort()` for both `stringDataSize` and `length1`/`length2`. This ensures these values are always non-negative (0 to 65535 range) instead of potentially negative (-32768 to 32767).
+
+2. **Validate bounds before reading**: Added validation `(length1 * 2L) > stringDataSize - 10` to ensure the phonetic text length doesn't exceed what `stringDataSize` allows, preventing reads beyond available data.
+
+3. **Multi-layer validation**: 
+   - First validates `length1` against `stringDataSize`
+   - Then validates `runData` is non-negative after reading
+   - Finally uses `IOUtils.safelyAllocateCheck()` to validate `numRuns` before array allocation
+
+4. **Uses existing safe allocation mechanism**: Instead of ad-hoc checks, uses `IOUtils.safelyAllocateCheck()` which is the established pattern in POI for preventing dangerous allocations.
+
+Here's the resulting patch:
+
+```diff
+diff --git a/poi/src/main/java/org/apache/poi/hssf/record/common/ExtRst.java b/poi/src/main/java/org/apache/poi/hssf/record/common/ExtRst.java
+index d798b0cc3..XXXXXXX 100644
+--- a/poi/src/main/java/org/apache/poi/hssf/record/common/ExtRst.java
++++ b/poi/src/main/java/org/apache/poi/hssf/record/common/ExtRst.java
+@@ -90,14 +90,16 @@ public class ExtRst implements Comparable<ExtRst>, GenericRecord {
+         }
+ 
+         // Carry on reading in as normal
+-        short stringDataSize = in.readShort();
++        // Read as unsigned to avoid issues with negative sizes
++        int stringDataSize = in.readUShort();
+ 
+         formattingFontIndex = in.readShort();
+         formattingOptions   = in.readShort();
+ 
+         // RPHSSub
+         numberOfRuns = in.readUShort();
+-        short length1 = in.readShort();
++        // Read length as unsigned to avoid issues with negative lengths
++        int length1 = in.readUShort();
+         // No really. Someone clearly forgot to read
+         //  the docs on their datastructure...
+-        short length2 = in.readShort();
++        int length2 = in.readUShort();
+         // And sometimes they write out garbage :(
+         if(length1 == 0 && length2 > 0) {
+             length2 = 0;
+@@ -107,10 +109,22 @@ public class ExtRst implements Comparable<ExtRst>, GenericRecord {
+                     length1 + " vs " + length2
+             );
+         }
++        // Validate length1 before attempting to read phoneticText
++        // Each character takes 2 bytes, and we need at least 4 (Phs) + 6 (RPHSSub header) = 10 bytes for structure
++        if (length1 < 0 || (length1 * 2L) > stringDataSize - 10) {
++            throw new IllegalStateException(
++                    "Invalid phonetic text length: " + length1 + " exceeds available data in stringDataSize: " + stringDataSize
++            );
++        }
+         phoneticText = StringUtil.readUnicodeLE(in, length1);
+ 
+         int runData = stringDataSize - 4 - 6 - (2*phoneticText.length());
++        // Validate runData is non-negative before calculating numRuns
++        if (runData < 0) {
++            throw new IllegalStateException(
++                    "Invalid ExtRst record: runData is negative (" + runData + ")"
++            );
++        }
+         int numRuns = (runData / 6);
+-        phRuns = new PhRun[numRuns];
++        // Validate numRuns before allocating array
++        IOUtils.safelyAllocateCheck(numRuns, HSSFWorkbook.getMaxRecordLength());
++        phRuns = new PhRun[numRuns];
+         for(int i=0; i<phRuns.length; i++) {
+             phRuns[i] = new PhRun(in);
+         }
+```

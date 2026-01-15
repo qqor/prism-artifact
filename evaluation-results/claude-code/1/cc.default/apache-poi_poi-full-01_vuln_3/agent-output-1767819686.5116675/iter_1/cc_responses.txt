@@ -1,0 +1,113 @@
+
+================================================================================
+Response 1
+================================================================================
+Now let me understand the crash better. The failed patch tried to add a null/empty check in `handleMissingSharedFormulaRecord`, but the crash is still happening. The issue is that the vulnerability might be triggered earlier - at line 71 where `formulaRec.getFormula().getExpReference()` is called. Let me look at the `Formula` class to understand what `getExpReference()` does and how `getFormula()` works:
+
+================================================================================
+Response 2
+================================================================================
+Now I have a better understanding of the problem. Let me analyze the vulnerability:
+
+## Analysis of the Vulnerability and Failed Patch
+
+### Why the Failed Patch Didn't Work
+
+The failed patch added a null/empty check in `handleMissingSharedFormulaRecord()`:
+
+```java
+Ptg[] parsedExpression = formula.getParsedExpression();
+if (parsedExpression == null || parsedExpression.length == 0) {
+    throw new RecordFormatException(...);
+}
+Ptg firstToken = parsedExpression[0];
+```
+
+However, looking at the code flow in `FormulaRecordAggregate` constructor (lines 70-77):
+
+```java
+if (formulaRec.isSharedFormula()) {
+    CellReference firstCell = formulaRec.getFormula().getExpReference();
+    if (firstCell == null) {
+        handleMissingSharedFormulaRecord(formulaRec);
+    } else {
+        _sharedFormulaRecord = svm.linkSharedFormulaRecord(firstCell, this);
+    }
+}
+```
+
+The problem is:
+1. The `getParsedExpression()` method at line 212-214 of `FormulaRecord.java` calls `field_8_parsed_expr.getTokens()` directly
+2. Looking at `Formula.getTokens()` (line 87-90), it calls `Ptg.readTokens(_encodedTokenLen, in)`
+3. The crash is likely a **native/JNI crash** happening during token parsing when malformed data is provided
+
+The failed patch only checked the *result* of `getParsedExpression()`, but the crash happens *inside* `getParsedExpression()` during `Ptg.readTokens()` when parsing malformed binary data.
+
+### The Different Approach
+
+Instead of trying to fix the parsing inside `handleMissingSharedFormulaRecord`, we should take a completely different approach: **catch exceptions that occur during the token access and handle them gracefully**.
+
+The crash happens due to malformed input data causing issues during token parsing. A robust solution is to wrap the potentially dangerous operation in a try-catch block and handle the exception by either:
+1. Throwing a `RecordFormatException` to signal bad data, or
+2. Treating it as if the shared formula is missing (setting `isSharedFormula` to false)
+
+Let me create a patch that wraps the dangerous operations in a try-catch:
+
+================================================================================
+Response 3
+================================================================================
+Now let me provide the explanation and the new patch:
+
+## Explanation of Why the Previous Patch Failed
+
+The previous patch added null/empty array checks **after** calling `formula.getParsedExpression()`:
+
+```java
+Ptg[] parsedExpression = formula.getParsedExpression();
+if (parsedExpression == null || parsedExpression.length == 0) {
+```
+
+The problem is that the crash occurs **during** the execution of `getParsedExpression()`, not after it returns. Looking at the code:
+
+1. `FormulaRecord.getParsedExpression()` (line 212-214) calls `field_8_parsed_expr.getTokens()`
+2. `Formula.getTokens()` (line 87-90) calls `Ptg.readTokens(_encodedTokenLen, in)` to parse the raw byte encoding into Ptg tokens
+3. When malformed input is provided, the token parsing code (`Ptg.readTokens()`) can crash with a native/JNI signal (SIGSEGV) due to buffer overflows, invalid memory access, or other issues caused by corrupted binary data
+
+The previous patch only guarded against what happens **after** the parsing completes successfully, but it didn't handle the case where the parsing itself fails catastrophically.
+
+## New Patch - Different Approach
+
+The new approach wraps the potentially dangerous `getParsedExpression()` call in a try-catch block to catch any `RuntimeException` that occurs during token parsing. This converts a deadly signal (crash) into a controlled `RecordFormatException` that can be handled gracefully by the caller.
+
+```diff
+diff --git a/poi/src/main/java/org/apache/poi/hssf/record/aggregates/FormulaRecordAggregate.java b/poi/src/main/java/org/apache/poi/hssf/record/aggregates/FormulaRecordAggregate.java
+index 5ce1f62f6..8b9a7e123 100644
+--- a/poi/src/main/java/org/apache/poi/hssf/record/aggregates/FormulaRecordAggregate.java
++++ b/poi/src/main/java/org/apache/poi/hssf/record/aggregates/FormulaRecordAggregate.java
+@@ -91,7 +91,18 @@ public final class FormulaRecordAggregate extends RecordAggregate implements Cel
+      */
+     private static void handleMissingSharedFormulaRecord(FormulaRecord formula) {
+         // make sure 'unshared' formula is actually available
+-        Ptg firstToken = formula.getParsedExpression()[0];
++        Ptg[] parsedExpression;
++        try {
++            parsedExpression = formula.getParsedExpression();
++        } catch (RuntimeException e) {
++            // Malformed formula data - cannot safely parse tokens
++            throw new RecordFormatException(
++                    "Failed to parse formula expression for FormulaRecord with (isSharedFormula=true)", e);
++        }
++        if (parsedExpression == null || parsedExpression.length == 0) {
++            throw new RecordFormatException(
++                    "SharedFormulaRecord not found for FormulaRecord with (isSharedFormula=true) and empty parsed expression");
++        }
++        Ptg firstToken = parsedExpression[0];
+         if (firstToken instanceof ExpPtg) {
+             throw new RecordFormatException(
+                     "SharedFormulaRecord not found for FormulaRecord with (isSharedFormula=true)");
+```
+
+This approach:
+1. **Catches exceptions during parsing**: Any `RuntimeException` (including `ArrayIndexOutOfBoundsException`, `NegativeArraySizeException`, `BufferUnderflowException`, etc.) thrown during `getParsedExpression()` is caught and converted to a `RecordFormatException`
+2. **Checks for null/empty results**: After successful parsing, validates the result is not null or empty
+3. **Preserves original behavior**: If parsing succeeds and returns valid tokens, the original logic continues to work as before

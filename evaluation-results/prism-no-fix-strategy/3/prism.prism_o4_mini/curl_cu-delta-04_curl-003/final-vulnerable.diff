@@ -1,0 +1,68 @@
+--- a/lib/doh.c
++++ b/lib/doh.c
+@@ -1402,29 +1402,30 @@
+ void Curl_doh_close(struct Curl_easy *data)
+ {
+   struct doh_probes *doh = data->req.doh;
+-  if(doh && data->multi) {
+-    struct Curl_easy *probe_data;
+-    curl_off_t mid;
+-    size_t slot;
+-    for(slot = 0; slot < DOH_SLOT_COUNT; slot++) {
+-      mid = doh->probe[slot].easy_mid;
+-      if(mid < 0)
+-        continue;
+-      doh->probe[slot].easy_mid = -1;
+-      /* should have been called before data is removed from multi handle */
+-      DEBUGASSERT(data->multi);
+-      probe_data = data->multi ? Curl_multi_get_handle(data->multi, mid) :
+-        NULL;
+-      if(!probe_data) {
+-        DEBUGF(infof(data, "Curl_doh_close: xfer for mid=%"
+-                     FMT_OFF_T " not found!",
+-                     doh->probe[slot].easy_mid));
+-        continue;
+-      }
+-      /* data->multi might already be reset at this time */
+-      curl_multi_remove_handle(data->multi, probe_data);
+-      Curl_close(&probe_data);
+-    }
++  struct Curl_easy *probe_data;
++  curl_off_t mid;
++  size_t slot;
++
++  /* never run if no doh or no multi handle */
++  if(!doh || !data->multi) {
++    return;
++  }
++
++  for(slot = 0; slot < DOH_SLOT_COUNT; slot++) {
++    mid = doh->probe[slot].easy_mid;
++    if(mid < 0)
++      continue;
++    doh->probe[slot].easy_mid = -1;
++    DEBUGASSERT(data->multi);
++    probe_data = Curl_multi_get_handle(data->multi, mid);
++    if(!probe_data) {
++      DEBUGF(infof(data,
++                   "Curl_doh_close: xfer for mid=%" FMT_OFF_T " not found!",
++                   mid));
++      continue;
++    }
++    curl_multi_remove_handle(data->multi, probe_data);
++    Curl_close(&probe_data);
+   }
+ }
+ 
+
+--- a/lib/request.c
++++ b/lib/request.c
+@@ -105,7 +105,7 @@
+     (void)req_flush(data);
+   Curl_client_reset(data);
+ #ifndef CURL_DISABLE_DOH
+-  Curl_doh_close(data);
++  Curl_doh_cleanup(data);
+ #endif
+   return CURLE_OK;
+ }

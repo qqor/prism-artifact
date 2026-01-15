@@ -1,0 +1,78 @@
+I tried to fix a deadly signal vulnerability causing the crash log in the <crash_log> below.
+I failed to fix the vulnerability with the following patches:
+
+```diff
+diff --git a/poi/src/main/java/org/apache/poi/hssf/record/LbsDataSubRecord.java b/poi/src/main/java/org/apache/poi/hssf/record/LbsDataSubRecord.java
+index cf06408b3..465f09413 100644
+--- a/poi/src/main/java/org/apache/poi/hssf/record/LbsDataSubRecord.java
++++ b/poi/src/main/java/org/apache/poi/hssf/record/LbsDataSubRecord.java
+@@ -26,10 +26,12 @@ import org.apache.poi.common.usermodel.GenericRecord;
+ import org.apache.poi.ss.formula.ptg.Ptg;
+ import org.apache.poi.util.GenericRecordJsonWriter;
+ import org.apache.poi.util.GenericRecordUtil;
++import org.apache.poi.util.IOUtils;
+ import org.apache.poi.util.LittleEndianInput;
+ import org.apache.poi.util.LittleEndianOutput;
+ import org.apache.poi.util.RecordFormatException;
+ import org.apache.poi.util.StringUtil;
++import org.apache.poi.hssf.usermodel.HSSFWorkbook;
+ 
+ /**
+  * This structure specifies the properties of a list or drop-down list embedded object in a sheet.
+@@ -160,6 +162,7 @@ public class LbsDataSubRecord extends SubRecord {
+         // From [MS-XLS].pdf 2.5.147 FtLbsData:
+         // This array MUST exist if and only if the fValidPlex flag (0x2) is set
+         if((_flags & 0x2) != 0) {
++            IOUtils.safelyAllocateCheck(_cLines, HSSFWorkbook.getMaxRecordLength());
+             _rgLines = new String[_cLines];
+             for(int i=0; i < _cLines; i++) {
+                 _rgLines[i] = StringUtil.readUnicodeString(in);
+@@ -172,6 +175,7 @@ public class LbsDataSubRecord extends SubRecord {
+         // From [MS-XLS].pdf 2.5.147 FtLbsData:
+         // This array MUST exist if and only if the wListType field is not equal to 0.
+         if(((_flags >> 4) & 0x1) + (_flags >> 5 & 0x1) != 0) {
++            IOUtils.safelyAllocateCheck(_cLines, HSSFWorkbook.getMaxRecordLength());
+             _bsels = new boolean[_cLines];
+             for(int i=0; i < _cLines; i++) {
+                 _bsels[i] = in.readByte() == 1;
+diff --git a/poi/src/main/java/org/apache/poi/hssf/record/common/ExtRst.java b/poi/src/main/java/org/apache/poi/hssf/record/common/ExtRst.java
+index d798b0cc3..d41deaf2d 100644
+--- a/poi/src/main/java/org/apache/poi/hssf/record/common/ExtRst.java
++++ b/poi/src/main/java/org/apache/poi/hssf/record/common/ExtRst.java
+@@ -114,6 +114,9 @@ public class ExtRst implements Comparable<ExtRst>, GenericRecord {
+         phoneticText = StringUtil.readUnicodeLE(in, length1);
+ 
+         int runData = stringDataSize - 4 - 6 - (2*phoneticText.length());
++        if (runData < 0) {
++            throw new IllegalStateException("Invalid ExtRst record: runData is negative (" + runData + ")");
++        }
+         int numRuns = (runData / 6);
+         phRuns = new PhRun[numRuns];
+         for(int i=0; i<phRuns.length; i++) {
+
+```
+
+Explain why the patches failed and provide a new patch to fix the vulnerability.
+Do not repeat the same mistakes in the new patch.
+Try a completely different approach to fix the vulnerability.
+NEVER fix files outside the source directory.
+NEVER do any git operations in or outside the source directory.
+
+Below is the crash log:
+
+<crash_log>
+== ERROR: libFuzzer: deadly signal
+
+Stack traces of all JVM threads:
+Thread[Common-Cleaner,8,InnocuousThreadGroup]
+
+[error occurred during error reporting (), id 0xb, SIGSEGV (0xb) at pc=0x00007f2084c25fab]
+
+==20== ERROR: libFuzzer: deadly signal
+NOTE: libFuzzer has rudimentary signal handlers.
+      Combine libFuzzer with AddressSanitizer or similar for better crash reports.
+SUMMARY: libFuzzer: deadly signal
+subprocess command returned a non-zero exit status: 77
+INFO:__main__:Running: docker run --privileged --shm-size=2g --platform linux/amd64 --rm -i -e HELPER=True -e ARCHITECTURE=x86_64 -v /home/qqor/crete/packages/python_oss_fuzz/.oss_fuzz/build/out/apache-poi:/out -v /tmp/tmpihvtb0d5:/testcase -t ghcr.io/aixcc-finals/base-runner:v1.3.0 reproduce POIHSSFFuzzer -runs=100.
+
+</crash_log>

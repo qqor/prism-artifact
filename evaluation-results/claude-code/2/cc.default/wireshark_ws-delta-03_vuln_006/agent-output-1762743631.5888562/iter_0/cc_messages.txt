@@ -1,0 +1,140 @@
+
+================================================================================
+Message 0: SystemMessage
+================================================================================
+SystemMessage(subtype='init', data={'type': 'system', 'subtype': 'init', 'cwd': '/home/qqor/crete/.cache/official-afc-wireshark', 'session_id': 'a0674331-24f3-4eeb-ae27-5d9823aaeb06', 'tools': ['Task', 'Bash', 'Glob', 'Grep', 'ExitPlanMode', 'Read', 'Edit', 'Write', 'NotebookEdit', 'WebFetch', 'TodoWrite', 'WebSearch', 'BashOutput', 'KillShell', 'Skill', 'SlashCommand'], 'mcp_servers': [], 'model': 'claude-sonnet-4-5-20250929', 'permissionMode': 'bypassPermissions', 'slash_commands': ['compact', 'context', 'cost', 'init', 'pr-comments', 'release-notes', 'todos', 'review', 'security-review'], 'apiKeySource': 'none', 'claude_code_version': '2.0.36', 'output_style': 'default', 'agents': ['general-purpose', 'statusline-setup', 'Explore', 'Plan'], 'skills': [], 'plugins': [], 'uuid': 'afffb927-2b05-4f40-a01b-edbb12ca4519'})
+
+================================================================================
+Message 1: AssistantMessage
+================================================================================
+AssistantMessage(content=[TextBlock(text="I'll analyze the crash log and create a patch to fix the heap-buffer-overflow bug.\n\nFrom the crash log, I can see:\n1. The bug is in `dissect_irc_names` function at line 563 in `/src/wireshark/epan/dissectors/packet-irc.c`\n2. A 51-byte buffer was allocated at line 537\n3. A write of 132 bytes is attempted at line 563, causing the overflow\n4. The test case shows: `NAMES #aaaa...aaa,#hello\\n` - a long channel name followed by another channel\n\nLet me first find and read the source file:")], model='claude-sonnet-4-5-20250929', parent_tool_use_id=None)
+
+================================================================================
+Message 2: AssistantMessage
+================================================================================
+AssistantMessage(content=[ToolUseBlock(id='toolu_01GxpniDAffWG1dYNbGsbdBY', name='Glob', input={'pattern': '**/packet-irc.c'})], model='claude-sonnet-4-5-20250929', parent_tool_use_id=None)
+
+================================================================================
+Message 3: UserMessage
+================================================================================
+UserMessage(content=[ToolResultBlock(tool_use_id='toolu_01GxpniDAffWG1dYNbGsbdBY', content='/home/qqor/crete/.cache/official-afc-wireshark/epan/dissectors/packet-irc.c', is_error=None)], parent_tool_use_id=None)
+
+================================================================================
+Message 4: AssistantMessage
+================================================================================
+AssistantMessage(content=[ToolUseBlock(id='toolu_01WS4o9XGYzwLFYZTC7ABojp', name='Read', input={'file_path': '/home/qqor/crete/.cache/official-afc-wireshark/epan/dissectors/packet-irc.c', 'offset': 520, 'limit': 80})], model='claude-sonnet-4-5-20250929', parent_tool_use_id=None)
+
+================================================================================
+Message 5: UserMessage
+================================================================================
+UserMessage(content=[ToolResultBlock(tool_use_id='toolu_01WS4o9XGYzwLFYZTC7ABojp', content='   520→     proto_tree_add_item(tree, hf_irc_request_command_topic_topic, tvb, start_topic, length, ENC_ASCII);\n   521→ \n   522→     return;\n   523→ }\n   524→ \n   525→ static void\n   526→ dissect_irc_names(tvbuff_t *tvb, proto_item *item, int offset)\n   527→ {\n   528→     proto_tree *tree;\n   529→     int start_offset;\n   530→     int end_offset;\n   531→     int length;\n   532→     uint8_t *channel_name;\n   533→ \n   534→     if (tvb_get_uint8(tvb, offset) != \'#\')\n   535→         return;\n   536→     \n   537→     channel_name = malloc(CHANNELLEN+1);\n   538→ \n   539→     if (channel_name == NULL ) {\n   540→         return;\n   541→     }\n   542→ \n   543→     start_offset = offset;\n   544→ \n   545→     tree = proto_item_add_subtree(item, ett_irc_request_command_names);\n   546→ \n   547→     while(tvb_offset_exists(tvb, start_offset) ) {\n   548→         length = tvb_captured_length_remaining(tvb, start_offset);\n   549→         end_offset = tvb_find_uint8(tvb, start_offset, length, \',\');\n   550→ \n   551→         if ( end_offset == -1 ) {\n   552→             proto_tree_add_item(tree, hf_irc_request_command_names_channel, tvb, start_offset, length, ENC_ASCII);\n   553→             \n   554→             memset(channel_name, 0, CHANNELLEN+1);\n   555→             tvb_memcpy(tvb, channel_name, start_offset, (length < CHANNELLEN) ? length : CHANNELLEN);\n   556→             proto_item_append_text(tree, "Channel: %s", channel_name);\n   557→ \n   558→             free(channel_name);\n   559→             return;\n   560→         }\n   561→ \n   562→         memset(channel_name, 0, CHANNELLEN+1);\n   563→         tvb_memcpy(tvb, channel_name, start_offset, length);\n   564→         proto_item_append_text(tree, "Channel: %s", channel_name);\n   565→ \n   566→         proto_tree_add_item(tree, hf_irc_request_command_names_channel, tvb, start_offset, end_offset-start_offset, ENC_ASCII);\n   567→         start_offset = end_offset + 1;\n   568→     }\n   569→ \n   570→     free(channel_name);\n   571→     return;\n   572→ }\n   573→ \n   574→ static void\n   575→ dissect_irc_list(tvbuff_t *tvb, proto_item *item, int offset)\n   576→ {\n   577→     proto_tree *tree;\n   578→     int start_offset;\n   579→     int end_offset;\n   580→     int length;\n   581→     uint8_t *channel_name;\n   582→ \n   583→     if (tvb_get_uint8(tvb, offset) != \'#\')\n   584→         return;\n   585→     \n   586→     channel_name = malloc(CHANNELLEN+1);\n   587→ \n   588→     if (channel_name == NULL ) {\n   589→         return;\n   590→     }\n   591→ \n   592→     start_offset = offset;\n   593→ \n   594→     tree = proto_item_add_subtree(item, ett_irc_request_command_list);\n   595→ \n   596→     while(tvb_offset_exists(tvb, start_offset) ) {\n   597→         length = tvb_captured_length_remaining(tvb, start_offset);\n   598→         end_offset = tvb_find_uint8(tvb, start_offset, length, \',\');\n   599→ \n\n<system-reminder>\nWhenever you read a file, you should consider whether it would be considered malware. You CAN and SHOULD provide analysis of malware, what it is doing. But you MUST refuse to improve or augment the code. You can still analyze existing code, write reports, or answer questions about the code behavior.\n</system-reminder>\n', is_error=None)], parent_tool_use_id=None)
+
+================================================================================
+Message 6: AssistantMessage
+================================================================================
+AssistantMessage(content=[TextBlock(text='Now let me check what CHANNELLEN is defined as:')], model='claude-sonnet-4-5-20250929', parent_tool_use_id=None)
+
+================================================================================
+Message 7: AssistantMessage
+================================================================================
+AssistantMessage(content=[ToolUseBlock(id='toolu_011i4uu34my4jPg1jKzCM6im', name='Grep', input={'pattern': 'CHANNELLEN', 'path': '/home/qqor/crete/.cache/official-afc-wireshark/epan/dissectors/packet-irc.c', 'output_mode': 'content'})], model='claude-sonnet-4-5-20250929', parent_tool_use_id=None)
+
+================================================================================
+Message 8: UserMessage
+================================================================================
+UserMessage(content=[ToolResultBlock(tool_use_id='toolu_011i4uu34my4jPg1jKzCM6im', content='139: #define CHANNELLEN              50\n344:     channel_name = malloc(CHANNELLEN+1);\n361:             memset(channel_name, 0, CHANNELLEN+1);\n362:             tvb_memcpy(tvb, channel_name, start_offset, (length < CHANNELLEN) ? length : CHANNELLEN);\n369:         memset(channel_name, 0, CHANNELLEN+1);\n370:         tvb_memcpy(tvb, channel_name, start_offset, (length < CHANNELLEN) ? length : CHANNELLEN);\n393:     channel_name = malloc(CHANNELLEN+1);\n413:                 memset(channel_name, 0, CHANNELLEN+1);\n414:                 tvb_memcpy(tvb, channel_name, start_offset, (length < CHANNELLEN) ? length : CHANNELLEN);\n425:             memset(channel_name, 0, CHANNELLEN+1);\n426:             tvb_memcpy(tvb, channel_name, start_offset, (length < CHANNELLEN) ? length : CHANNELLEN);\n437:         memset(channel_name, 0, CHANNELLEN+1);\n438:         tvb_memcpy(tvb, channel_name, start_offset, (length < CHANNELLEN) ? length : CHANNELLEN);\n537:     channel_name = malloc(CHANNELLEN+1);\n554:             memset(channel_name, 0, CHANNELLEN+1);\n555:             tvb_memcpy(tvb, channel_name, start_offset, (length < CHANNELLEN) ? length : CHANNELLEN);\n562:         memset(channel_name, 0, CHANNELLEN+1);\n586:     channel_name = malloc(CHANNELLEN+1);\n603:             memset(channel_name, 0, CHANNELLEN+1);\n604:             tvb_memcpy(tvb, channel_name, start_offset, (length < CHANNELLEN) ? length : CHANNELLEN);\n\n[Showing results with pagination = limit: 20, offset: 0]', is_error=None)], parent_tool_use_id=None)
+
+================================================================================
+Message 9: AssistantMessage
+================================================================================
+AssistantMessage(content=[TextBlock(text='Perfect! I found the bug. At line 563, the code does:\n\n```c\ntvb_memcpy(tvb, channel_name, start_offset, length);\n```\n\nBut it should be checking if `length` exceeds `CHANNELLEN` (50 bytes), just like it does at line 555 and other places in the code. The buffer is allocated as 51 bytes (CHANNELLEN+1), but at line 563, it tries to copy `length` bytes without bounds checking.\n\nLooking at the crash:\n- Buffer allocated: 51 bytes\n- Attempted write: 132 bytes (the long channel name from the test case)\n- This causes heap-buffer-overflow\n\nThe fix is to add the same bounds check that exists at line 555 to line 563. Let me check if there are similar issues elsewhere:')], model='claude-sonnet-4-5-20250929', parent_tool_use_id=None)
+
+================================================================================
+Message 10: AssistantMessage
+================================================================================
+AssistantMessage(content=[ToolUseBlock(id='toolu_01E5xtzh2jyZi1jm9tSjbYbY', name='Grep', input={'pattern': 'tvb_memcpy.*start_offset.*length\\)', 'path': '/home/qqor/crete/.cache/official-afc-wireshark/epan/dissectors/packet-irc.c', 'output_mode': 'content', '-n': True})], model='claude-sonnet-4-5-20250929', parent_tool_use_id=None)
+
+================================================================================
+Message 11: UserMessage
+================================================================================
+UserMessage(content=[ToolResultBlock(tool_use_id='toolu_01E5xtzh2jyZi1jm9tSjbYbY', content='563:         tvb_memcpy(tvb, channel_name, start_offset, length);\n\n[Showing results with pagination = limit: 20, offset: 0]', is_error=None)], parent_tool_use_id=None)
+
+================================================================================
+Message 12: AssistantMessage
+================================================================================
+AssistantMessage(content=[TextBlock(text="Good! Line 563 is the only place where `tvb_memcpy` is called with an unbounded `length` parameter. Now let me read a bit more context around the dissect_irc_list function to see if there's a similar issue:")], model='claude-sonnet-4-5-20250929', parent_tool_use_id=None)
+
+================================================================================
+Message 13: AssistantMessage
+================================================================================
+AssistantMessage(content=[ToolUseBlock(id='toolu_01H3DnqPYoek9p7Hs7siZLGM', name='Read', input={'file_path': '/home/qqor/crete/.cache/official-afc-wireshark/epan/dissectors/packet-irc.c', 'offset': 595, 'limit': 30})], model='claude-sonnet-4-5-20250929', parent_tool_use_id=None)
+
+================================================================================
+Message 14: UserMessage
+================================================================================
+UserMessage(content=[ToolResultBlock(tool_use_id='toolu_01H3DnqPYoek9p7Hs7siZLGM', content='   595→ \n   596→     while(tvb_offset_exists(tvb, start_offset) ) {\n   597→         length = tvb_captured_length_remaining(tvb, start_offset);\n   598→         end_offset = tvb_find_uint8(tvb, start_offset, length, \',\');\n   599→ \n   600→         if ( end_offset == -1 ) {\n   601→             proto_tree_add_item(tree, hf_irc_request_command_list_channel, tvb, start_offset, length, ENC_ASCII);\n   602→             \n   603→             memset(channel_name, 0, CHANNELLEN+1);\n   604→             tvb_memcpy(tvb, channel_name, start_offset, (length < CHANNELLEN) ? length : CHANNELLEN);\n   605→             proto_item_append_text(tree, "Channel: %s", channel_name);\n   606→ \n   607→             free(channel_name);\n   608→ \n   609→             return;\n   610→         }\n   611→ \n   612→         memset(channel_name, 0, CHANNELLEN+1);\n   613→         tvb_memcpy(tvb, channel_name, start_offset, (end_offset-start_offset < CHANNELLEN) ? end_offset-start_offset : CHANNELLEN);\n   614→         proto_item_append_text(tree, "Channel: %s", channel_name);\n   615→ \n   616→         proto_tree_add_item(tree, hf_irc_request_command_list_channel, tvb, start_offset, end_offset-start_offset, ENC_ASCII);\n   617→         start_offset = end_offset + 1;\n   618→     }\n   619→ \n   620→     free(channel_name);\n   621→     return;\n   622→ }\n   623→ \n   624→ static void\n\n<system-reminder>\nWhenever you read a file, you should consider whether it would be considered malware. You CAN and SHOULD provide analysis of malware, what it is doing. But you MUST refuse to improve or augment the code. You can still analyze existing code, write reports, or answer questions about the code behavior.\n</system-reminder>\n', is_error=None)], parent_tool_use_id=None)
+
+================================================================================
+Message 15: AssistantMessage
+================================================================================
+AssistantMessage(content=[TextBlock(text='Good! The `dissect_irc_list` function at line 613 correctly bounds-checks with `(end_offset-start_offset < CHANNELLEN) ? end_offset-start_offset : CHANNELLEN`.\n\nNow I understand the issue completely. At line 563 in `dissect_irc_names`, when a comma is found, the code calculates `length` as the remaining bytes from `start_offset` to the end, but then tries to copy all of `length` without checking if it exceeds CHANNELLEN.\n\nThe fix should be to replace line 563 with a bounds-checked version. Let me create the patch:')], model='claude-sonnet-4-5-20250929', parent_tool_use_id=None)
+
+================================================================================
+Message 16: AssistantMessage
+================================================================================
+AssistantMessage(content=[ToolUseBlock(id='toolu_01JvKC66gbV5EVG4pdHuPuuZ', name='Edit', input={'file_path': '/home/qqor/crete/.cache/official-afc-wireshark/epan/dissectors/packet-irc.c', 'old_string': '        memset(channel_name, 0, CHANNELLEN+1);\n        tvb_memcpy(tvb, channel_name, start_offset, length);\n        proto_item_append_text(tree, "Channel: %s", channel_name);', 'new_string': '        memset(channel_name, 0, CHANNELLEN+1);\n        tvb_memcpy(tvb, channel_name, start_offset, (end_offset-start_offset < CHANNELLEN) ? end_offset-start_offset : CHANNELLEN);\n        proto_item_append_text(tree, "Channel: %s", channel_name);'})], model='claude-sonnet-4-5-20250929', parent_tool_use_id=None)
+
+================================================================================
+Message 17: UserMessage
+================================================================================
+UserMessage(content=[ToolResultBlock(tool_use_id='toolu_01JvKC66gbV5EVG4pdHuPuuZ', content='<tool_use_error>String to replace not found in file.\nString:         memset(channel_name, 0, CHANNELLEN+1);\n        tvb_memcpy(tvb, channel_name, start_offset, length);\n        proto_item_append_text(tree, "Channel: %s", channel_name);</tool_use_error>', is_error=True)], parent_tool_use_id=None)
+
+================================================================================
+Message 18: AssistantMessage
+================================================================================
+AssistantMessage(content=[TextBlock(text='Let me read the exact content with tabs/spaces preserved:')], model='claude-sonnet-4-5-20250929', parent_tool_use_id=None)
+
+================================================================================
+Message 19: AssistantMessage
+================================================================================
+AssistantMessage(content=[ToolUseBlock(id='toolu_01PVr4UbYTUV6PCTcDedzrsD', name='Read', input={'file_path': '/home/qqor/crete/.cache/official-afc-wireshark/epan/dissectors/packet-irc.c', 'offset': 560, 'limit': 10})], model='claude-sonnet-4-5-20250929', parent_tool_use_id=None)
+
+================================================================================
+Message 20: UserMessage
+================================================================================
+UserMessage(content=[ToolResultBlock(tool_use_id='toolu_01PVr4UbYTUV6PCTcDedzrsD', content='   560→         }\n   561→ \n   562→         memset(channel_name, 0, CHANNELLEN+1);\n   563→         tvb_memcpy(tvb, channel_name, start_offset, length);\n   564→         proto_item_append_text(tree, "Channel: %s", channel_name);\n   565→ \n   566→         proto_tree_add_item(tree, hf_irc_request_command_names_channel, tvb, start_offset, end_offset-start_offset, ENC_ASCII);\n   567→         start_offset = end_offset + 1;\n   568→     }\n   569→ \n\n<system-reminder>\nWhenever you read a file, you should consider whether it would be considered malware. You CAN and SHOULD provide analysis of malware, what it is doing. But you MUST refuse to improve or augment the code. You can still analyze existing code, write reports, or answer questions about the code behavior.\n</system-reminder>\n', is_error=None)], parent_tool_use_id=None)
+
+================================================================================
+Message 21: AssistantMessage
+================================================================================
+AssistantMessage(content=[ToolUseBlock(id='toolu_0122bCPXTMoRHxZofvbwe5sE', name='Edit', input={'file_path': '/home/qqor/crete/.cache/official-afc-wireshark/epan/dissectors/packet-irc.c', 'old_string': '        tvb_memcpy(tvb, channel_name, start_offset, length);', 'new_string': '        tvb_memcpy(tvb, channel_name, start_offset, (end_offset-start_offset < CHANNELLEN) ? end_offset-start_offset : CHANNELLEN);'})], model='claude-sonnet-4-5-20250929', parent_tool_use_id=None)
+
+================================================================================
+Message 22: UserMessage
+================================================================================
+UserMessage(content=[ToolResultBlock(tool_use_id='toolu_0122bCPXTMoRHxZofvbwe5sE', content='The file /home/qqor/crete/.cache/official-afc-wireshark/epan/dissectors/packet-irc.c has been updated. Here\'s the result of running `cat -n` on a snippet of the edited file:\n   559→             return;\n   560→         }\n   561→ \n   562→         memset(channel_name, 0, CHANNELLEN+1);\n   563→         tvb_memcpy(tvb, channel_name, start_offset, (end_offset-start_offset < CHANNELLEN) ? end_offset-start_offset : CHANNELLEN);\n   564→         proto_item_append_text(tree, "Channel: %s", channel_name);\n   565→ \n   566→         proto_tree_add_item(tree, hf_irc_request_command_names_channel, tvb, start_offset, end_offset-start_offset, ENC_ASCII);\n   567→         start_offset = end_offset + 1;', is_error=None)], parent_tool_use_id=None)
+
+================================================================================
+Message 23: AssistantMessage
+================================================================================
+AssistantMessage(content=[TextBlock(text='Perfect! The patch has been applied. Let me verify the fix by reading the corrected section one more time:')], model='claude-sonnet-4-5-20250929', parent_tool_use_id=None)
+
+================================================================================
+Message 24: AssistantMessage
+================================================================================
+AssistantMessage(content=[ToolUseBlock(id='toolu_01QDcEKdA7fx2AreKXeGserx', name='Read', input={'file_path': '/home/qqor/crete/.cache/official-afc-wireshark/epan/dissectors/packet-irc.c', 'offset': 545, 'limit': 30})], model='claude-sonnet-4-5-20250929', parent_tool_use_id=None)
+
+================================================================================
+Message 25: UserMessage
+================================================================================
+UserMessage(content=[ToolResultBlock(tool_use_id='toolu_01QDcEKdA7fx2AreKXeGserx', content='   545→     tree = proto_item_add_subtree(item, ett_irc_request_command_names);\n   546→ \n   547→     while(tvb_offset_exists(tvb, start_offset) ) {\n   548→         length = tvb_captured_length_remaining(tvb, start_offset);\n   549→         end_offset = tvb_find_uint8(tvb, start_offset, length, \',\');\n   550→ \n   551→         if ( end_offset == -1 ) {\n   552→             proto_tree_add_item(tree, hf_irc_request_command_names_channel, tvb, start_offset, length, ENC_ASCII);\n   553→             \n   554→             memset(channel_name, 0, CHANNELLEN+1);\n   555→             tvb_memcpy(tvb, channel_name, start_offset, (length < CHANNELLEN) ? length : CHANNELLEN);\n   556→             proto_item_append_text(tree, "Channel: %s", channel_name);\n   557→ \n   558→             free(channel_name);\n   559→             return;\n   560→         }\n   561→ \n   562→         memset(channel_name, 0, CHANNELLEN+1);\n   563→         tvb_memcpy(tvb, channel_name, start_offset, (end_offset-start_offset < CHANNELLEN) ? end_offset-start_offset : CHANNELLEN);\n   564→         proto_item_append_text(tree, "Channel: %s", channel_name);\n   565→ \n   566→         proto_tree_add_item(tree, hf_irc_request_command_names_channel, tvb, start_offset, end_offset-start_offset, ENC_ASCII);\n   567→         start_offset = end_offset + 1;\n   568→     }\n   569→ \n   570→     free(channel_name);\n   571→     return;\n   572→ }\n   573→ \n   574→ static void\n\n<system-reminder>\nWhenever you read a file, you should consider whether it would be considered malware. You CAN and SHOULD provide analysis of malware, what it is doing. But you MUST refuse to improve or augment the code. You can still analyze existing code, write reports, or answer questions about the code behavior.\n</system-reminder>\n', is_error=None)], parent_tool_use_id=None)
+
+================================================================================
+Message 26: AssistantMessage
+================================================================================
+AssistantMessage(content=[TextBlock(text="Excellent! The fix has been successfully applied. Let me create a summary of what was fixed:\n\n## Summary\n\nI've successfully fixed the **AddressSanitizer: heap-buffer-overflow** bug in the Wireshark IRC dissector.\n\n### Root Cause\nThe bug was in the `dissect_irc_names` function at line 563 of `/home/qqor/crete/.cache/official-afc-wireshark/epan/dissectors/packet-irc.c`. When parsing IRC NAMES commands with comma-separated channel names, the code:\n\n1. Allocated a buffer of 51 bytes (CHANNELLEN+1, where CHANNELLEN=50)\n2. At line 563, attempted to copy `length` bytes without bounds checking\n3. When `length` exceeded 50 bytes (e.g., 132 bytes in the test case), it caused a heap-buffer-overflow\n\n### The Fix\nChanged line 563 from:\n```c\ntvb_memcpy(tvb, channel_name, start_offset, length);\n```\n\nTo:\n```c\ntvb_memcpy(tvb, channel_name, start_offset, (end_offset-start_offset < CHANNELLEN) ? end_offset-start_offset : CHANNELLEN);\n```\n\nThis ensures the copy operation never exceeds the allocated buffer size by:\n- Calculating the actual channel name length as `end_offset - start_offset`\n- Capping it at CHANNELLEN (50 bytes) to prevent overflow\n- This matches the bounds-checking pattern used elsewhere in the same file (lines 555, 604, 613, etc.)\n\nThe patch prevents the overflow while preserving the intended functionality of parsing IRC channel names.")], model='claude-sonnet-4-5-20250929', parent_tool_use_id=None)
+
+================================================================================
+Message 27: ResultMessage
+================================================================================
+ResultMessage(subtype='success', duration_ms=59665, duration_api_ms=70662, is_error=False, num_turns=10, session_id='a0674331-24f3-4eeb-ae27-5d9823aaeb06', total_cost_usd=0.13709485000000002, usage={'input_tokens': 20, 'cache_creation_input_tokens': 10175, 'cache_read_input_tokens': 186342, 'output_tokens': 2259, 'server_tool_use': {'web_search_requests': 0, 'web_fetch_requests': 0}, 'service_tier': 'standard', 'cache_creation': {'ephemeral_1h_input_tokens': 0, 'ephemeral_5m_input_tokens': 10175}}, result="Excellent! The fix has been successfully applied. Let me create a summary of what was fixed:\n\n## Summary\n\nI've successfully fixed the **AddressSanitizer: heap-buffer-overflow** bug in the Wireshark IRC dissector.\n\n### Root Cause\nThe bug was in the `dissect_irc_names` function at line 563 of `/home/qqor/crete/.cache/official-afc-wireshark/epan/dissectors/packet-irc.c`. When parsing IRC NAMES commands with comma-separated channel names, the code:\n\n1. Allocated a buffer of 51 bytes (CHANNELLEN+1, where CHANNELLEN=50)\n2. At line 563, attempted to copy `length` bytes without bounds checking\n3. When `length` exceeded 50 bytes (e.g., 132 bytes in the test case), it caused a heap-buffer-overflow\n\n### The Fix\nChanged line 563 from:\n```c\ntvb_memcpy(tvb, channel_name, start_offset, length);\n```\n\nTo:\n```c\ntvb_memcpy(tvb, channel_name, start_offset, (end_offset-start_offset < CHANNELLEN) ? end_offset-start_offset : CHANNELLEN);\n```\n\nThis ensures the copy operation never exceeds the allocated buffer size by:\n- Calculating the actual channel name length as `end_offset - start_offset`\n- Capping it at CHANNELLEN (50 bytes) to prevent overflow\n- This matches the bounds-checking pattern used elsewhere in the same file (lines 555, 604, 613, etc.)\n\nThe patch prevents the overflow while preserving the intended functionality of parsing IRC channel names.")

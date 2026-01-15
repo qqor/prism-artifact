@@ -1,0 +1,40 @@
+--- a/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-text-module/src/main/java/org/apache/tika/parser/csv/CellFormatter.java
++++ b/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-text-module/src/main/java/org/apache/tika/parser/csv/CellFormatter.java
+@@ -37,14 +37,24 @@
+             "&fraction_format=\"(?:(#{1,20}) )?(#{1,20})/(#{1,20})\"");
+ 
+     private final Matcher fractionFormatMatcher = FRACTION_FORMAT.matcher("");
++    private static final int MAX_FRACTION_REGEX_LENGTH = 20;
++    private static final int MAX_DENOM_LENGTH = 2;
+     String format(String cell) {
+         if (cell == null) {
+             cell = "";
+         }
+         String trimmedCell = cell.trim();
++        // skip heavy fraction parsing for medium-length strings
++        if (trimmedCell.length() > MAX_FRACTION_REGEX_LENGTH) {
++            return trimmedCell;
++        }
++        // fast path: only parse if it contains fraction_format directive
++        if (!trimmedCell.contains("&fraction_format=")) {
++            return trimmedCell;
++        }
+         fractionFormatMatcher.reset(trimmedCell);
+-        if (! fractionFormatMatcher.matches()) {
+-            return cell;
++        if (!fractionFormatMatcher.matches()) {
++            return trimmedCell;
+         }
+         String sign = fractionFormatMatcher.group(1);
+         double val = -1.0d;
+@@ -60,7 +70,9 @@
+         double wholePart = Math.floor(Math.abs(val));
+         double decPart = Math.abs(val) - wholePart;
+         int denomLength = denomFormat.length();
+-
++        if (denomLength > MAX_DENOM_LENGTH) {
++            return trimmedCell;
++        }
+         double minVal = 1.0;
+         double currDenom = Math.pow(10, denomLength) - 1d;
+         double currNum = 0;

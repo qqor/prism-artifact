@@ -1,0 +1,32 @@
+diff --git a/tika-app/src/main/java/org/apache/tika/cli/TikaCLI.java b/tika-app/src/main/java/org/apache/tika/cli/TikaCLI.java
+index 703e21c48..64b976e44 100644
+--- a/tika-app/src/main/java/org/apache/tika/cli/TikaCLI.java
++++ b/tika-app/src/main/java/org/apache/tika/cli/TikaCLI.java
+@@ -1158,6 +1158,27 @@ public class TikaCLI {
+                 LOG.warn("couldn't url decode name {}", normalizedName);
+             }
+             File outputFile = new File(extractDir, normalizedName);
++            // Prevent path traversal by ensuring outputFile is within extractDir
++            try {
++                String extractDirCanonical = extractDir.getCanonicalPath();
++                String outputFileCanonical = outputFile.getCanonicalPath();
++                if (!outputFileCanonical.startsWith(extractDirCanonical + File.separator) &&
++                        !outputFileCanonical.equals(extractDirCanonical)) {
++                    // Path traversal detected, use safe fallback name
++                    String safeName = FilenameUtils.getName(normalizedName);
++                    if (safeName == null || safeName.isEmpty()) {
++                        safeName = "file" + count++ + ext;
++                    }
++                    outputFile = new File(extractDir, safeName);
++                }
++            } catch (IOException e) {
++                // If we can't resolve canonical paths, use safe fallback
++                String safeName = FilenameUtils.getName(normalizedName);
++                if (safeName == null || safeName.isEmpty()) {
++                    safeName = "file" + count++ + ext;
++                }
++                outputFile = new File(extractDir, safeName);
++            }
+             //if file already exists, prepend uuid
+             if (outputFile.exists()) {
+                 String fileName = FilenameUtils.getName(normalizedName);

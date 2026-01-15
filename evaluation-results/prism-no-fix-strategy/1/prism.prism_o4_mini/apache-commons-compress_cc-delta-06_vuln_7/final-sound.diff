@@ -1,0 +1,61 @@
+--- a/src/main/java/org/apache/commons/compress/archivers/examples/Expander.java
++++ b/src/main/java/org/apache/commons/compress/archivers/examples/Expander.java
+@@ -31,6 +31,9 @@
+ import java.nio.file.StandardOpenOption;
+ import java.util.Enumeration;
+ import java.util.Iterator;
++import java.util.Objects;
++import java.nio.file.Path;
++import java.nio.file.Files;
+ 
+ import org.apache.commons.compress.archivers.ArchiveEntry;
+ import org.apache.commons.compress.archivers.ArchiveException;
+@@ -70,25 +73,29 @@
+         final Path targetDirPath = nullTarget ? null : targetDirectory.normalize();
+         T nextEntry = supplier.get();
+         while (nextEntry != null) {
+-            final Path targetPath = nullTarget ? null : nextEntry.resolveIn(targetDirPath);
+-            if (nextEntry.isDirectory()) {
+-                if (!nullTarget && !Files.isDirectory(targetPath) && Files.createDirectories(targetPath) == null) {
+-                    throw new IOException("Failed to create directory " + targetPath);
+-                }
+-            } else {
+-                final Path parent = nullTarget ? null : targetPath.getParent();
+-                if (!nullTarget && !Files.isDirectory(parent) && Files.createDirectories(parent) == null) {
+-                    throw new IOException("Failed to create directory " + parent);
+-                }
+-                if (nullTarget) {
+-                    writer.accept(nextEntry, NullOutputStream.INSTANCE);
+-                } else {
+-                    try (OutputStream outputStream = Files.newOutputStream(targetPath)) {
+-                        writer.accept(nextEntry, outputStream);
+-                    }
+-                }
+-            }
+-            nextEntry = supplier.get();
++        // Prevent path traversal by normalizing and validating entry paths
++        Objects.requireNonNull(targetDirectory, "targetDirectory must not be null");
++        Path base = targetDirectory.normalize();
++        Path entryPath = base.resolve(nextEntry.getName()).normalize();
++        if (!entryPath.startsWith(base)) {
++            throw new IOException("Entry is outside of the target dir: " + nextEntry.getName());
++        }
++        if (nextEntry.isDirectory()) {
++            Files.createDirectories(entryPath);
++        } else {
++            Path parent = entryPath.getParent();
++            if (parent != null) {
++                Files.createDirectories(parent);
++            }
++        }
++        if (nullTarget) {
++            writer.accept(nextEntry, NullOutputStream.INSTANCE);
++        } else {
++            try (OutputStream outputStream = Files.newOutputStream(entryPath)) {
++                writer.accept(nextEntry, outputStream);
++            }
++        }
++        nextEntry = supplier.get();
+         }
+     }
+ 

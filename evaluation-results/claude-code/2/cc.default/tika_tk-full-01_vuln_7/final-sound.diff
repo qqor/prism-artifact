@@ -1,0 +1,60 @@
+diff --git a/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-text-module/src/main/java/org/apache/tika/parser/csv/TextAndCSVParser.java b/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-text-module/src/main/java/org/apache/tika/parser/csv/TextAndCSVParser.java
+index 96f49d4e0..6f43fd4f0 100644
+--- a/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-text-module/src/main/java/org/apache/tika/parser/csv/TextAndCSVParser.java
++++ b/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-text-module/src/main/java/org/apache/tika/parser/csv/TextAndCSVParser.java
+@@ -22,8 +22,6 @@ import java.io.InputStream;
+ import java.io.InputStreamReader;
+ import java.io.Reader;
+ import java.io.UncheckedIOException;
+-import java.net.URL;
+-import java.net.URLConnection;
+ import java.nio.charset.Charset;
+ import java.nio.charset.UnsupportedCharsetException;
+ import java.util.Arrays;
+@@ -47,9 +45,6 @@ import org.apache.tika.detect.AutoDetectReader;
+ import org.apache.tika.detect.EncodingDetector;
+ import org.apache.tika.exception.TikaConfigException;
+ import org.apache.tika.exception.TikaException;
+-import org.apache.tika.extractor.EmbeddedDocumentExtractor;
+-import org.apache.tika.extractor.EmbeddedDocumentUtil;
+-import org.apache.tika.io.TikaInputStream;
+ import org.apache.tika.metadata.Metadata;
+ import org.apache.tika.metadata.Property;
+ import org.apache.tika.metadata.TikaCoreProperties;
+@@ -57,7 +52,6 @@ import org.apache.tika.mime.MediaType;
+ import org.apache.tika.parser.AbstractEncodingDetectorParser;
+ import org.apache.tika.parser.ParseContext;
+ import org.apache.tika.sax.XHTMLContentHandler;
+-import org.apache.tika.utils.ExceptionUtils;
+ import org.apache.tika.utils.StringUtils;
+ 
+ /**
+@@ -268,20 +262,14 @@ public class TextAndCSVParser extends AbstractEncodingDetectorParser {
+     private void processURL(String urlString, String name, XHTMLContentHandler xhtml,
+                             Metadata parentMetadata,
+                             ParseContext context) throws IOException, SAXException {
+-        EmbeddedDocumentExtractor ex = EmbeddedDocumentUtil.getEmbeddedDocumentExtractor(context);
+-        Metadata metadata = new Metadata();
+-        metadata.set(TikaCoreProperties.RESOURCE_NAME_KEY, name);
+-        try {
+-            URL url = new URL(urlString);
+-            URLConnection connection = url.openConnection();
+-            connection.setConnectTimeout(5000);
+-            try (TikaInputStream tis = TikaInputStream.get(connection.getInputStream())) {
+-                ex.parseEmbedded(tis, xhtml, metadata, false);
+-            }
+-        } catch (Exception e) {
+-            parentMetadata.set(TikaCoreProperties.EMBEDDED_EXCEPTION,
+-                    ExceptionUtils.getStackTrace(e));
+-        }
++        // SSRF mitigation: Do not automatically fetch URLs from untrusted CSV content
++        // This prevents Server-Side Request Forgery attacks where malicious CSV files
++        // could cause the server to make requests to arbitrary URLs including internal services.
++        // The hyperlink is still preserved in the output, but not fetched.
++        // If URL fetching is required, it should be explicitly enabled with proper validation.
++
++        // Store the URL reference in metadata for informational purposes without fetching
++        parentMetadata.add("X-TIKA-Parsed-Hyperlink", urlString);
+     }
+ 
+ 

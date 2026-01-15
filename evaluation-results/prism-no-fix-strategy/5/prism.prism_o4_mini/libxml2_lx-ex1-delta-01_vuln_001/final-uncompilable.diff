@@ -1,0 +1,57 @@
+--- a/HTMLparser.c
++++ b/HTMLparser.c
+@@ -2827,13 +2827,13 @@
+         chunkSize = in - chunk;
+         extraSize = chunkSize + replSize;
+ 
+-        if (extraSize > maxLength - used) {
++        if ((used + extraSize) > maxLength) {
+             htmlParseErr(ctxt, XML_ERR_RESOURCE_LIMIT,
+                          "value too long\n", NULL, NULL);
+             goto error;
+         }
+ 
+-        if (extraSize > buffer_size - used) {
++        if ((used + extraSize) > buffer_size) {
+             size_t newSize = (used + extraSize) * 2;
+             xmlChar *tmp = (xmlChar *) xmlRealloc(buffer, newSize + 1);
+ 
+@@ -3571,22 +3571,24 @@
+             repl = htmlCodePointToUtf8(cp, utf8Char, &replSize);
+         }
+ 
+-        chunkSize = in - chunk;
+-        extraSize = chunkSize + replSize;
+-
+-        if (extraSize > buffer_size) {
+-            size_t newSize = (used + extraSize) * 2;
+-            xmlChar *tmp = (xmlChar *) xmlRealloc(buffer, newSize + 1);
+-
+-            if (tmp == NULL) {
+-                htmlErrMemory(ctxt);
++            chunkSize = in - chunk;
++            extraSize = chunkSize + replSize;
++            if ((used + extraSize) > maxLength) {
++                htmlParseErr(ctxt, XML_ERR_RESOURCE_LIMIT,
++                             "value too long\n", NULL, NULL);
+                 goto error;
+             }
+-            buffer = tmp;
+-            buffer_size = newSize;
+-        }
+-
+-        if (chunkSize > 0) {
++            if ((used + extraSize) > buffer_size) {
++                size_t newSize = (used + extraSize) * 2;
++                xmlChar *tmp = (xmlChar *) xmlRealloc(buffer, newSize + 1);
++                if (tmp == NULL) {
++                    htmlErrMemory(ctxt);
++                    goto error;
++                }
++                buffer = tmp;
++                buffer_size = newSize;
++            }
++
+             input->cur += chunkSize;
+             memcpy(buffer + used, chunk, chunkSize);
+             used += chunkSize;

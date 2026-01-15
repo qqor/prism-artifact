@@ -1,0 +1,69 @@
+--- a/poi-ooxml/src/main/java/org/apache/poi/openxml4j/util/ZipSecureFile.java
++++ b/poi-ooxml/src/main/java/org/apache/poi/openxml4j/util/ZipSecureFile.java
+@@ -44,10 +44,17 @@
+ public class ZipSecureFile extends ZipFile {
+     private static final Logger LOG = PoiLogManager.getLogger(ZipSecureFile.class);
+     /* package */ static double MIN_INFLATE_RATIO = 0.01d;
+-    /* package */ static final long DEFAULT_MAX_ENTRY_SIZE = 0xFFFFFFFFL;
++    /* package */ static final long DEFAULT_MAX_ENTRY_SIZE = 1024 * 1024; // 1MB default limit to prevent hangs
+     /* package */ static final long DEFAULT_MAX_FILE_COUNT = 1000;
+     /* package */ static final long DEFAULT_GRACE_ENTRY_SIZE = 100*1024L;
+     /* package */ static long MAX_ENTRY_SIZE = DEFAULT_MAX_ENTRY_SIZE;
++
++    /**
++     * Returns the maximum allowed ZIP entry size in bytes.
++     */
++    public static long getMaxEntrySize() {
++        return MAX_ENTRY_SIZE;
++    }
+     /* package */ static long MAX_FILE_COUNT = DEFAULT_MAX_FILE_COUNT;
+     /* package */ static long GRACE_ENTRY_SIZE = DEFAULT_GRACE_ENTRY_SIZE;
+ 
+
+--- a/poi-ooxml/src/main/java/org/apache/poi/openxml4j/opc/internal/ZipHelper.java
++++ b/poi-ooxml/src/main/java/org/apache/poi/openxml4j/opc/internal/ZipHelper.java
+@@ -187,13 +187,21 @@
+     public static ZipArchiveThresholdInputStream openZipStream(
+             final InputStream stream, final boolean closeStream) throws IOException {
+         // Peek at the first few bytes to sanity check
+-        InputStream checkedStream = FileMagic.prepareToCheckMagic(stream);
++        // Bound magic checking and subsequent ZIP reads to prevent infinite scanning
++        org.apache.commons.compress.utils.BoundedInputStream checkedStream =
++                new org.apache.commons.compress.utils.BoundedInputStream(
++                        FileMagic.prepareToCheckMagic(stream),
++                        org.apache.poi.openxml4j.util.ZipSecureFile.getMaxEntrySize());
+         verifyZipHeader(checkedStream);
+ 
+         final InputStream processStream = closeStream ? checkedStream : new NoCloseInputStream(checkedStream);
++        // Bound ZIP entry reads to prevent infinite loops on malformed archives
++        org.apache.commons.compress.utils.BoundedInputStream boundedStream =
++                new org.apache.commons.compress.utils.BoundedInputStream(
++                        processStream, org.apache.poi.openxml4j.util.ZipSecureFile.getMaxEntrySize());
+         // Open as a proper zip stream
+         return new ZipArchiveThresholdInputStream(new ZipArchiveInputStream(
+-                processStream, StandardCharsets.UTF_8.name(), false, true));
++                boundedStream, StandardCharsets.UTF_8.name(), false, true));
+     }
+ 
+     /**
+
+--- a/poi-ooxml/src/main/java/org/apache/poi/openxml4j/util/ZipArchiveFakeEntry.java
++++ b/poi-ooxml/src/main/java/org/apache/poi/openxml4j/util/ZipArchiveFakeEntry.java
+@@ -75,13 +75,15 @@
+             if (ZipInputStreamZipEntrySource.shouldEncryptTempFiles()) {
+                 encryptedTempData = new EncryptedTempData();
+                 try (OutputStream os = encryptedTempData.getOutputStream()) {
+-                    IOUtils.copy(inp, os);
++                    IOUtils.copy(new org.apache.commons.compress.utils.BoundedInputStream(
++                            inp, org.apache.poi.openxml4j.util.ZipSecureFile.getMaxEntrySize()), os);
+                 }
+             } else {
+                 tempFile = TempFile.createTempFile("poi-zip-entry", ".tmp");
+                 LOG.atInfo().log("Creating temp file {} for zip entry {} of size {} bytes",
+                         tempFile.getAbsolutePath(), entry.getName(), entrySize);
+-                IOUtils.copy(inp, tempFile);
++                IOUtils.copy(new org.apache.commons.compress.utils.BoundedInputStream(
++                        inp, org.apache.poi.openxml4j.util.ZipSecureFile.getMaxEntrySize()), tempFile);
+             }
+         } else {
+             if (entrySize < -1 || entrySize >= Integer.MAX_VALUE) {

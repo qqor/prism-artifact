@@ -1,0 +1,35 @@
+--- a/src/shared/condition.c
++++ b/src/shared/condition.c
+@@ -96,14 +96,24 @@
+         return mfree(c);
+ }
+ 
+-Condition* condition_free_list_type(Condition *head, ConditionType type) {
+-        LIST_FOREACH(conditions, c, head)
+-                if (type < 0 || c->type == type) {
+-                        condition_free(c);
+-                }
+-
+-        assert(type >= 0 || !head);
+-        return head;
++Condition* condition_free_list_type(Condition* head, ConditionType type)
++{
++    Condition *c, *next, *new_head = head;
++    for (c = head; c; c = next) {
++        next = c->conditions_next;
++        if (type < 0 || c->type == type) {
++            if (c->conditions_prev)
++                c->conditions_prev->conditions_next = c->conditions_next;
++            if (c->conditions_next)
++                c->conditions_next->conditions_prev = c->conditions_prev;
++            if (new_head == c)
++                new_head = c->conditions_next;
++            condition_free(c);
++        }
++    }
++
++    assert(type >= 0 || !new_head);
++    return new_head;
+ }
+ 
+ static int condition_test_kernel_command_line(Condition *c, char **env) {

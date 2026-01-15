@@ -1,0 +1,56 @@
+diff --git a/src/main/java/org/apache/commons/compress/archivers/tar/TarUtils.java b/src/main/java/org/apache/commons/compress/archivers/tar/TarUtils.java
+index 3b2b5be88..95d78d8cc 100644
+--- a/src/main/java/org/apache/commons/compress/archivers/tar/TarUtils.java
++++ b/src/main/java/org/apache/commons/compress/archivers/tar/TarUtils.java
+@@ -646,19 +646,28 @@ protected static Map<String, String> parsePaxHeaders(final InputStream inputStre
+         Long offset = null;
+         // Format is "length keyword=value\n";
+         int totalRead = 0;
+-        while (true) { // get length
++        // Limit for length field digits to prevent excessive looping (max 10 digits for reasonable lengths)
++        final int maxLengthDigits = 10;
++        // Maximum keyword length to prevent excessive looping when reading keyword
++        final int maxKeywordLength = 65535;
++        while (headerSize < 0 || totalRead < headerSize) { // get length
+             int ch;
+             int len = 0;
+             int read = 0;
++            int lengthDigits = 0;
+             while ((ch = inputStream.read()) != -1) {
+                 read++;
+                 totalRead++;
++                if (headerSize >= 0 && totalRead > headerSize) {
++                    break;
++                }
+                 if (ch == '\n') { // blank line in header
+                     break;
+                 }
+                 if (ch == ' ') { // End of length string
+                     // Get keyword
+                     final ByteArrayOutputStream coll = new ByteArrayOutputStream();
++                    int keywordLength = 0;
+                     while ((ch = inputStream.read()) != -1) {
+                         read++;
+                         totalRead++;
+@@ -719,6 +728,10 @@ protected static Map<String, String> parsePaxHeaders(final InputStream inputStre
+                             }
+                             break;
+                         }
++                        keywordLength++;
++                        if (keywordLength > maxKeywordLength) {
++                            throw new IOException("Failed to read Paxheader. Keyword too long");
++                        }
+                         coll.write((byte) ch);
+                     }
+                     break; // Processed single header
+@@ -727,6 +740,10 @@ protected static Map<String, String> parsePaxHeaders(final InputStream inputStre
+                 if (ch < '0' || ch > '9') {
+                     throw new IOException("Failed to read Paxheader. Encountered a non-number while reading length");
+                 }
++                lengthDigits++;
++                if (lengthDigits > maxLengthDigits) {
++                    throw new IOException("Failed to read Paxheader. Length value too large");
++                }
+                 len *= 10;
+                 len += ch - '0';
+             }

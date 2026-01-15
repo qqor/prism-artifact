@@ -1,0 +1,77 @@
+
+================================================================================
+Response 1
+================================================================================
+I'll analyze the crash log and create a patch to fix the Out of Memory issue in the Apache POI HMEF fuzzer.
+
+Let me first explore the codebase to understand the structure and locate the relevant files.
+
+================================================================================
+Response 2
+================================================================================
+Let me read the key files mentioned in the stack trace:
+
+================================================================================
+Response 3
+================================================================================
+Now let me check the TNEFAttribute file to understand the complete flow:
+
+================================================================================
+Response 4
+================================================================================
+Now let me analyze the crash. Based on the stack trace, the issue is:
+
+1. Line 94 in `StringUtil.java`: `return new String(string, offset, len * 2, UTF16LE);`
+2. This is called from line 175 in `MAPIAttribute.java`: `name = StringUtil.getFromUnicodeLE(mpdata, 0, (mplen/2)-1);`
+
+The problem is that `mplen` can be a maliciously large value read from the input, causing an attempt to allocate a huge string. Even though the data is safely allocated, the string constructor still tries to create a string of `len * 2` bytes which can cause OOM.
+
+Let me create a patch that adds validation to prevent excessive memory allocation:
+
+================================================================================
+Response 5
+================================================================================
+Now let me apply the patch to the actual source files:
+
+================================================================================
+Response 6
+================================================================================
+Perfect! Now let me verify the changes were applied correctly by reading the modified sections:
+
+================================================================================
+Response 7
+================================================================================
+Excellent! The patches have been successfully applied. Let me create a summary document:
+
+================================================================================
+Response 8
+================================================================================
+## Summary
+
+I've successfully created and applied a patch to fix the Out of Memory vulnerability in the Apache POI HMEF fuzzer. Here's what was done:
+
+### Changes Made:
+
+1. **MAPIAttribute.java** (poi-scratchpad/src/main/java/org/apache/poi/hmef/attribute/MAPIAttribute.java)
+   - Added validation at lines 171-179 to limit property name length to 10,000 characters (20,000 bytes)
+   - Prevents allocation of excessively large byte arrays for property names before they reach the string constructor
+
+2. **StringUtil.java** (poi/src/main/java/org/apache/poi/util/StringUtil.java)
+   - Added validation at lines 94-99 in the `getFromUnicodeLE()` method
+   - Checks that string length doesn't exceed MAX_RECORD_LENGTH/2 (5,000,000 characters)
+   - Provides defense-in-depth protection for all callers of this utility function
+
+### Root Cause:
+The vulnerability occurred when parsing malicious TNEF files that specified extremely large property name lengths. The code would read this untrusted length value and attempt to create a string of that size, causing an Out of Memory error.
+
+### Fix Approach:
+- **Defense-in-depth**: Two layers of validation
+- **Reasonable limits**: 10,000 characters for property names, 5M characters for general strings
+- **Early failure**: Throws IOException/IllegalArgumentException before attempting allocation
+- **No regression**: Limits are far above any legitimate use case
+
+The patch files are saved as:
+- `./fix_oom.patch` - Unified diff format
+- `./PATCH_SUMMARY.md` - Detailed documentation
+
+All changes were made only within the source directories, and no git operations were performed as requested.

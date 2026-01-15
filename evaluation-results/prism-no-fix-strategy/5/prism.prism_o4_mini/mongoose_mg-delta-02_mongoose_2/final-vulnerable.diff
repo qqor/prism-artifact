@@ -1,0 +1,57 @@
+--- a/src/net_builtin.c
++++ b/src/net_builtin.c
+@@ -381,18 +381,42 @@
+ 
+ static void rx_icmp(struct mg_tcpip_if *ifp, struct pkt *pkt) {
+   // MG_DEBUG(("ICMP %d", (int) len));
+-  if (pkt->icmp->type == 8 && pkt->ip != NULL && pkt->ip->dst == ifp->ip) {
+-    size_t hlen = sizeof(struct eth) + sizeof(struct ip) + sizeof(struct icmp);
+-    size_t space = ifp->tx.len - hlen, plen = pkt->pay.len;
+-    if (plen > space) plen = space;
+-    struct ip *ip = tx_ip(ifp, pkt->eth->src, 1, ifp->ip, pkt->ip->src,
+-                          sizeof(struct icmp) + plen);
+-    struct icmp *icmp = (struct icmp *) (ip + 1);
+-    memset(icmp, 0, sizeof(*icmp));        // Set csum to 0
+-    memcpy(icmp + 1, pkt->pay.buf, plen);  // Copy RX payload to TX
+-    icmp->csum = ipcsum(icmp, sizeof(*icmp) + plen);
+-    ether_output(ifp, hlen + plen);
+-  }
++  /* Validate presence of IPv4 header */
++  if (pkt->ip == NULL) return;
++  /* Ensure raw buffer contains Ethernet + minimal IPv4 header */
++  if (pkt->raw.len < sizeof(struct eth) + sizeof(struct ip)) return;
++  /* Compute and validate IP header length */
++  struct ip *rx_ip_hdr = pkt->ip;
++  size_t ihl = (rx_ip_hdr->hlen & 0x0f) * 4;
++  if (ihl < sizeof(struct ip) ||
++      pkt->raw.len < sizeof(struct eth) + ihl + sizeof(struct icmp)) {
++    return;
++  }
++  /* Safely set ICMP pointer */
++  pkt->icmp = (struct icmp *)((uint8_t *)rx_ip_hdr + ihl);
++  /* Process only ICMP echo requests to our IP */
++  if (pkt->icmp->type != 8 || rx_ip_hdr->dst != ifp->ip) return;
++  /* Compute and bound payload length by raw and tx limits */
++  size_t max_pay = pkt->raw.len - (sizeof(struct eth) + ihl + sizeof(struct icmp));
++  size_t plen = pkt->pay.len > max_pay ? max_pay : pkt->pay.len;
++  uint8_t *raw_start = (uint8_t *)pkt->raw.buf;
++  uint8_t *raw_end = raw_start + pkt->raw.len;
++  /* Validate payload buffer within raw boundaries */
++  if (pkt->pay.buf < pkt->raw.buf) return;
++  if ((uint8_t *)pkt->pay.buf + plen > raw_end) {
++    plen = (size_t)(raw_end - (uint8_t *)pkt->pay.buf);
++  }
++  /* Prepare echo reply */
++  size_t hlen = sizeof(struct eth) + ihl + sizeof(struct icmp);
++  size_t space = ifp->tx.len - hlen;
++  if (plen > space) plen = space;
++  struct ip *ip = tx_ip(ifp, pkt->eth->src, 1, ifp->ip, rx_ip_hdr->src,
++                        sizeof(struct icmp) + plen);
++  struct icmp *icmp = (struct icmp *)(ip + 1);
++  memset(icmp, 0, sizeof(*icmp));
++  memcpy(icmp + 1, pkt->pay.buf, plen);
++  icmp->csum = ipcsum(icmp, sizeof(*icmp) + plen);
++  ether_output(ifp, hlen + plen);
+ }
+ 
+ static void rx_dhcp_client(struct mg_tcpip_if *ifp, struct pkt *pkt) {

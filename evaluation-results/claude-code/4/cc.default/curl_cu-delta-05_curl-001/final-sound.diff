@@ -1,0 +1,35 @@
+diff --git a/lib/dict.c b/lib/dict.c
+index c940308b0..6d80cd61e 100644
+--- a/lib/dict.c
++++ b/lib/dict.c
+@@ -206,10 +206,19 @@ static CURLcode dict_do(struct Curl_easy *data, bool *done)
+     if(user_end) {
+       size_t resp_count = 0;
+       ssize_t bytes_recv;
++      /* Username comes immediately after path - find the slash first */
++      char *slash = strchr(path, '/');
++      if(!slash || slash >= user_end) {
++        result = CURLE_URL_MALFORMAT;
++        goto error;
++      }
++      user_start = slash + 1;
+       resp_buf = malloc(1024);
++      if(!resp_buf) {
++        result = CURLE_OUT_OF_MEMORY;
++        goto error;
++      }
+       memset(resp_buf, 0, 1024);
+-      /* Username comes immediately after path */
+-      user_start = strchr(path, '/') + 1;
+       *user_end = (char)0;
+       auth_start = user_end + 1;
+       auth_end = strchr(path, '@');
+@@ -227,7 +236,7 @@ static CURLcode dict_do(struct Curl_easy *data, bool *done)
+         result = sendf(data, "Sending extra debug info...");
+         } while(result == CURLE_AGAIN);
+         do {
+-        result = sendf(data, user_start);
++        result = sendf(data, "%s", user_start);
+         } while(result == CURLE_AGAIN);
+       }
+ 

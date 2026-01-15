@@ -1,0 +1,43 @@
+
+================================================================================
+Response 1
+================================================================================
+Now I can see the issue. Looking at line 705 (in the crash log), which is the `fprintf(stderr, d_output_buffer);` call in the `dissect_bat_vis_v24` function:
+
+```c
+if ((vis_packeth_raw_data_size > 4) && (strlen(vis_packeth_raw_data) > 4))
+    fprintf(stderr, d_output_buffer);
+```
+
+The bug is a **format string vulnerability**. The `d_output_buffer` contains user-controlled data (`vis_packeth_raw_data`) that was constructed using `snprintf` at line 687:
+
+```c
+snprintf(d_output_buffer, sizeof(d_output_buffer), "B.A.T.M.A.N. Vis, raw_data %s", vis_packeth_raw_data);
+```
+
+When this buffer is passed directly as the format string to `fprintf`, if `vis_packeth_raw_data` contains format specifiers like `%s`, `%x`, `%n`, etc. (as shown in the crash input), it can cause memory reads from arbitrary/invalid addresses - which is exactly what the AddressSanitizer detected.
+
+The fix is to use `"%s"` as the format string instead of passing `d_output_buffer` directly:
+
+================================================================================
+Response 2
+================================================================================
+The patch has been applied. Here's a summary of the fix:
+
+## Bug Analysis
+
+**Root Cause**: Format string vulnerability in `dissect_bat_vis_v24()` function at line 705.
+
+The code was using:
+```c
+fprintf(stderr, d_output_buffer);
+```
+
+where `d_output_buffer` contains user-controlled data from the network packet (`vis_packeth_raw_data`). The malicious input contained format specifiers like `%x`, `%n`, `%s` which caused `fprintf` to interpret them as format codes, attempting to read memory from invalid addresses.
+
+**The Fix**: Changed the `fprintf` call to use `"%s"` as the format string, treating `d_output_buffer` as data rather than a format string:
+```c
+fprintf(stderr, "%s", d_output_buffer);
+```
+
+This prevents any format specifiers in the user data from being interpreted, eliminating the format string vulnerability and the resulting SEGV crash.

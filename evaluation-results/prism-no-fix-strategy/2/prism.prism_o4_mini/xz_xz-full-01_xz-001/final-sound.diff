@@ -1,0 +1,40 @@
+--- a/src/liblzma/check/treeck.c
++++ b/src/liblzma/check/treeck.c
+@@ -86,10 +86,24 @@
+   }
+ 
+   // Free the node and edges
+-  free(node->edges);
+-  free(node);
++    // free(node->edges);
++    // free(node);
+ 
+   return sum;
++}
++static void
++free_tree(TreeNode *node, TreeNode *parent)
++{
++    if (!node)
++        return;
++
++    for (size_t i = 0; i < node->edge_count; ++i) {
++        TreeNode *child = node->edges[i];
++        if (child != parent)
++            free_tree(child, node);
++    }
++    free(node->edges);
++    free(node);
+ }
+ 
+ extern LZMA_API(uint32_t)
+@@ -97,7 +111,8 @@
+ {
+   unsigned long seed = hash_data(buf, size);
+   TreeNode *root = create_tree(buf, size, 0, 16, seed, NULL);
+-  checksum ^= compute_tree_checksum(root, 0);
+-  return checksum;
++    checksum ^= compute_tree_checksum(root, 0);
++    free_tree(root, NULL);
++    return checksum;
+ }
+ 

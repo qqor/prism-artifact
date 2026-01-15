@@ -1,0 +1,147 @@
+
+================================================================================
+Response 1
+================================================================================
+Now I need to understand the vulnerability better. Looking at the crash log, it's a timeout after 25 seconds, which indicates a denial-of-service (DoS) vulnerability. The previous patches attempted to limit the number of sparse headers, but they failed.
+
+Let me analyze the `parsePAX1XSparseHeaders` method and `readLineOfNumberForPax1X` more carefully:
+
+1. **First patch failed**: It added a limit of `MAX_SPARSE_HEADERS_PAX1X = 1024 * 1024` (1 million). This is still too large - creating 1 million `TarArchiveStructSparse` objects and ArrayList operations would still take significant time.
+
+2. **Second patch failed**: It reduced the limit to 10,000 headers AND added a check for number digit length. But the timeout still occurs.
+
+The problem is likely in `readLineOfNumberForPax1X`. Looking at this function:
+
+```java
+private static long[] readLineOfNumberForPax1X(final InputStream inputStream) throws IOException {
+    int number;
+    long result = 0;
+    long bytesRead = 0;
+    while ((number = inputStream.read()) != '\n') {
+        bytesRead += 1;
+        if (number == -1) {
+            throw new IOException("Unexpected EOF when reading parse information of 1.X PAX format");
+        }
+        if (number < '0' || number > '9') {
+            throw new IOException("Corrupted TAR archive. Non-numeric value in sparse headers block");
+        }
+        result = result * 10 + (number - '0');
+    }
+    bytesRead += 1;
+    return new long[] { result, bytesRead };
+}
+```
+
+The vulnerability is that this loop reads one byte at a time until it encounters `'\n'`. If a malicious tar file never contains a newline, it could read forever (or until EOF). But the code does check for `-1` (EOF), so the issue might be:
+
+1. A huge file without newlines that just reads and reads
+2. Or a huge number that overflows (but it won't error, it'll just wrap)
+
+Looking at the loop in `parsePAX1XSparseHeaders`:
+```java
+while (sparseHeadersCount-- > 0) {
+    readResult = readLineOfNumberForPax1X(inputStream);
+    ...
+}
+```
+
+If `sparseHeadersCount` is a very large number (like `Long.MAX_VALUE`), then even though we're reading legitimate data, we'd be looping for an extremely long time. The previous patches check for limits AFTER reading the first number, but:
+
+1. First patch: 1M iterations is still too slow
+2. Second patch: 10K is better but maybe still slow, OR the issue is that `readLineOfNumberForPax1X` itself can loop forever if there's no newline in the stream
+
+The key insight is that **the `readLineOfNumberForPax1X` method can loop indefinitely** if the stream never contains a newline and keeps providing digit bytes. We need to:
+1. Limit the number of bytes read while looking for a single number (prevent infinite loop in `readLineOfNumberForPax1X`)
+2. Limit the total number of sparse headers
+
+Let me create a different approach - limit bytes read per number AND a reasonable max header count:
+
+================================================================================
+Response 2
+================================================================================
+Now I also need to add a limit on the number of sparse headers to prevent the loop from running too many times even with valid numbers. Let me add that protection to `parsePAX1XSparseHeaders`:
+
+================================================================================
+Response 3
+================================================================================
+Now let me generate the unified diff patch showing all the changes:
+
+================================================================================
+Response 4
+================================================================================
+Here's my analysis and the new patch:
+
+## Why the Previous Patches Failed
+
+Both previous patches focused only on limiting the number of sparse headers in `parsePAX1XSparseHeaders`:
+- Patch 1: Limited to 1,048,576 (1 million) headers - still way too many iterations
+- Patch 2: Limited to 10,000 headers and added a digit length check, BUT the digit check was placed **after** incrementing `bytesRead`, meaning it would read one extra byte beyond the limit
+
+The key vulnerability these patches missed is that **`readLineOfNumberForPax1X` can loop indefinitely** if the input stream provides a continuous sequence of digit characters without a newline (`\n`). A malicious tar file could contain a very long sequence of digits, causing the parser to spin reading bytes until timeout.
+
+## New Approach
+
+My fix uses a **completely different approach** with two complementary protections:
+
+1. **Limit bytes per number**: Add `MAX_PAX1X_LINE_LENGTH = 21` to cap how many bytes can be read when parsing a single number. Since a `long` can hold at most 19 decimal digits, 21 bytes (allowing for the newline) is a safe upper bound. This prevents the infinite loop in `readLineOfNumberForPax1X`.
+
+2. **Limit sparse header count**: Add `MAX_SPARSE_HEADERS_PAX1X = 1024` - a much smaller limit than previous patches. 1024 sparse entries is more than sufficient for legitimate sparse files while preventing DoS attacks.
+
+The key difference from patch 2's digit limit is that I check `bytesRead > MAX_PAX1X_LINE_LENGTH` **after** incrementing but **before** the arithmetic operation, ensuring we fail immediately when the line is too long.
+
+## New Patch
+
+```diff
+diff --git a/src/main/java/org/apache/commons/compress/archivers/tar/TarUtils.java b/src/main/java/org/apache/commons/compress/archivers/tar/TarUtils.java
+index 3b2b5be88..7fb5e3180 100644
+--- a/src/main/java/org/apache/commons/compress/archivers/tar/TarUtils.java
++++ b/src/main/java/org/apache/commons/compress/archivers/tar/TarUtils.java
+@@ -540,6 +540,13 @@ protected static List<TarArchiveStructSparse> parsePAX01SparseHeaders(final Stri
+         }
+     }
+ 
++    /**
++     * Maximum number of sparse headers allowed in PAX 1.X format.
++     * This limit prevents denial-of-service attacks using malicious tar files that
++     * specify an excessively large sparse header count.
++     */
++    private static final int MAX_SPARSE_HEADERS_PAX1X = 1024;
++
+     /**
+      * For PAX Format 1.X: The sparse map itself is stored in the file data block, preceding the actual file data. It consists of a series of decimal numbers
+      * delimited by newlines. The map is padded with nulls to the nearest block boundary. The first number gives the number of entries in the map. Following are
+@@ -560,6 +567,9 @@ protected static List<TarArchiveStructSparse> parsePAX1XSparseHeaders(final Inpu
+             // overflow while reading number?
+             throw new IOException("Corrupted TAR archive. Negative value in sparse headers block");
+         }
++        if (sparseHeadersCount > MAX_SPARSE_HEADERS_PAX1X) {
++            throw new IOException("Corrupted TAR archive. Sparse headers count " + sparseHeadersCount + " exceeds maximum " + MAX_SPARSE_HEADERS_PAX1X);
++        }
+         bytesRead += readResult[1];
+         while (sparseHeadersCount-- > 0) {
+             readResult = readLineOfNumberForPax1X(inputStream);
+@@ -755,6 +765,13 @@ public static TarArchiveStructSparse parseSparse(final byte[] buffer, final int
+         return new TarArchiveStructSparse(sparseOffset, sparseNumbytes);
+     }
+ 
++    /**
++     * Maximum number of bytes to read when parsing a single number in PAX 1.X sparse format.
++     * A long can hold at most 19 decimal digits, so 20 bytes (plus newline) is a safe upper bound.
++     * This limit prevents denial-of-service attacks using malicious tar files that omit newlines.
++     */
++    private static final int MAX_PAX1X_LINE_LENGTH = 21;
++
+     /**
+      * For 1.X PAX Format, the sparse headers are stored in the file data block, preceding the actual file data. It consists of a series of decimal numbers
+      * delimited by newlines.
+@@ -775,6 +792,9 @@ private static long[] readLineOfNumberForPax1X(final InputStream inputStream) th
+             if (number < '0' || number > '9') {
+                 throw new IOException("Corrupted TAR archive. Non-numeric value in sparse headers block");
+             }
++            if (bytesRead > MAX_PAX1X_LINE_LENGTH) {
++                throw new IOException("Corrupted TAR archive. Number exceeds maximum length in sparse headers block");
++            }
+             result = result * 10 + (number - '0');
+         }
+         bytesRead += 1;
+```

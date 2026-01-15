@@ -1,0 +1,123 @@
+
+================================================================================
+Response 1
+================================================================================
+Looking at the crash log and the failed patch, I can see the issue:
+
+## Why the patch failed
+
+The patch added an iteration counter to the `do-while` loop in `readToken()`, but the **actual infinite loop is happening inside the nested `while (buffer.hasRemaining())` loop**, not in the outer `do-while` loop. 
+
+The stack trace shows:
+```
+at app//org.apache.fontbox.type1.Type1Lexer.readToken(Type1Lexer.java:123)
+```
+
+Line 123 is the `do` statement itself, and the timeout occurs because the inner `while (buffer.hasRemaining())` loop never terminates - likely because `buffer.hasRemaining()` keeps returning true due to malformed font data that causes the buffer position to not advance properly.
+
+## New approach: Add timeout-based protection
+
+Instead of counting iterations (which can be bypassed if the inner loop is the problem), I'll add a **time-based guard** that checks elapsed time periodically. This will catch infinite loops regardless of where they occur.
+
+Let me first read the file to understand the complete context:
+
+================================================================================
+Response 2
+================================================================================
+Let me search more broadly:
+
+================================================================================
+Response 3
+================================================================================
+Good! Now let me read the file:
+
+================================================================================
+Response 4
+================================================================================
+Now I understand the problem. Looking at the code, the issue is that the `while (buffer.hasRemaining())` loop at line 123 can get stuck if the buffer position doesn't advance. This can happen in malformed fonts where various read methods might reset the buffer position, creating an infinite loop.
+
+## Analysis of why the previous patch failed:
+
+The iteration counter was placed in the **outer `do-while` loop** (line 120-247), but the actual infinite loop happens in the **inner `while (buffer.hasRemaining())` loop** (line 123-245). The `skip` flag controls the outer loop, and if `skip` is set to `false` inside the inner loop, the outer loop exits - but the inner loop can still run infinitely if the buffer position doesn't advance.
+
+## New approach: Monitor buffer position progress
+
+I'll add a check that detects when the buffer position is not advancing, which is the root cause of the infinite loop. This is more precise than iteration counting or time-based guards.
+
+================================================================================
+Response 5
+================================================================================
+Perfect! Now let me create the patch file:
+
+================================================================================
+Response 6
+================================================================================
+Excellent! Now let me explain the fix:
+
+## Why the Previous Patch Failed
+
+The previous patch placed an iteration counter in the **outer `do-while` loop**, but the timeout occurs in the **inner `while (buffer.hasRemaining())` loop** at line 123. The outer loop only repeats when `skip` is true (which happens when whitespace or NULL bytes are encountered). However, the infinite loop happens when:
+
+1. The buffer position doesn't advance (e.g., due to malformed font data)
+2. `buffer.hasRemaining()` keeps returning true
+3. The code continuously processes the same position
+
+## New Approach: Buffer Position Stall Detection
+
+Instead of counting all iterations, the new patch **monitors whether the buffer position is advancing**:
+
+1. **Track the last buffer position**: Before reading each character, we check the current buffer position
+2. **Detect stalls**: If the position hasn't changed from the last iteration, we increment a stall counter
+3. **Reset on progress**: If the position advances, we reset the counter to 0
+4. **Throw exception on excessive stalls**: After 100,000 iterations at the same position, we throw an IOException
+
+This approach:
+- ✅ **Catches the actual root cause**: Buffer position not advancing
+- ✅ **Works regardless of loop structure**: Protects against infinite loops in the inner while loop
+- ✅ **Allows legitimate large fonts**: Normal processing always advances the position, so legitimate fonts can have millions of characters
+- ✅ **Low overhead**: Just two integer comparisons per loop iteration
+- ✅ **Precise error message**: Reports the exact buffer position where the hang occurred
+
+## The Complete Patch
+
+```diff
+diff --git a/fontbox/src/main/java/org/apache/fontbox/type1/Type1Lexer.java b/fontbox/src/main/java/org/apache/fontbox/type1/Type1Lexer.java
+index 56aaf64ad..676e55163 100644
+--- a/fontbox/src/main/java/org/apache/fontbox/type1/Type1Lexer.java
++++ b/fontbox/src/main/java/org/apache/fontbox/type1/Type1Lexer.java
+@@ -117,11 +117,32 @@ class Type1Lexer
+     private Token readToken(Token prevToken) throws IOException
+     {
+         boolean skip;
++        int loopCount = 0;
++        int lastPosition = -1;
++        final int MAX_STALL_ITERATIONS = 100000;
++
+         do
+         {
+             skip = false;
+             while (buffer.hasRemaining())
+             {
++                // Detect if buffer position is not advancing (infinite loop protection)
++                int currentPosition = buffer.position();
++                if (currentPosition == lastPosition)
++                {
++                    loopCount++;
++                    if (loopCount > MAX_STALL_ITERATIONS)
++                    {
++                        throw new IOException("Buffer position not advancing at position " +
++                                currentPosition + ". Possible infinite loop in malformed font data.");
++                    }
++                }
++                else
++                {
++                    loopCount = 0;
++                    lastPosition = currentPosition;
++                }
++
+                 char c = getChar();
+ 
+                 // delimiters
+```
+
+This patch should successfully prevent the 25-second timeout by detecting when the buffer position isn't advancing and throwing an IOException before the timeout occurs.

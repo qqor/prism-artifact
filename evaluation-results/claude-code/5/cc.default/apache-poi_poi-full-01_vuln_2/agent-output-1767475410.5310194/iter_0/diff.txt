@@ -1,0 +1,71 @@
+diff --git a/poi/src/main/java/org/apache/poi/poifs/dev/POIFSDump.java b/poi/src/main/java/org/apache/poi/poifs/dev/POIFSDump.java
+index 96cca3285..cb3179f22 100644
+--- a/poi/src/main/java/org/apache/poi/poifs/dev/POIFSDump.java
++++ b/poi/src/main/java/org/apache/poi/poifs/dev/POIFSDump.java
+@@ -43,6 +43,51 @@ public final class POIFSDump {
+ 
+     private POIFSDump() {}
+ 
++    /**
++     * Sanitizes a file name to prevent path traversal attacks.
++     * Removes any path separator characters and prevents use of ".." sequences.
++     *
++     * @param fileName the original file name from the OLE2 entry
++     * @return a sanitized file name safe for use in file operations
++     */
++    private static String sanitizeFileName(String fileName) {
++        if (fileName == null || fileName.isEmpty()) {
++            return "unnamed";
++        }
++        // Replace path separators and remove ".." to prevent path traversal
++        String sanitized = fileName.replace('/', '_')
++                                   .replace('\\', '_')
++                                   .replace("..", "__");
++        // Also trim and handle edge cases
++        sanitized = sanitized.trim();
++        if (sanitized.isEmpty() || sanitized.equals(".") || sanitized.equals("..")) {
++            return "unnamed";
++        }
++        return sanitized;
++    }
++
++    /**
++     * Creates a safe file within the parent directory, validating that the resulting
++     * path does not escape the parent directory through path traversal.
++     *
++     * @param parent the parent directory
++     * @param fileName the file name to use (will be sanitized)
++     * @return a File object guaranteed to be within the parent directory
++     * @throws IOException if the resulting path would escape the parent directory
++     */
++    private static File createSafeFile(File parent, String fileName) throws IOException {
++        String safeName = sanitizeFileName(fileName);
++        File file = new File(parent, safeName);
++        // Verify the canonical path is still within the parent directory
++        String parentCanonical = parent.getCanonicalPath();
++        String fileCanonical = file.getCanonicalPath();
++        if (!fileCanonical.startsWith(parentCanonical + File.separator) &&
++            !fileCanonical.equals(parentCanonical)) {
++            throw new IOException("Path traversal attempt detected: " + fileName);
++        }
++        return file;
++    }
++
+     public static void main(String[] args) throws IOException {
+         if (args.length == 0) {
+             System.err.println("Must specify at least one file to dump");
+@@ -105,12 +150,12 @@ public final class POIFSDump {
+                 try (DocumentInputStream is = new DocumentInputStream(node)) {
+                    bytes = IOUtils.toByteArray(is);
+                 }
+-                try (OutputStream out = Files.newOutputStream(new File(parent, node.getName().trim()).toPath())) {
++                try (OutputStream out = Files.newOutputStream(createSafeFile(parent, node.getName()).toPath())) {
+                     out.write(bytes);
+                 }
+             } else if (entry instanceof DirectoryEntry){
+                 DirectoryEntry dir = (DirectoryEntry)entry;
+-                File file = new File(parent, entry.getName());
++                File file = createSafeFile(parent, entry.getName());
+                 if(!file.exists() && !file.mkdirs()) {
+                     throw new IOException("Could not create directory " + file);
+                 }

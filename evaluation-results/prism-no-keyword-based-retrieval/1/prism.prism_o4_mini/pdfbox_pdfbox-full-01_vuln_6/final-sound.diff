@@ -1,0 +1,56 @@
+--- a/fontbox/src/main/java/org/apache/fontbox/pfb/PfbParser.java
++++ b/fontbox/src/main/java/org/apache/fontbox/pfb/PfbParser.java
+@@ -131,7 +131,7 @@
+         List<Integer> typeList = new ArrayList<>(3);
+         List<byte[]> barrList = new ArrayList<>(3);
+         ByteArrayInputStream in = new ByteArrayInputStream(pfb);
+-        int total = 0;
++        long total = 0;
+         do
+         {
+             int r = in.read();
+@@ -153,23 +153,24 @@
+                 throw new IOException("Incorrect record type: " + recordType);
+             }
+ 
+-            int size = in.read();
+-            size += in.read() << 8;
+-            size += in.read() << 16;
+-            size += in.read() << 24;
++            long size = (long)(in.read() & 0xFF);
++            size |= (long)(in.read() & 0xFF) << 8;
++            size |= (long)(in.read() & 0xFF) << 16;
++            size |= (long)(in.read() & 0xFF) << 24;
+             LOG.debug("record type: {}, segment size: {}", recordType, size);
+             long newTotal = total + size;
+-            if (newTotal > MAX_LENGTH) {
++            if (size < 0 || newTotal > MAX_LENGTH) {
+                 throw new IOException("record size would be too large: " + newTotal);
+             }
+ 
+-            byte[] ar = new byte[size];
++            int intSize = (int) size;
++            byte[] ar = new byte[intSize];
+             int got = in.read(ar);
+-            if (got != size)
++            if (got != intSize)
+             {
+                 throw new EOFException("EOF while reading PFB font");
+             }
+-            total += size;
++            total = newTotal;
+             typeList.add(recordType);
+             barrList.add(ar);
+         }
+@@ -179,7 +180,10 @@
+         // come first, then the binary segments, then the last ASCII segment if it is
+         // 0000... cleartomark
+         
+-        pfbdata = new byte[total];
++        if (total > Integer.MAX_VALUE) {
++            throw new IOException("PFB data too large: " + total);
++        }
++        pfbdata = new byte[(int) total];
+         byte[] cleartomarkSegment = null;
+         int dstPos = 0;
+         

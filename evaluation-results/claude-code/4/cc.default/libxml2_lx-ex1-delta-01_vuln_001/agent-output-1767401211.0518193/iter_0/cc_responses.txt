@@ -1,0 +1,41 @@
+
+================================================================================
+Response 1
+================================================================================
+I can see the bug. Looking at the crash log and the code:
+
+1. The crash occurs at line 3591 in `htmlSecureComment` during a `memcpy` operation
+2. A buffer of 501 bytes is allocated (at line 3335: `buffer_size = 500`, then `buffer = xmlMalloc(buffer_size + 1)`)
+3. The issue is in the buffer reallocation check at line 3577: `if (extraSize > buffer_size)`
+
+The problem is that the check compares `extraSize` (which is `chunkSize + replSize`) against `buffer_size`, but it should check if `used + extraSize > buffer_size`. The current code only checks if the new data being added is larger than the total buffer size, but it doesn't account for the data already in the buffer (`used`).
+
+Let me create a patch to fix this:
+
+================================================================================
+Response 2
+================================================================================
+The patch has been applied. Here's a summary of the fix:
+
+## Bug Analysis
+
+**Root Cause:** The heap-buffer-overflow in `htmlSecureComment` was caused by an incorrect buffer overflow check at line 3577.
+
+**The Problem:** The original code checked `if (extraSize > buffer_size)` before reallocating the buffer, but this only compared the size of the new chunk (`chunkSize + replSize`) against the total buffer size. It failed to account for the data already written to the buffer (tracked by `used`).
+
+**Why This Caused the Crash:**
+- Buffer was allocated with size 501 bytes (`buffer_size = 500`, `malloc(buffer_size + 1)`)
+- As chunks were processed, `used` accumulated the bytes already written
+- When a new chunk arrived, the check `extraSize > buffer_size` could pass (e.g., if `extraSize` was 105), but `used + extraSize` could exceed 501 bytes
+- The subsequent `memcpy(buffer + used, chunk, chunkSize)` wrote past the end of the buffer
+
+**The Fix:** Changed the condition from:
+```c
+if (extraSize > buffer_size)
+```
+to:
+```c
+if (used + extraSize > buffer_size)
+```
+
+This ensures the buffer is reallocated whenever the total amount of data (existing + new) would exceed the buffer capacity.

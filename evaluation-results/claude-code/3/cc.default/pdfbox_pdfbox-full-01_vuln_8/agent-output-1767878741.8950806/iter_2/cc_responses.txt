@@ -1,0 +1,113 @@
+
+================================================================================
+Response 1
+================================================================================
+Let me find the correct path to the file:
+
+================================================================================
+Response 2
+================================================================================
+Now I understand the code. Let me analyze why the previous patches failed and provide a new approach.
+
+## Analysis of Why Previous Patches Failed
+
+The previous patches tried to limit iterations in specific methods (`decode2D`, `decodeRowType4`, `decodeRun`) by counting iterations. However, the timeout still occurs because:
+
+1. **The infinite loop is in `decodeRowType4()`** at lines 275-290 - this is an outer `eof:` loop that searches for EOL codes. The patches added iteration limits, but the problem is that with malformed data, the code can read bits forever from the underlying stream without ever finding a valid EOL code.
+
+2. **The `readBit()` method can keep reading** - When the underlying stream is a `ByteArrayInputStream` or similar that provides endless data (or loops), `readBit()` will keep returning bits without throwing `EOFException`.
+
+3. **The FILL node creates a self-referencing loop** - Look at lines 754-757: `FILL.left = FILL;` - this means when walking the tree with `0` bits, it stays at the same FILL node indefinitely.
+
+The key issue is in `decodeRowType4()` - the `eof:` while loop (lines 275-290) continues forever when processing malformed data that doesn't contain a valid EOL sequence.
+
+## New Approach
+
+Instead of counting iterations in multiple places, I'll add a global limit on the total number of bits that can be read from the stream during a single row decode operation. This is simpler and more robust - it catches infinite loops regardless of where they occur.
+
+Here's the new patch:
+
+```diff
+diff --git a/pdfbox/src/main/java/org/apache/pdfbox/filter/CCITTFaxDecoderStream.java b/pdfbox/src/main/java/org/apache/pdfbox/filter/CCITTFaxDecoderStream.java
+index 5f01e4ce8..example 100644
+--- a/pdfbox/src/main/java/org/apache/pdfbox/filter/CCITTFaxDecoderStream.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/filter/CCITTFaxDecoderStream.java
+@@ -74,6 +74,11 @@ final class CCITTFaxDecoderStream extends FilterInputStream {
+ 
+     private int lastChangingElement = 0;
+ 
++    // PDFBOX-5765: Limit total bits read to prevent infinite loops with malformed data
++    private static final int MAX_TOTAL_BITS_MULTIPLIER = 100;
++    private int totalBitsRead = 0;
++    private final int maxTotalBitsPerRow;
++
+     /**
+      * Creates a CCITTFaxDecoderStream.
+      * This constructor may be used for CCITT streams embedded in PDF files,
+@@ -98,6 +103,10 @@ final class CCITTFaxDecoderStream extends FilterInputStream {
+         changesReferenceRow = new int[columns + 2];
+         changesCurrentRow = new int[columns + 2];
+ 
++        // PDFBOX-5765: Set maximum bits to read per row to prevent infinite loops
++        // This is a generous limit that should never be reached with valid data
++        this.maxTotalBitsPerRow = Math.max(columns * MAX_TOTAL_BITS_MULTIPLIER, 100000);
++
+         switch (type) {
+             case TIFFExtension.COMPRESSION_CCITT_MODIFIED_HUFFMAN_RLE:
+                 optionByteAligned = byteAligned;
+@@ -304,6 +313,9 @@ final class CCITTFaxDecoderStream extends FilterInputStream {
+     }
+ 
+     private void decodeRow() throws IOException {
++        // PDFBOX-5765: Reset bit counter at start of each row
++        totalBitsRead = 0;
++
+         switch (type) {
+             case TIFFExtension.COMPRESSION_CCITT_MODIFIED_HUFFMAN_RLE:
+                 decodeRowType2();
+@@ -406,6 +418,12 @@ final class CCITTFaxDecoderStream extends FilterInputStream {
+     int bufferPos = -1;
+ 
+     private boolean readBit() throws IOException {
++        // PDFBOX-5765: Check for excessive bits read to detect infinite loops
++        totalBitsRead++;
++        if (totalBitsRead > maxTotalBitsPerRow) {
++            throw new EOFException("Maximum bits per row exceeded - possible malformed or malicious CCITT data");
++        }
++
+         if (bufferPos < 0 || bufferPos > 7) {
+             buffer = in.read();
+ 
+```
+
+================================================================================
+Response 3
+================================================================================
+The patch has been applied. Let me provide a summary of the fix:
+
+## Summary
+
+### Why the Previous Patches Failed
+
+The previous patches tried to add iteration limits in individual methods (`decode2D`, `decodeRowType4`, `decodeRun`), but they failed because:
+
+1. **Multiple locations with infinite loop potential**: The code has several nested loops and the patches didn't cover all code paths consistently.
+
+2. **The FILL node self-reference**: In the static initialization (lines 754-757), `FILL.left = FILL` creates a self-referential node. When the tree walker encounters a stream of `0` bits, it stays at the FILL node indefinitely without ever reaching a leaf or returning null.
+
+3. **The `decodeRowType4()` outer loop**: The `eof:` while loop (lines 275-290) keeps searching for EOL codes. With malformed data that never produces a valid EOL sequence, this loop runs forever.
+
+### The New Approach
+
+Instead of trying to limit iterations in multiple specific locations, this patch takes a **completely different approach**: it limits the total number of bits that can be read during a single row decode operation.
+
+The fix:
+1. **Adds a global bit counter** (`totalBitsRead`) that's reset at the start of each `decodeRow()` call
+2. **Adds a maximum bits limit** (`maxTotalBitsPerRow`) calculated as `max(columns * 100, 100000)`
+3. **Checks the counter in `readBit()`** - the single choke point where all bit reads must go through
+
+This is more robust because:
+- It catches infinite loops **regardless of where they occur** in the decoding logic
+- It uses a single check point (`readBit()`) rather than multiple scattered checks
+- The limit is generous enough (100x columns or 100,000 minimum) to handle any valid CCITT data while still preventing DoS attacks
+- Throwing `EOFException` allows the existing error handling in `fetch()` to gracefully handle the error

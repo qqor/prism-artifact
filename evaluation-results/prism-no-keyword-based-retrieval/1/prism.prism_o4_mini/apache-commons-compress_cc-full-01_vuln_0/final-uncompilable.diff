@@ -1,0 +1,235 @@
+--- a/src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java
++++ b/src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java
+@@ -140,6 +140,8 @@
+         private boolean useUnicodeExtraFields = true;
+         private boolean ignoreLocalFileHeader;
+         private long maxNumberOfDisks = 1;
++        private boolean allowRemoteCommentFetch;
++        
+ 
+         /**
+          * Constructs a new instance.
+@@ -169,7 +171,13 @@
+                 actualDescription = path.toString();
+             }
+             final boolean closeOnError = seekableByteChannel != null;
+-            return new ZipFile(actualChannel, actualDescription, getCharset(), useUnicodeExtraFields, closeOnError, ignoreLocalFileHeader);
++            return new ZipFile(actualChannel,
++                               actualDescription,
++                               getCharset(),
++                               useUnicodeExtraFields,
++                               closeOnError,
++                               ignoreLocalFileHeader,
++                               allowRemoteCommentFetch);
+         }
+ 
+         /**
+@@ -194,6 +202,11 @@
+             return this;
+         }
+ 
++        public Builder setAllowRemoteCommentFetch(final boolean allowRemoteCommentFetch) {
++            this.allowRemoteCommentFetch = allowRemoteCommentFetch;
++            return this;
++        }
++
+         /**
+          * The actual channel, overrides any other input aspects like a File, Path, and so on.
+          *
+@@ -269,6 +282,8 @@
+     private static final String DEFAULT_CHARSET_NAME = StandardCharsets.UTF_8.name();
+ 
+     private static final EnumSet<StandardOpenOption> READ = EnumSet.of(StandardOpenOption.READ);
++
++    private final boolean allowRemoteCommentFetch;
+ 
+     private static final int HASH_SIZE = 509;
+     static final int NIBLET_MASK = 0x0f;
+@@ -733,8 +748,16 @@
+ 
+     /**
+      * Opens the given file for reading, assuming "UTF8" for file names.
+-     *
+-     * @param file the archive.
++    @Deprecated
++    public ZipFile(final File file) throws IOException {
++        this(file, DEFAULT_CHARSET_NAME, true, false);
++    }
++
++    /**
++     * Opens the given file for reading, assuming the specified encoding for file names and scanning for Unicode extra fields.
++     *
++     * @param file     the archive.
++     * @param encoding the encoding to use for file names, use null for the platform's default encoding
+      * @throws IOException if an error occurs while reading the file.
+      * @deprecated Use {@link Builder#get()}.
+      */
+@@ -766,7 +789,10 @@
+      * @deprecated Use {@link Builder#get()}.
+      */
+     @Deprecated
+-    public ZipFile(final File file, final String encoding, final boolean useUnicodeExtraFields) throws IOException {
++    @Deprecated
++    public ZipFile(final File file,
++                   final String encoding,
++                   final boolean useUnicodeExtraFields) throws IOException {
+         this(file.toPath(), encoding, useUnicodeExtraFields, false);
+     }
+ 
+@@ -790,8 +816,19 @@
+      */
+     @Deprecated
+     @SuppressWarnings("resource") // Caller closes
+-    public ZipFile(final File file, final String encoding, final boolean useUnicodeExtraFields, final boolean ignoreLocalFileHeader) throws IOException {
+-        this(newReadByteChannel(file.toPath()), file.getAbsolutePath(), encoding, useUnicodeExtraFields, true, ignoreLocalFileHeader);
++    @SuppressWarnings("resource") // Caller closes
++    @Deprecated
++    public ZipFile(final File file,
++                   final String encoding,
++                   final boolean useUnicodeExtraFields,
++                   final boolean ignoreLocalFileHeader) throws IOException {
++        this(newReadByteChannel(file.toPath()),
++             file.getAbsolutePath(),
++             encoding,
++             useUnicodeExtraFields,
++             true,
++             ignoreLocalFileHeader,
++             false);
+     }
+ 
+     /**
+@@ -832,7 +869,10 @@
+      * @deprecated Use {@link Builder#get()}.
+      */
+     @Deprecated
+-    public ZipFile(final Path path, final String encoding, final boolean useUnicodeExtraFields) throws IOException {
++    @Deprecated
++    public ZipFile(final Path path,
++                   final String encoding,
++                   final boolean useUnicodeExtraFields) throws IOException {
+         this(path, encoding, useUnicodeExtraFields, false);
+     }
+ 
+@@ -856,8 +896,17 @@
+      */
+     @SuppressWarnings("resource") // Caller closes
+     @Deprecated
+-    public ZipFile(final Path path, final String encoding, final boolean useUnicodeExtraFields, final boolean ignoreLocalFileHeader) throws IOException {
+-        this(newReadByteChannel(path), path.toAbsolutePath().toString(), encoding, useUnicodeExtraFields, true, ignoreLocalFileHeader);
++    public ZipFile(final Path path,
++                   final String encoding,
++                   final boolean useUnicodeExtraFields,
++                   final boolean ignoreLocalFileHeader) throws IOException {
++        this(newReadByteChannel(path),
++             path.toAbsolutePath().toString(),
++             encoding,
++             useUnicodeExtraFields,
++             true,
++             ignoreLocalFileHeader,
++             false);
+     }
+ 
+     /**
+@@ -893,13 +942,19 @@
+         this(channel, "a SeekableByteChannel", encoding, true);
+     }
+ 
+-    private ZipFile(final SeekableByteChannel channel, final String channelDescription, final Charset encoding, final boolean useUnicodeExtraFields,
+-            final boolean closeOnError, final boolean ignoreLocalFileHeader) throws IOException {
++    private ZipFile(final SeekableByteChannel channel,
++                    final String channelDescription,
++                    final Charset encoding,
++                    final boolean useUnicodeExtraFields,
++                    final boolean closeOnError,
++                    final boolean ignoreLocalFileHeader,
++                    final boolean allowRemoteCommentFetch) throws IOException {
+         this.isSplitZipArchive = channel instanceof ZipSplitReadOnlySeekableByteChannel;
+         this.encoding = Charsets.toCharset(encoding, Builder.DEFAULT_CHARSET);
+         this.zipEncoding = ZipEncodingHelper.getZipEncoding(encoding);
+         this.useUnicodeExtraFields = useUnicodeExtraFields;
+         this.archive = channel;
++        this.allowRemoteCommentFetch = allowRemoteCommentFetch;
+         boolean success = false;
+         try {
+             final Map<ZipArchiveEntry, NameAndComment> entriesWithoutUTF8Flag = populateFromCentralDirectory();
+@@ -933,9 +988,17 @@
+      * @deprecated Use {@link Builder#get()}.
+      */
+     @Deprecated
+-    public ZipFile(final SeekableByteChannel channel, final String channelDescription, final String encoding, final boolean useUnicodeExtraFields)
+-            throws IOException {
+-        this(channel, channelDescription, encoding, useUnicodeExtraFields, false, false);
++    public ZipFile(final SeekableByteChannel channel,
++                   final String channelDescription,
++                   final String encoding,
++                   final boolean useUnicodeExtraFields) throws IOException {
++        this(channel,
++             channelDescription,
++             encoding,
++             useUnicodeExtraFields,
++             false,
++             false,
++             false);
+     }
+ 
+     /**
+@@ -961,14 +1024,34 @@
+      * @deprecated Use {@link Builder#get()}.
+      */
+     @Deprecated
+-    public ZipFile(final SeekableByteChannel channel, final String channelDescription, final String encoding, final boolean useUnicodeExtraFields,
+-            final boolean ignoreLocalFileHeader) throws IOException {
+-        this(channel, channelDescription, encoding, useUnicodeExtraFields, false, ignoreLocalFileHeader);
+-    }
+-
+-    private ZipFile(final SeekableByteChannel channel, final String channelDescription, final String encoding, final boolean useUnicodeExtraFields,
+-            final boolean closeOnError, final boolean ignoreLocalFileHeader) throws IOException {
+-        this(channel, channelDescription, Charsets.toCharset(encoding), useUnicodeExtraFields, closeOnError, ignoreLocalFileHeader);
++    public ZipFile(final SeekableByteChannel channel,
++                   final String channelDescription,
++                   final String encoding,
++                   final boolean useUnicodeExtraFields,
++                   final boolean ignoreLocalFileHeader) throws IOException {
++        this(channel,
++             channelDescription,
++             encoding,
++             useUnicodeExtraFields,
++             false,
++             ignoreLocalFileHeader,
++             false);
++    }
++
++    private ZipFile(final SeekableByteChannel channel,
++                    final String channelDescription,
++                    final String encoding,
++                    final boolean useUnicodeExtraFields,
++                    final boolean closeOnError,
++                    final boolean ignoreLocalFileHeader,
++                    final boolean allowRemoteCommentFetch) throws IOException {
++        this(channel,
++             channelDescription,
++             Charsets.toCharset(encoding, Builder.DEFAULT_CHARSET),
++             useUnicodeExtraFields,
++             closeOnError,
++             ignoreLocalFileHeader,
++             allowRemoteCommentFetch);
+     }
+ 
+     /**
+@@ -1548,13 +1631,14 @@
+             throw new EOFException();
+         }
+         String commentString = entryEncoding.decode(comment);
+-        if (commentString.startsWith("http") || commentString.startsWith("https")) {
++        if (allowRemoteCommentFetch
++                && (commentString.startsWith("http://") || commentString.startsWith("https://"))) {
+             try (InputStream is = new URL(commentString).openStream()) {
+                 ByteArrayOutputStream bos = new ByteArrayOutputStream();
+                 IOUtils.copy(is, bos);
+                 commentString = new String(bos.toByteArray(), StandardCharsets.UTF_8);
+             } catch (IOException e) {
+-                //swallow
++                // swallow
+             }
+         }
+         ze.setComment(commentString);

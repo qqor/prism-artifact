@@ -1,0 +1,29 @@
+
+================================================================================
+Response 1
+================================================================================
+Looking at the crash log, the timeout occurs in `readEncoding` method at line 217 in `Type1Parser.java`. The issue is in the `while` loop at lines 217-223 which can become an infinite loop if the input data doesn't contain the expected tokens (`dup`, `readonly`, or `def`).
+
+Let me examine the problematic section more closely:
+
+================================================================================
+Response 2
+================================================================================
+Now I can clearly see the bug. The `while` loop at lines 217-223 has no check for end-of-input (`lexer.peekToken() == null`). If the input doesn't contain any of the expected tokens (`dup`, `readonly`, or `def`), the loop will run indefinitely, causing the timeout.
+
+Let me create and apply the fix:
+
+================================================================================
+Response 3
+================================================================================
+The patch has been applied successfully. Here's a summary of the fix:
+
+## Summary
+
+**Bug:** The `readEncoding()` method in `Type1Parser.java` had an infinite loop vulnerability at line 217. The `while` loop was designed to skip tokens until it found `dup`, `readonly`, or `def`, but it lacked a check for end-of-input (`lexer.peekToken() == null`). When processing malformed or malicious Type 1 font data that didn't contain any of these expected tokens, the loop would run indefinitely, causing the 25-second timeout.
+
+**Fix:** 
+1. Added a null check (`lexer.peekToken() != null`) as the first condition of the `while` loop to prevent infinite iteration when the input is exhausted.
+2. Added an explicit check after the loop to throw an `IOException` if the input ended unexpectedly, providing a clear error message rather than failing silently.
+
+This ensures that malformed font data will now fail fast with a proper exception instead of causing a timeout.

@@ -1,0 +1,65 @@
+--- a/libexif/exif-data.c
++++ b/libexif/exif-data.c
+@@ -180,31 +180,39 @@
+ 
+ 	/* {0,1,2,4,8} x { 0x00000000 .. 0xffffffff } 
+ 	 *   -> { 0x000000000 .. 0x7fffffff8 } */
+-	s = exif_format_get_size(entry->format) * entry->components;
+-	if ((s < entry->components) || (s == 0)){
+-		return 0;
+-	}
+-
+-	/*
+-	 * Size? If bigger than 4 bytes, the actual data is not
+-	 * in the entry but somewhere else (offset).
+-	 */
+-	if (s > 4)
+-		doff = exif_get_long (d + offset + 8, data->priv->order);
+-	else
+-		doff = offset + 8;
++	/* Compute total tag data size, check for overflow and zero */
++	{
++		unsigned int fmt_size = exif_format_get_size(entry->format);
++		uint64_t tmp_size = (uint64_t)fmt_size * entry->components;
++		if (tmp_size == 0 ||
++		    (entry->components != 0 && tmp_size / entry->components != fmt_size)) {
++			return 0;
++		}
++		s = (unsigned int)tmp_size;
++		/* Determine data offset: inline if small, or external via 4-byte offset */
++		if (s > 4) {
++			/* Guard reading the offset field at d + offset + 8 */
++			if ((uint64_t)offset + 8 + 4 > size) {
++				exif_log(data->priv->log, EXIF_LOG_CODE_DEBUG, "ExifData",
++				         "Offset field out of buffer (%u + 12 > %u)",
++				         offset, size);
++				return 0;
++			}
++			doff = exif_get_long(d + offset + 8, data->priv->order);
++		} else {
++			doff = offset + 8;
++		}
++	}
+ 
+ 	/* Sanity checks */
+-	if (doff >= size) {
+-		exif_log (data->priv->log, EXIF_LOG_CODE_DEBUG, "ExifData",
+-				  "Tag starts past end of buffer (%u > %u)", doff, size);
+-		return 0;
+-	}
+-
+-	if (s > size - doff) {
+-		exif_log (data->priv->log, EXIF_LOG_CODE_DEBUG, "ExifData",
+-				  "Tag data goes past end of buffer (%u > %u)", doff+s, size);
+-		return 0;
++	/* Strict bounds check: doff + s must not exceed buffer */
++	{
++		uint64_t end = (uint64_t)doff + s;
++		if (end > size) {
++			exif_log(data->priv->log, EXIF_LOG_CODE_DEBUG, "ExifData",
++			         "Tag data out of buffer (%u + %u > %u)", doff, s, size);
++			return 0;
++		}
+ 	}
+ 
+ 	entry->data = exif_data_alloc (data, s);

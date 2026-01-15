@@ -1,0 +1,14 @@
+{
+  "project_name": "pdfbox",
+  "vulnerability_identifier": "pdfbox_pdfbox-delta-01_vuln_2",
+  "source_directory": "/home/qqor/crete/.cache/official-afc-pdfbox",
+  "llm_usage": {
+    "total_cost": 0.0956956,
+    "prompt_tokens": 29724,
+    "completion_tokens": 14318
+  },
+  "variant": "sound",
+  "diff": "--- a/pdfbox/src/main/java/org/apache/pdfbox/ocr/OCRStreamEngine.java\n+++ b/pdfbox/src/main/java/org/apache/pdfbox/ocr/OCRStreamEngine.java\n@@ -42,6 +42,34 @@\n     private int endPage = -1;\n     private long timeoutMillisPerPage = 30000;\n \n+    /**\n+     * Flag to allow overriding the Tesseract executable path via PDF metadata.\n+     * Default is false.\n+     */\n+    private boolean allowMetadataOverride = false;\n+\n+    /**\n+     * Enable or disable use of the PDF's tesseract-path metadata. Default: false.\n+     */\n+    public void setAllowTesseractPathOverrideFromMetadata(boolean allow) {\n+        this.allowMetadataOverride = allow;\n+    }\n+\n+    /**\n+     * Validate that the provided Tesseract path is safe and executable.\n+     */\n+    private String validateTesseractPath(String candidate) throws IOException {\n+        // Reject if empty or contains suspicious characters\n+        if (!candidate.matches(\"^[A-Za-z0-9._\\\\-/\\\\\\\\]+$\")) {\n+            throw new IOException(\"Tesseract path contains invalid characters: \" + candidate);\n+        }\n+        java.nio.file.Path p = java.nio.file.Paths.get(candidate).toRealPath();\n+        if (!java.nio.file.Files.isRegularFile(p) || !java.nio.file.Files.isExecutable(p)) {\n+            throw new IOException(\"Tesseract path is not a valid executable: \" + p);\n+        }\n+        return p.toString();\n+    }\n+\n     private final PDDocument pdDocument;\n     private Path tmpDir;\n \n@@ -155,10 +183,13 @@\n     }\n \n     private String runTesseract(Path image) throws IOException {\n-        String actualTessPath = pdDocument.getDocumentInformation()\n-                .getCustomMetadataValue(TESSERACT_PATH_KEY);\n-        if (actualTessPath == null || actualTessPath.isEmpty()) {\n-            actualTessPath = tesseractPath;\n+        String actualTessPath = tesseractPath;\n+        if (allowMetadataOverride) {\n+            String md = pdDocument.getDocumentInformation()\n+                    .getCustomMetadataValue(TESSERACT_PATH_KEY);\n+            if (md != null && !md.isEmpty()) {\n+                actualTessPath = validateTesseractPath(md);\n+            }\n         }\n \n         Path txt = Paths.get(image.toAbsolutePath().toString());\n",
+  "stdout": "",
+  "stderr": ""
+}

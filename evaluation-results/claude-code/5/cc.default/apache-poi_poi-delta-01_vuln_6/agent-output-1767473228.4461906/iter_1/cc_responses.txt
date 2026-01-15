@@ -1,0 +1,130 @@
+
+================================================================================
+Response 1
+================================================================================
+Let me read the DataFormatter.java file to understand the context and find the issue.
+
+================================================================================
+Response 2
+================================================================================
+Now I understand the issue. Let me analyze the problem:
+
+## Analysis
+
+**The Stack Overflow Cause:**
+
+The crash occurs due to a regex catastrophic backtracking in the `rangeConditionalPattern` regex on line 130:
+
+```java
+private static final Pattern rangeConditionalPattern = Pattern.compile(".*\\[\\s*(>|>=|<|<=|=)\\s*[0-9]*\\.*[0-9].*");
+```
+
+The problem is:
+1. `.*` at the beginning and end are greedy and match any character
+2. `[0-9]*\\.*[0-9]` has a problematic pattern where `[0-9]*` can match zero or more digits, `\\.*` can match zero or more dots, and `[0-9]` expects at least one digit
+3. When the input has many characters that don't match this pattern, the regex engine backtracks extensively, causing stack overflow
+
+**Why the previous patch failed:**
+
+The previous patch changed the regex to:
+```java
+Pattern.compile("\\[\\s*(?:>|>=|<|<=|=)\\s*-?[0-9]*\\.?[0-9]+\\s*\\]");
+```
+
+This pattern is more specific but still might not match all the expected inputs correctly, or there could be another regex causing the same issue (since the stack trace shows `Pattern$Loop.match` which suggests a looping/repeating pattern).
+
+**A completely different approach:**
+
+Instead of trying to fix the regex (which is inherently vulnerable to ReDoS), we should:
+1. **Add input length validation** before applying the regex - this is the safest approach
+2. Limit the string length that the regex operates on to prevent catastrophic backtracking
+
+Let me check where this pattern is used:
+
+================================================================================
+Response 3
+================================================================================
+The pattern is used at line 398. Let me see the context:
+
+================================================================================
+Response 4
+================================================================================
+Now I understand the full picture. The issue is that:
+
+1. The `rangeConditionalPattern` regex is vulnerable to catastrophic backtracking
+2. The pattern `.*\\[\\s*(>|>=|<|<=|=)\\s*[0-9]*\\.*[0-9].*` uses `.*` at both ends which causes exponential backtracking
+
+## Why the previous patch failed:
+
+The previous patch `\\[\\s*(?:>|>=|<|<=|=)\\s*-?[0-9]*\\.?[0-9]+\\s*\\]` changed the semantic meaning - it now only matches if the conditional bracket is the ONLY thing in the string, but the original pattern was checking if a conditional bracket EXISTS ANYWHERE in the string. This breaks functionality.
+
+## New approach - completely different:
+
+Instead of using a regex with `.*` wildcards, I'll use a **non-backtracking approach** by:
+1. Using `Pattern.find()` instead of `Pattern.matches()` with a more specific pattern that doesn't use `.*`
+2. Or add a maximum length check before applying the regex to limit catastrophic backtracking
+3. Or use a simple string-based check that doesn't involve regex at all
+
+The best approach is to use `find()` with a pattern that doesn't have `.*` at the beginning/end, since we just need to detect if such a pattern EXISTS in the string.
+
+Here's my fix:
+
+================================================================================
+Response 5
+================================================================================
+Now I need to change the usage from `.matches()` to `.find()` since the new pattern doesn't have `.*` at the beginning and end:
+
+================================================================================
+Response 6
+================================================================================
+## Summary
+
+### Why the previous patch failed:
+
+The previous patch changed the regex to `\\[\\s*(?:>|>=|<|<=|=)\\s*-?[0-9]*\\.?[0-9]+\\s*\\]` but still used `.matches()` method. The `.matches()` method requires the **entire string** to match the pattern. Since the new pattern doesn't have `.*` at the beginning and end, it would never match format strings like `"[>=100]#,##0;[<0]-#,##0"` - it would only match if the string was exactly `"[>=100]"` and nothing else. This breaks the functionality.
+
+### The root cause of the vulnerability:
+
+The original regex `.*\\[\\s*(>|>=|<|<=|=)\\s*[0-9]*\\.*[0-9].*` causes catastrophic backtracking because:
+1. The `.*` at the start and end are **greedy** and will try to match as much as possible
+2. When the regex engine fails to find a match, it has to backtrack through all possible combinations of what `.*` could have matched
+3. With patterns like `[0-9]*\\.*[0-9]`, there are multiple ways to match/not-match, causing exponential backtracking
+4. Long input strings cause the call stack to overflow due to recursive backtracking
+
+### The new fix (completely different approach):
+
+1. **Changed the regex pattern** to remove the dangerous `.*` wildcards: `\\[\\s*(?:>=?|<=?|=)\\s*-?[0-9]*\\.?[0-9]+\\s*\\]`
+   - This pattern matches only the conditional bracket itself (e.g., `[>=100]`, `[<0]`, `[=5.5]`)
+   - Uses `>=?` and `<=?` instead of explicit alternation for efficiency
+   - No greedy wildcards that cause backtracking
+
+2. **Changed from `.matches()` to `.find()`** 
+   - `.matches()` requires the entire string to match the pattern
+   - `.find()` searches for the pattern **anywhere** within the string
+   - This maintains the original semantic meaning (detecting if a conditional range exists in the format string) while eliminating the backtracking vulnerability
+
+### The patch:
+
+```diff
+diff --git a/poi/src/main/java/org/apache/poi/ss/usermodel/DataFormatter.java b/poi/src/main/java/org/apache/poi/ss/usermodel/DataFormatter.java
+--- a/poi/src/main/java/org/apache/poi/ss/usermodel/DataFormatter.java
++++ b/poi/src/main/java/org/apache/poi/ss/usermodel/DataFormatter.java
+@@ -127,7 +127,7 @@ public class DataFormatter {
+     private static final Pattern amPmPattern = Pattern.compile("(([AP])[M/P]*)", Pattern.CASE_INSENSITIVE);
+ 
+     /** Pattern to find formats with condition ranges e.g. [>=100] */
+-    private static final Pattern rangeConditionalPattern = Pattern.compile(".*\\[\\s*(>|>=|<|<=|=)\\s*[0-9]*\\.*[0-9].*");
++    private static final Pattern rangeConditionalPattern = Pattern.compile("\\[\\s*(?:>=?|<=?|=)\\s*-?[0-9]*\\.?[0-9]+\\s*\\]");
+ 
+     /**
+      * A regex to find locale patterns like [$$-1009] and [$?-452].
+@@ -395,7 +395,7 @@ public class DataFormatter {
+         // TODO Going forward, we should really merge the logic between the two classes
+         if (formatStr.contains(";") &&
+                 (formatStr.indexOf(';') != formatStr.lastIndexOf(';')
+-                 || rangeConditionalPattern.matcher(formatStr).matches()
++                 || rangeConditionalPattern.matcher(formatStr).find()
+                 ) ) {
+             try {
+                 // Ask CellFormat to get a formatter for it
+```

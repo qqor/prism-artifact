@@ -1,0 +1,92 @@
+I tried to fix a AddressSanitizer: heap-buffer-overflow vulnerability causing the crash log in the <crash_log> below.
+I failed to fix the vulnerability with the following patches:
+
+```diff
+diff --git a/src/net_builtin.c b/src/net_builtin.c
+index 793874f4..b5db2ca0 100644
+--- a/src/net_builtin.c
++++ b/src/net_builtin.c
+@@ -799,7 +799,7 @@ static void rx_ip(struct mg_tcpip_if *ifp, struct pkt *pkt) {
+     struct mg_connection *c = getpeer(ifp->mgr, pkt, false);
+     if (c) mg_error(c, "Received fragmented packet");
+   } else if (pkt->ip->proto == 1) {
+-    pkt->icmp = (struct icmp *) (pkt->ip + 1);
++    pkt->icmp = (struct icmp *) pkt->pay.buf;
+     if (pkt->pay.len < sizeof(*pkt->icmp)) return;
+     mkpay(pkt, pkt->icmp + 1);
+     rx_icmp(ifp, pkt);
+
+```
+
+Explain why the patches failed and provide a new patch to fix the vulnerability.
+Do not repeat the same mistakes in the new patch.
+Try a completely different approach to fix the vulnerability.
+NEVER fix files outside the source directory.
+NEVER do any git operations in or outside the source directory.
+
+Below is the crash log:
+
+<crash_log>
+==ERROR: AddressSanitizer: heap-buffer-overflow on address 0x504000000172 at pc 0x55ccaaedaead bp 0x7ffdb37e4e00 sp 0x7ffdb37e4df8
+READ of size 1 at 0x504000000172 thread T0
+SCARINESS: 12 (1-byte-read-heap-buffer-overflow)
+    #0 0x55ccaaedaeac in rx_icmp(mg_tcpip_if*, pkt*) /src/mongoose/src/net_builtin.c:385:18
+    #1 0x55ccaaeb7f67 in rx_ip(mg_tcpip_if*, pkt*) /src/mongoose/src/net_builtin.c:806:5
+    #2 0x55ccaaeb5f6b in mg_tcpip_rx /src/mongoose/src/net_builtin.c:897:5
+    #3 0x55ccaaed3f84 in LLVMFuzzerTestOneInput /src/mongoose/test/fuzz.c:106:5
+    #4 0x55ccaad2f350 in fuzzer::Fuzzer::ExecuteCallback(unsigned char const*, unsigned long) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:614:13
+    #5 0x55ccaad1a5c5 in fuzzer::RunOneTest(fuzzer::Fuzzer*, char const*, unsigned long) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerDriver.cpp:327:6
+    #6 0x55ccaad2005f in fuzzer::FuzzerDriver(int*, char***, int (*)(unsigned char const*, unsigned long)) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerDriver.cpp:862:9
+    #7 0x55ccaad4b302 in main /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerMain.cpp:20:10
+    #8 0x7ff19b609082 in __libc_start_main (/lib/x86_64-linux-gnu/libc.so.6+0x24082) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #9 0x55ccaad127ad in _start (/out/fuzz+0x557ad)
+
+DEDUP_TOKEN: rx_icmp(mg_tcpip_if*, pkt*)--rx_ip(mg_tcpip_if*, pkt*)--mg_tcpip_rx
+0x504000000172 is located 0 bytes after 34-byte region [0x504000000150,0x504000000172)
+allocated by thread T0 here:
+    #0 0x55ccaae3b11f in malloc /src/llvm-project/compiler-rt/lib/asan/asan_malloc_linux.cpp:68:3
+    #1 0x55ccaaed3d6a in LLVMFuzzerTestOneInput /src/mongoose/test/fuzz.c:95:17
+    #2 0x55ccaad2f350 in fuzzer::Fuzzer::ExecuteCallback(unsigned char const*, unsigned long) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:614:13
+    #3 0x55ccaad1a5c5 in fuzzer::RunOneTest(fuzzer::Fuzzer*, char const*, unsigned long) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerDriver.cpp:327:6
+    #4 0x55ccaad2005f in fuzzer::FuzzerDriver(int*, char***, int (*)(unsigned char const*, unsigned long)) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerDriver.cpp:862:9
+    #5 0x55ccaad4b302 in main /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerMain.cpp:20:10
+    #6 0x7ff19b609082 in __libc_start_main (/lib/x86_64-linux-gnu/libc.so.6+0x24082) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+
+DEDUP_TOKEN: __interceptor_malloc--LLVMFuzzerTestOneInput--fuzzer::Fuzzer::ExecuteCallback(unsigned char const*, unsigned long)
+SUMMARY: AddressSanitizer: heap-buffer-overflow /src/mongoose/src/net_builtin.c:385:18 in rx_icmp(mg_tcpip_if*, pkt*)
+Shadow bytes around the buggy address:
+  0x503ffffffe80: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+  0x503fffffff00: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+  0x503fffffff80: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+  0x504000000000: fa fa 00 00 00 00 00 03 fa fa 00 00 00 00 00 00
+  0x504000000080: fa fa 00 00 00 00 00 00 fa fa 00 00 00 00 02 fa
+=>0x504000000100: fa fa 00 00 00 00 02 fa fa fa 00 00 00 00[02]fa
+  0x504000000180: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa
+  0x504000000200: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa
+  0x504000000280: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa
+  0x504000000300: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa
+  0x504000000380: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa
+Shadow byte legend (one shadow byte represents 8 application bytes):
+  Addressable:           00
+  Partially addressable: 01 02 03 04 05 06 07 
+  Heap left redzone:       fa
+  Freed heap region:       fd
+  Stack left redzone:      f1
+  Stack mid redzone:       f2
+  Stack right redzone:     f3
+  Stack after return:      f5
+  Stack use after scope:   f8
+  Global redzone:          f9
+  Global init order:       f6
+  Poisoned by user:        f7
+  Container overflow:      fc
+  Array cookie:            ac
+  Intra object redzone:    bb
+  ASan internal:           fe
+  Left alloca redzone:     ca
+  Right alloca redzone:    cb
+==17==ABORTING
+subprocess command returned a non-zero exit status: 1
+INFO:__main__:Running: docker run --privileged --shm-size=2g --platform linux/amd64 --rm -i -e HELPER=True -e ARCHITECTURE=x86_64 -v /home/qqor/crete/packages/python_oss_fuzz/.oss_fuzz/build/out/mongoose:/out -v /tmp/tmp1egr1igs:/testcase -t ghcr.io/aixcc-finals/base-runner:v1.3.0 reproduce fuzz -runs=100.
+
+</crash_log>

@@ -1,0 +1,14 @@
+{
+  "project_name": "systemd",
+  "vulnerability_identifier": "systemd_systemd-full-001_systemd-001",
+  "source_directory": "/home/qqor/aixcc/crete/.cache/official-afc-systemd",
+  "llm_usage": {
+    "total_cost": 0.0,
+    "prompt_tokens": 0,
+    "completion_tokens": 0
+  },
+  "variant": "sound",
+  "diff": "diff --git a/src/udev/udev-rules.c b/src/udev/udev-rules.c\nindex 9f9a970a6c..11c8517268 100644\n--- a/src/udev/udev-rules.c\n+++ b/src/udev/udev-rules.c\n@@ -1140,6 +1140,7 @@ static void check_token_delimiters(UdevRuleLine *rule_line, const char *line) {\n int udev_rule_parse_value(char *str, char **ret_value, char **ret_endpos, bool *ret_is_case_insensitive) {\n         char *i, *j, *m;\n         bool is_escaped = false, is_case_insensitive = false, is_prefix_match = false;\n+        size_t str_len = strlen(str);\n         int pos = 0;\n \n         assert(str);\n@@ -1183,12 +1184,17 @@ int udev_rule_parse_value(char *str, char **ret_value, char **ret_endpos, bool *\n                 /*\n                  * The return value must be terminated by two subsequent NULs\n                  * so it could be safely interpreted as nulstr.\n+                 * Check that we have enough space in the buffer.\n                  */\n                 if (is_prefix_match){\n+                        if (j + 2 > str + str_len)\n+                                return -EINVAL;\n                         j[0] = '*';\n                         j[1] = '\\0';\n                         j[2] = '\\0';\n                 } else {\n+                        if (j + 1 > str + str_len)\n+                                return -EINVAL;\n                         j[0] = '\\0';\n                         j[1] = '\\0';\n                 }\n@@ -1214,16 +1220,21 @@ int udev_rule_parse_value(char *str, char **ret_value, char **ret_endpos, bool *\n                 /*\n                 * The return value must be terminated by two subsequent NULs\n                 * so it could be safely interpreted as nulstr.\n+                * Check that we have enough space in the buffer.\n                 */\n                 if (is_prefix_match){\n+                        if (pos + l + 1 > (ssize_t)str_len)\n+                                return -EINVAL;\n                         /* need more room to make rule glob match */\n-                        memcpy(str + pos - 1, unescaped, l + 1);\n+                        memcpy(str + pos - 1, unescaped, l);\n                         str[pos + l - 1] = '*';\n                         str[pos + l] = '\\0';\n                         str[pos + l + 1] = '\\0';\n                         m = str + pos - 1;\n \n                 } else {\n+                        if (m + l + 1 > str + str_len)\n+                                return -EINVAL;\n                         memcpy(m, unescaped, l + 1);\n                         m[l] = '\\0';\n                         m[l + 1] = '\\0';\n",
+  "stdout": "",
+  "stderr": ""
+}

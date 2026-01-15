@@ -1,0 +1,55 @@
+diff --git a/libexif/apple/exif-mnote-data-apple.c b/libexif/apple/exif-mnote-data-apple.c
+index 83a9cb1..bfc07a4 100644
+--- a/libexif/apple/exif-mnote-data-apple.c
++++ b/libexif/apple/exif-mnote-data-apple.c
+@@ -107,31 +107,38 @@ exif_mnote_data_apple_load(ExifMnoteData *md, const unsigned char *buf, unsigned
+     }
+ 
+     for (i = 0; i < tcount; i++) {
+-        d->entries[i].tag = exif_get_short(buf + ofs, d->order);
+-        d->entries[i].format = exif_get_short(buf + ofs + 2, d->order);
+-        d->entries[i].components = exif_get_long(buf + ofs + 4, d->order);
+-        d->entries[i].order = d->order;
+-        dsize = exif_format_get_size(d->entries[i].format) * d->entries[i].components;
++        /* Ensure we have enough buffer space to read the entry (12 bytes) */
++        if (ofs + 12 > buf_size) {
++            exif_log(md->log, EXIF_LOG_CODE_CORRUPT_DATA,
++                     "ExifMnoteApple", "Buffer overflow while reading entry");
++            break;
++        }
++        d->entries[d->count].tag = exif_get_short(buf + ofs, d->order);
++        d->entries[d->count].format = exif_get_short(buf + ofs + 2, d->order);
++        d->entries[d->count].components = exif_get_long(buf + ofs + 4, d->order);
++        d->entries[d->count].order = d->order;
++        dsize = exif_format_get_size(d->entries[d->count].format) * d->entries[d->count].components;
+         if (dsize > 4) {
+             dofs = d->offset + exif_get_long(buf + ofs + 8, d->order);
+         } else {
+             dofs = ofs + 8;
+         }
+-	if (dofs > buf_size) {
++	if (dofs + dsize > buf_size) {
+ 		exif_log (md->log, EXIF_LOG_CODE_CORRUPT_DATA,
+-                                  "ExifMnoteApplet", "Tag size overflow detected (%u vs size %u)", dofs, buf_size);
++                                  "ExifMnoteApplet", "Tag size overflow detected (%u vs size %u)", dofs + dsize, buf_size);
++		ofs += 12;
+ 		continue;
+ 	}
+         ofs += 12;
+-        d->entries[i].data = exif_mem_alloc(md->mem, dsize);
+-        if (!d->entries[i].data) {
++        d->entries[d->count].data = exif_mem_alloc(md->mem, dsize);
++        if (!d->entries[d->count].data) {
+             EXIF_LOG_NO_MEMORY(md->log, "ExifMnoteApple", dsize);
+             continue;
+         }
+-        memcpy(d->entries[i].data, buf + dofs, dsize);
+-        d->entries[i].size = dsize;
++        memcpy(d->entries[d->count].data, buf + dofs, dsize);
++        d->entries[d->count].size = dsize;
++        d->count++;
+     }
+-    d->count = tcount;
+ 
+     return;
+ }

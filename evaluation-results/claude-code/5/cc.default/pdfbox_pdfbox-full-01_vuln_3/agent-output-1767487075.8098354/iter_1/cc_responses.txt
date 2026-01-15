@@ -1,0 +1,87 @@
+
+================================================================================
+Response 1
+================================================================================
+Now I can see the issue clearly. Let me analyze the problem:
+
+## Why the Previous Patch Failed
+
+The previous patch tried to fix the timeout by ensuring at least 1 byte is read (`effectiveMinCodeLength = Math.max(1, minCodeLength)`). However, this approach fails because:
+
+1. The root cause is that when `minCodeLength` equals `maxCodeLength` (both can be 0 or 0), the loop condition `for (int i = minCodeLength-1; i < maxCodeLength; i++)` creates an infinite loop or a loop that keeps reading without proper termination.
+
+2. When `minCodeLength` is 0 and the input stream keeps providing bytes (or returns -1 for EOF without proper handling), the code can loop indefinitely.
+
+3. The patch only fixed the initial read and loop start index, but **didn't handle the case when `maxCodeLength` is 0**, which means the loop never executes and the code falls through to the warning/return path repeatedly if called in a loop by the caller.
+
+4. More critically, if both `minCodeLength` and `maxCodeLength` are 0 (which can happen if no codespace ranges are added), the method would return `toInt(bytes, 0)` which returns 0, and the caller may keep calling `readCode` in a loop expecting to process stream content.
+
+Let me look at how this method is called and understand the broader context:
+
+================================================================================
+Response 2
+================================================================================
+I see - the `readCode` method is called in a loop `while (in.available() > 0)`. If `readCode` doesn't actually consume any bytes from the stream (when `minCodeLength` is 0 or the stream read fails), `in.available()` remains > 0 and the loop becomes infinite.
+
+Let me check the initial values of `minCodeLength` and `maxCodeLength`:
+
+Looking at the code:
+- `minCodeLength = 4` (default)
+- `maxCodeLength` is not initialized (defaults to 0)
+
+The issue is that `addCodespaceRange` sets these values, but if no ranges are added:
+- `minCodeLength = 4`
+- `maxCodeLength = 0`
+
+When `minCodeLength > maxCodeLength`, the loop `for (int i = minCodeLength-1; i < maxCodeLength; i++)` never executes (since 3 < 0 is false), and we fall through to return `toInt(bytes, minCodeLength)` which would return whatever was read. But the initial `in.read(bytes, 0, minCodeLength)` reads 4 bytes (or tries to) which would normally work.
+
+But wait - the real issue may be when:
+1. `maxCodeLength` is 0 (no codespace ranges added)
+2. The initial read `in.read(bytes, 0, minCodeLength)` succeeds 
+3. The loop doesn't find a match (because there are no codespace ranges)
+4. The stream gets reset and we return a code
+5. The caller's loop continues because `in.available() > 0`
+
+Actually, looking more carefully, if `maxCodeLength` is 0, then the loop never runs, but the code goes to the warning section and attempts `in.reset()`. This means only the initial `minCodeLength` bytes are consumed. If the stream has more data, the outer loop keeps calling `readCode` indefinitely.
+
+The key fix should be: **Ensure we always consume at least 1 byte from the stream to make progress, and handle degenerate cases where maxCodeLength is 0 or invalid.**
+
+================================================================================
+Response 3
+================================================================================
+## Explanation
+
+### Why the Previous Patch Failed:
+
+The previous patch tried to fix the issue by ensuring `effectiveMinCodeLength = Math.max(1, minCodeLength)`, but this approach had several problems:
+
+1. **Didn't address the root cause**: The timeout occurs when `maxCodeLength` is 0 (because no codespace ranges were added to the CMap). When `maxCodeLength` is 0:
+   - The byte array `new byte[maxCodeLength]` creates an empty array
+   - The loop `for (int i = minCodeLength-1; i < maxCodeLength; i++)` never executes (since any value is `>= 0`)
+   - The code falls through to the reset/return section
+   - Only `minCodeLength` bytes are consumed, but if the stream has more data, the caller's loop (`while (in.available() > 0)`) keeps calling `readCode` indefinitely without making progress through the stream
+
+2. **The previous fix only adjusted minCodeLength**: It didn't handle the case where `maxCodeLength` itself was invalid (0 or less than minCodeLength).
+
+### The New Fix:
+
+The new patch takes a completely different approach by adding an early validation check at the start of the method:
+
+```java
+if (maxCodeLength <= 0 || maxCodeLength < minCodeLength)
+{
+    // Consume one byte to ensure progress and prevent infinite loops
+    int b = in.read();
+    if (b == -1)
+    {
+        return -1; // EOF
+    }
+    return b & 0xFF;
+}
+```
+
+This fix:
+1. **Detects invalid CMap state early**: Checks if `maxCodeLength` is 0 or if the code length range is invalid
+2. **Always makes progress**: Consumes at least one byte from the stream, ensuring the caller's loop will eventually terminate
+3. **Handles EOF properly**: Returns -1 on end-of-file, allowing callers to detect stream exhaustion
+4. **Preserves normal operation**: When the CMap has valid codespace ranges configured, the original logic continues to work as expected

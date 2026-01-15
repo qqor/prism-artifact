@@ -1,0 +1,44 @@
+--- a/parser.c
++++ b/parser.c
+@@ -766,10 +766,17 @@
+         return;
+     }
+ 
+-    if (buf->cap == 0) {
+-        // Ensure that the buffer is double the necessary size
+-        // This ensures no buffer overflow is possible
+-        if (xmlSBufGrow(buf, len * 2) < 0)
++    /* Ensure sufficient capacity for the new data */
++    if (buf->cap < buf->size + len) {
++        unsigned int need = buf->size + len;
++        unsigned int grow = need * 2;
++        /* At least double the added length to avoid thrashing */
++        if (grow < len * 2)
++            grow = len * 2;
++        /* Honor the resource limit */
++        if (grow > buf->max - buf->size)
++            grow = buf->max - buf->size;
++        if (xmlSBufGrow(buf, grow) < 0)
+             return;
+     }
+ 
+@@ -786,8 +793,17 @@
+         return;
+     }
+ 
+-    if (buf->cap - buf->size <= len) {
+-        if (xmlSBufGrow(buf, len) < 0)
++    /* Ensure sufficient capacity for the new data */
++    if (buf->cap < buf->size + len) {
++        unsigned int need = buf->size + len;
++        unsigned int grow = need * 2;
++        /* At least double the added length to avoid thrashing */
++        if (grow < len * 2)
++            grow = len * 2;
++        /* Honor the resource limit */
++        if (grow > buf->max - buf->size)
++            grow = buf->max - buf->size;
++        if (xmlSBufGrow(buf, grow) < 0)
+             return;
+     }
+ 

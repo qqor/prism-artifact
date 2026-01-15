@@ -1,0 +1,61 @@
+--- a/src/json.c
++++ b/src/json.c
+@@ -276,9 +276,11 @@
+ 
+       state.cur_line = 1;
+ 
+-      for (state.ptr = json ;; ++ state.ptr)
+-      {
+-         json_char b = (state.ptr == end ? 0 : *state.ptr);
++        for (state.ptr = json;;)
++        {
++            /* fetch next char or sentinel, advance ptr safely */
++            json_char b = (state.ptr == end ? 0 : *state.ptr);
++            if (state.ptr != end) ++state.ptr;
+          
+          if (flags & flag_string)
+          {
+@@ -303,12 +305,14 @@
+                   case 't':  string_add ('\t');  break;
+                   case 'u':
+ 
+-                    if (end - state.ptr < 4 || 
+-                        (uc_b1 = hex_value (*++ state.ptr)) == 0xFF ||
+-                        (uc_b2 = hex_value (*++ state.ptr)) == 0xFF ||
+-                        (uc_b3 = hex_value (*++ state.ptr)) == 0xFF ||
+-                        (uc_b4 = hex_value (*++ state.ptr)) == 0xFF)
+-                    {
++                    if (
++                        /* need 'u' + 4 hex digits = 5 bytes */
++                        state.ptr + 5 > end ||
++                        (uc_b1 = hex_value(*++state.ptr)) == 0xFF ||
++                        (uc_b2 = hex_value(*++state.ptr)) == 0xFF ||
++                        (uc_b3 = hex_value(*++state.ptr)) == 0xFF ||
++                        (uc_b4 = hex_value(*++state.ptr)) == 0xFF
++                    ) {
+                         sprintf (error, "Invalid character value `%c` (at %d:%d)", b, line_and_col);
+                         goto e_failed;
+                     }
+@@ -320,12 +324,16 @@
+                     if ((uchar & 0xF800) == 0xD800) {
+                         json_uchar uchar2;
+                         
+-                        if (end - state.ptr < 6 || (*++ state.ptr) != '\\' || (*++ state.ptr) != 'u' ||
+-                            (uc_b1 = hex_value (*++ state.ptr)) == 0xFF ||
+-                            (uc_b2 = hex_value (*++ state.ptr)) == 0xFF ||
+-                            (uc_b3 = hex_value (*++ state.ptr)) == 0xFF ||
+-                            (uc_b4 = hex_value (*++ state.ptr)) == 0xFF)
+-                        {
++                        if (
++                            /* need '\\u' + 4 hex digits = 6 bytes */
++                            state.ptr + 6 > end ||
++                            *++state.ptr != '\\' ||
++                            *++state.ptr != 'u' ||
++                            (uc_b1 = hex_value(*++state.ptr)) == 0xFF ||
++                            (uc_b2 = hex_value(*++state.ptr)) == 0xFF ||
++                            (uc_b3 = hex_value(*++state.ptr)) == 0xFF ||
++                            (uc_b4 = hex_value(*++state.ptr)) == 0xFF
++                        ) {
+                             sprintf (error, "Invalid character value `%c` (at %d:%d)", b, line_and_col);
+                             goto e_failed;
+                         }

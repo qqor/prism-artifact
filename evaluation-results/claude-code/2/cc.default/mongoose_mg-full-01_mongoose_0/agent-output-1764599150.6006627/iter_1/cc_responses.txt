@@ -1,0 +1,78 @@
+
+================================================================================
+Response 1
+================================================================================
+Looking at the crash log, I can see the issue clearly:
+
+## Why the Previous Patch Failed
+
+The crash log shows:
+```
+This frame has 2 object(s):
+    [32, 62) 'nesting' (line 131) <== Memory access at offset 62 overflows this variable
+```
+
+The `nesting` array has 30 bytes (offsets 32-62), and the overflow happens at offset 62, which is **beyond** the array bounds. The issue is at line 186 in `json.c`.
+
+Your previous patch changed `MG_JSON_MAX_NESTING` to `MG_JSON_MAX_DEPTH`, but this doesn't address the root cause: **the `nesting` array is being indexed out of bounds**.
+
+Let me examine the code to understand the problem:
+
+================================================================================
+Response 2
+================================================================================
+Now I see the problem! Let me check the constants:
+
+================================================================================
+Response 3
+================================================================================
+Perfect! Now I understand the root cause:
+
+## The Root Cause
+
+1. The `nesting` array is declared as `unsigned char nesting[MG_JSON_MAX_DEPTH]` which is **30 bytes** (line 130)
+2. The checks use `if (depth > MG_JSON_MAX_NESTING)` where `MG_JSON_MAX_NESTING = 60` (lines 167, 176)
+3. **The problem**: The code increments `depth` **AFTER** the check, at lines 172 and 185: `nesting[depth++] = c;`
+4. This means when `depth` is 60 (which passes the check `60 > 60` = false), the code writes to `nesting[60]`, but the array only has indices 0-29!
+
+## Why Your Patch Failed
+
+Your patch changed the comparison to use `MG_JSON_MAX_DEPTH` instead of `MG_JSON_MAX_NESTING`, but:
+- Changed `depth > MG_JSON_MAX_NESTING` to `depth >= MG_JSON_MAX_DEPTH`
+- This would check `depth >= 30`, but since the array write happens with `nesting[depth++]`, when `depth = 29` passes the check, it writes to `nesting[29]` then increments to 30. That's still within bounds.
+- However, the original code uses `MG_JSON_MAX_NESTING = 60`, which is way beyond the array size of 30!
+
+## The Correct Fix
+
+The check must ensure that `depth` doesn't exceed `MG_JSON_MAX_DEPTH - 1` **before** the increment happens, because the increment happens immediately after.
+
+Here's the correct patch:
+
+```diff
+diff --git a/src/json.c b/src/json.c
+index cf6bc57b..fix.c 100644
+--- a/src/json.c
++++ b/src/json.c
+@@ -164,7 +164,7 @@ int mg_json_get(struct mg_str json, const char *path, int *toklen) {
+         // p("V %s [%.*s] %d %d %d %d\n", path, pos, path, depth, ed, ci, ei);
+         if (depth == ed) j = i;
+         if (c == '{') {
+-          if (depth > MG_JSON_MAX_NESTING) return MG_JSON_TOO_DEEP;
++          if (depth >= MG_JSON_MAX_DEPTH) return MG_JSON_TOO_DEEP;
+           if (depth == ed && path[pos] == '.' && ci == ei) {
+             // If we start the object, reset array indices
+             ed++, pos++, ci = ei = -1;
+@@ -173,7 +173,7 @@ int mg_json_get(struct mg_str json, const char *path, int *toklen) {
+           expecting = S_KEY;
+           break;
+         } else if (c == '[') {
+-          if (depth > MG_JSON_MAX_NESTING) return MG_JSON_TOO_DEEP;
++          if (depth >= MG_JSON_MAX_DEPTH) return MG_JSON_TOO_DEEP;
+           if (depth == ed && path[pos] == '[' && ei == ci) {
+             ed++, pos++, ci = 0;
+             for (ei = 0; path[pos] != ']' && path[pos] != '\0'; pos++) {
+```
+
+**Key difference**: Use `depth >= MG_JSON_MAX_DEPTH` (not `>`). This ensures that when `depth = 29`, it still passes, allowing `nesting[29]` to be written (the last valid index). When `depth = 30`, it fails the check before trying to write to `nesting[30]`.
+
+The original code was checking against `MG_JSON_MAX_NESTING` (60) but the array size is `MG_JSON_MAX_DEPTH` (30), causing the mismatch.

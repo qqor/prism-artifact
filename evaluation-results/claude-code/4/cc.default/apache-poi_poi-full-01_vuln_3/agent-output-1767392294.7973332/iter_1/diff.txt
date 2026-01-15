@@ -1,0 +1,99 @@
+diff --git a/poi/src/main/java/org/apache/poi/poifs/filesystem/POIFSMiniStore.java b/poi/src/main/java/org/apache/poi/poifs/filesystem/POIFSMiniStore.java
+index 527436164..03210ebee 100644
+--- a/poi/src/main/java/org/apache/poi/poifs/filesystem/POIFSMiniStore.java
++++ b/poi/src/main/java/org/apache/poi/poifs/filesystem/POIFSMiniStore.java
+@@ -86,51 +86,58 @@ public class POIFSMiniStore extends BlockStore {
+      * Load the block, extending the underlying stream if needed
+      */
+     protected ByteBuffer createBlockIfNeeded(final int offset) throws IOException {
+-        boolean firstInStore = false;
+-        if (_mini_stream.getStartBlock() == POIFSConstants.END_OF_CHAIN) {
+-            firstInStore = true;
++        // Validate offset to prevent attacks with corrupted files containing huge offsets
++        if (offset < 0) {
++            throw new IOException("Invalid negative offset: " + offset);
+         }
+ 
+-        // Try to get it without extending the stream
+-        if (!firstInStore) {
+-            try {
+-                return getBlockAt(offset);
+-            } catch (NoSuchElementException ignored) {
++        // Calculate how many big blocks we need for this offset
++        // Use long arithmetic to avoid integer overflow
++        long byteOffset = (long) offset * POIFSConstants.SMALL_BLOCK_SIZE;
++        int bigBlocksNeeded = (int) (byteOffset / _filesystem.getBigBlockSize()) + 1;
++
++        // Count how many big blocks currently exist in the mini stream
++        int currentBigBlocks = 0;
++        if (_mini_stream.getStartBlock() != POIFSConstants.END_OF_CHAIN) {
++            Iterator<Integer> countIt = _mini_stream.getBlockOffsetIterator();
++            while (countIt.hasNext()) {
++                countIt.next();
++                currentBigBlocks++;
+             }
+         }
+ 
+-        // Need to extend the stream
+-        // TODO Replace this with proper append support
+-        // For now, do the extending by hand...
+-
+-        // Ask for another block
+-        int newBigBlock = _filesystem.getFreeBlock();
+-        _filesystem.createBlockIfNeeded(newBigBlock);
+-
+-        // If we are the first block to be allocated, initialise the stream
+-        if (firstInStore) {
+-            _filesystem._get_property_table().getRoot().setStartBlock(newBigBlock);
+-            _mini_stream = new POIFSStream(_filesystem, newBigBlock);
+-        } else {
+-            // Tack it onto the end of our chain
+-            ChainLoopDetector loopDetector = _filesystem.getChainLoopDetector();
+-            int block = _mini_stream.getStartBlock();
+-            while (true) {
+-                loopDetector.claim(block);
+-                int next = _filesystem.getNextBlock(block);
+-                if (next == POIFSConstants.END_OF_CHAIN) {
+-                    break;
++        // Extend the stream by the required number of blocks (not recursively)
++        int blocksToAdd = bigBlocksNeeded - currentBigBlocks;
++        for (int i = 0; i < blocksToAdd; i++) {
++            // Ask for another block
++            int newBigBlock = _filesystem.getFreeBlock();
++            _filesystem.createBlockIfNeeded(newBigBlock);
++
++            // If we are the first block to be allocated, initialise the stream
++            if (_mini_stream.getStartBlock() == POIFSConstants.END_OF_CHAIN) {
++                _filesystem._get_property_table().getRoot().setStartBlock(newBigBlock);
++                _mini_stream = new POIFSStream(_filesystem, newBigBlock);
++            } else {
++                // Tack it onto the end of our chain
++                ChainLoopDetector loopDetector = _filesystem.getChainLoopDetector();
++                int block = _mini_stream.getStartBlock();
++                while (true) {
++                    loopDetector.claim(block);
++                    int next = _filesystem.getNextBlock(block);
++                    if (next == POIFSConstants.END_OF_CHAIN) {
++                        break;
++                    }
++                    block = next;
+                 }
+-                block = next;
++                _filesystem.setNextBlock(block, newBigBlock);
+             }
+-            _filesystem.setNextBlock(block, newBigBlock);
+-        }
+ 
+-        // This is now the new end
+-        _filesystem.setNextBlock(newBigBlock, POIFSConstants.END_OF_CHAIN);
++            // This is now the new end
++            _filesystem.setNextBlock(newBigBlock, POIFSConstants.END_OF_CHAIN);
++        }
+ 
+-        // Now try again, to get the real small block
+-        return createBlockIfNeeded(offset);
++        // Now get the block (no recursion needed)
++        return getBlockAt(offset);
+     }
+ 
+     /**

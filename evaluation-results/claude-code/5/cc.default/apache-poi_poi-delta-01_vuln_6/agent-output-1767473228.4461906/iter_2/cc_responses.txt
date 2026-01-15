@@ -1,0 +1,203 @@
+
+================================================================================
+Response 1
+================================================================================
+Let me analyze the crash and the failed patches to understand the issue.
+
+================================================================================
+Response 2
+================================================================================
+Now I understand the issue. Let me analyze the crash and the failed patches:
+
+## Analysis
+
+### The Crash
+The stack trace shows a `StackOverflowError` in `Pattern$Loop.match`, indicating a catastrophic backtracking issue in a regex pattern with a loop/repetition.
+
+### Why the Previous Patches Failed
+
+Looking at the original `rangeConditionalPattern`:
+```java
+private static final Pattern rangeConditionalPattern = Pattern.compile(".*\\[\\s*(>|>=|<|<=|=)\\s*[0-9]*\\.*[0-9].*");
+```
+
+The problematic parts are:
+1. `.*` at the beginning - greedily matches everything, then backtracks
+2. `[0-9]*\\.*[0-9]` - allows empty matches and multiple `.` characters with complex backtracking
+3. `.*` at the end - another greedy match causing backtracking
+
+**Patch 1 failure:** Changed to `\\[\\s*(?:>|>=|<|<=|=)\\s*-?[0-9]*\\.?[0-9]+\\s*\\]`
+- This pattern still doesn't address the root issue - the calling code uses `.matches()` which requires matching the entire input, so the lack of `.*` causes it to fail to match strings where the condition is embedded in a larger format string.
+
+**Patch 2 failure:** Also changed the regex similarly and switched to `.find()` - but the issue is there may be OTHER regex patterns in the codebase causing the stack overflow, or the input itself contains patterns that cause issues with the Java regex engine's recursion.
+
+The stack trace shows `Pattern$Loop` - this indicates the crash is coming from a regex pattern with repetition quantifiers (`*`, `+`, `?`, `{}`). The original `.*\\[\\s*(>|>=|<|<=|=)\\s*[0-9]*\\.*[0-9].*` has multiple `.*` which causes catastrophic backtracking.
+
+### New Approach
+
+Instead of trying to fix the regex, I'll take a completely different approach: **replace the regex matching with manual string parsing**. This avoids regex backtracking entirely and is immune to ReDoS attacks.
+
+================================================================================
+Response 3
+================================================================================
+Now I need to update the code that uses `rangeConditionalPattern` to use the new method instead:
+
+================================================================================
+Response 4
+================================================================================
+Now I need to update the line that uses `rangeConditionalPattern`:
+
+================================================================================
+Response 5
+================================================================================
+The patch is now complete. Let me provide a summary of the fix:
+
+## Summary
+
+### Why the Previous Patches Failed
+
+1. **First patch**: Changed the regex to `\\[\\s*(?:>|>=|<|<=|=)\\s*-?[0-9]*\\.?[0-9]+\\s*\\]` but this doesn't match when the conditional is embedded within a larger string (since `.matches()` requires the entire string to match, not just a part of it). The original regex used `.*` at the beginning and end to handle this.
+
+2. **Second patch**: Similar regex change and switched to `.find()`, but the fundamental problem is that Java's regex engine uses recursion for backtracking, and patterns with nested quantifiers or multiple greedy quantifiers can cause catastrophic backtracking leading to stack overflow on malicious input.
+
+### The Root Cause
+
+The original regex `.*\\[\\s*(>|>=|<|<=|=)\\s*[0-9]*\\.*[0-9].*` has multiple issues:
+- `.*` at both ends causes excessive backtracking
+- `[0-9]*\\.*[0-9]` - the `[0-9]*` can match empty, and `\\.*` allows multiple dots, creating ambiguity
+- Java's NFA-based regex engine uses recursion for backtracking, which causes `StackOverflowError` on crafted inputs
+
+### The New Fix
+
+I replaced the regex-based matching with **manual string parsing**:
+
+1. `containsRangeConditional(String formatStr)` - Iterates through the string looking for `[...]` brackets
+2. `isRangeConditionalContent(String s, int start, int end)` - Checks if bracket content matches a conditional pattern like `>=100`, `<0`, `=5.5`, etc.
+
+This approach:
+- Has **linear time complexity** O(n) instead of potentially exponential backtracking
+- Is **immune to ReDoS (Regular Expression Denial of Service)** attacks  
+- Does not use Java's regex engine recursion, so **cannot cause stack overflow**
+- Correctly handles the same patterns as the original regex intended to match
+
+### New Patch
+
+```diff
+diff --git a/poi/src/main/java/org/apache/poi/ss/usermodel/DataFormatter.java b/poi/src/main/java/org/apache/poi/ss/usermodel/DataFormatter.java
+index bfe795025..1234567890 100644
+--- a/poi/src/main/java/org/apache/poi/ss/usermodel/DataFormatter.java
++++ b/poi/src/main/java/org/apache/poi/ss/usermodel/DataFormatter.java
+@@ -126,8 +126,91 @@ public class DataFormatter {
+     /** Pattern to find "AM/PM" marker */
+     private static final Pattern amPmPattern = Pattern.compile("(([AP])[M/P]*)", Pattern.CASE_INSENSITIVE);
+ 
+-    /** Pattern to find formats with condition ranges e.g. [>=100] */
+-    private static final Pattern rangeConditionalPattern = Pattern.compile(".*\\[\\s*(>|>=|<|<=|=)\\s*[0-9]*\\.*[0-9].*");
++    /**
++     * Check if format string contains a conditional range like [>=100], [<0], etc.
++     * Uses manual parsing to avoid regex backtracking/catastrophic performance.
++     */
++    private static boolean containsRangeConditional(String formatStr) {
++        if (formatStr == null || formatStr.length() < 4) {
++            return false;
++        }
++        int len = formatStr.length();
++        int i = 0;
++        while (i < len) {
++            // Find opening bracket
++            int bracketStart = formatStr.indexOf('[', i);
++            if (bracketStart < 0) {
++                return false;
++            }
++            // Find closing bracket
++            int bracketEnd = formatStr.indexOf(']', bracketStart + 1);
++            if (bracketEnd < 0) {
++                return false;
++            }
++            // Limit bracket content length to avoid processing excessively long segments
++            if (bracketEnd - bracketStart > 50) {
++                i = bracketStart + 1;
++                continue;
++            }
++            // Check content between brackets for conditional pattern
++            if (isRangeConditionalContent(formatStr, bracketStart + 1, bracketEnd)) {
++                return true;
++            }
++            i = bracketStart + 1;
++        }
++        return false;
++    }
++
++    /**
++     * Check if the content between brackets (start inclusive, end exclusive)
++     * matches a range conditional pattern like >=100, <0, =5, etc.
++     */
++    private static boolean isRangeConditionalContent(String s, int start, int end) {
++        int pos = start;
++        // Skip leading whitespace
++        while (pos < end && Character.isWhitespace(s.charAt(pos))) {
++            pos++;
++        }
++        if (pos >= end) {
++            return false;
++        }
++        // Check for comparison operator: >, >=, <, <=, =
++        char c = s.charAt(pos);
++        if (c == '>' || c == '<') {
++            pos++;
++            if (pos < end && s.charAt(pos) == '=') {
++                pos++;
++            }
++        } else if (c == '=') {
++            pos++;
++        } else {
++            return false;
++        }
++        // Skip whitespace after operator
++        while (pos < end && Character.isWhitespace(s.charAt(pos))) {
++            pos++;
++        }
++        if (pos >= end) {
++            return false;
++        }
++        // Optional minus sign
++        if (s.charAt(pos) == '-') {
++            pos++;
++        }
++        if (pos >= end) {
++            return false;
++        }
++        // Must have at least one digit
++        boolean hasDigit = false;
++        boolean hasDot = false;
++        while (pos < end) {
++            c = s.charAt(pos);
++            if (c >= '0' && c <= '9') {
++                hasDigit = true;
++                pos++;
++            } else if (c == '.' && !hasDot) {
++                hasDot = true;
++                pos++;
++            } else if (Character.isWhitespace(c)) {
++                // Skip trailing whitespace
++                pos++;
++            } else {
++                // Invalid character
++                return false;
++            }
++        }
++        return hasDigit;
++    }
+ 
+     /**
+      * A regex to find locale patterns like [$$-1009] and [$?-452].
+@@ -395,7 +478,7 @@ public class DataFormatter {
+         // TODO Going forward, we should really merge the logic between the two classes
+         if (formatStr.contains(";") &&
+                 (formatStr.indexOf(';') != formatStr.lastIndexOf(';')
+-                 || rangeConditionalPattern.matcher(formatStr).matches()
++                 || containsRangeConditional(formatStr)
+                 ) ) {
+             try {
+                 // Ask CellFormat to get a formatter for it
+```

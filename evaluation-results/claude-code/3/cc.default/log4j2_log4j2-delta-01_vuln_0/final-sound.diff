@@ -1,0 +1,77 @@
+diff --git a/core/src/main/java/org/apache/logging/log4j/core/lookup/JndiLookup.java b/core/src/main/java/org/apache/logging/log4j/core/lookup/JndiLookup.java
+index 90e082a9f..f46a42a79 100644
+--- a/core/src/main/java/org/apache/logging/log4j/core/lookup/JndiLookup.java
++++ b/core/src/main/java/org/apache/logging/log4j/core/lookup/JndiLookup.java
+@@ -55,6 +55,12 @@ public class JndiLookup implements StrLookup {
+             return null;
+         }
+ 
++        // Security fix: Only allow local JNDI lookups (java: protocol)
++        // Block remote JNDI lookups to prevent RCE vulnerabilities
++        if (!isAllowedJndiProtocol(key)) {
++            return null;
++        }
++
+         try {
+             InitialContext ctx = new InitialContext();
+             return (String) ctx.lookup(convertJndiName(key));
+@@ -63,6 +69,59 @@ public class JndiLookup implements StrLookup {
+         }
+     }
+ 
++    /**
++     * Validates that the JNDI name uses an allowed protocol.
++     * Only local java: protocol is allowed to prevent remote code execution.
++     *
++     * @param jndiName The JNDI name to validate
++     * @return true if the protocol is allowed, false otherwise
++     */
++    private boolean isAllowedJndiProtocol(String jndiName) {
++        if (jndiName == null || jndiName.isEmpty()) {
++            return false;
++        }
++
++        // Convert the name first to see what the actual lookup will be
++        String convertedName = convertJndiNameForValidation(jndiName);
++
++        // Only allow java: protocol (local JNDI lookups)
++        // Block remote protocols: ldap://, ldaps://, rmi://, dns://, iiop://, corbaname:, etc.
++        if (convertedName.startsWith("java:")) {
++            return true;
++        }
++
++        // Check for dangerous remote protocols
++        String lowerName = convertedName.toLowerCase();
++        if (lowerName.startsWith("ldap:") || lowerName.startsWith("ldaps:") ||
++            lowerName.startsWith("rmi:") || lowerName.startsWith("dns:") ||
++            lowerName.startsWith("iiop:") || lowerName.startsWith("corbaname:") ||
++            lowerName.startsWith("nds:") || lowerName.startsWith("nis:")) {
++            return false;
++        }
++
++        // If no protocol is specified and doesn't start with java:comp/env/,
++        // it will be prefixed with java:comp/env/ which is safe
++        if (convertedName.indexOf(':') == -1) {
++            return true;
++        }
++
++        // Block anything else with a protocol that we haven't explicitly allowed
++        return false;
++    }
++
++    /**
++     * Convert the given JNDI name to the actual JNDI name to use (for validation).
++     * This mirrors convertJndiName logic but is used for security validation.
++     * @param jndiName The name of the resource.
++     * @return The fully qualified name that will be looked up.
++     */
++    private String convertJndiNameForValidation(String jndiName) {
++        if (!jndiName.startsWith(CONTAINER_JNDI_RESOURCE_PATH_PREFIX) && jndiName.indexOf(':') == -1) {
++            return CONTAINER_JNDI_RESOURCE_PATH_PREFIX + jndiName;
++        }
++        return jndiName;
++    }
++
+     /**
+      * Convert the given JNDI name to the actual JNDI name to use.
+      * Default implementation applies the "java:comp/env/" prefix

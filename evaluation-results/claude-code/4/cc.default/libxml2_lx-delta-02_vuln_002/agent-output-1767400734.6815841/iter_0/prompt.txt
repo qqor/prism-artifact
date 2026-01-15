@@ -1,0 +1,69 @@
+Create a patch to fix a AddressSanitizer: attempting bug given below and apply it to the code.
+NEVER fix files outside the source directory.
+NEVER do any git operations in or outside the source directory.
+
+Below is the crash log:
+
+<crash_log>
+==ERROR: AddressSanitizer: attempting double-free on 0x5020000008b0 in thread T0:
+SCARINESS: 42 (double-free)
+    #0 0x5588cf7ecf66 in free /src/llvm-project/compiler-rt/lib/asan/asan_malloc_linux.cpp:52:3
+    #1 0x5588cf8e04b4 in xmlParseAttribute2 /src/libxml2/parser.c:9028:13
+    #2 0x5588cf8d8714 in xmlParseStartTag2 /src/libxml2/parser.c:9233:13
+    #3 0x5588cf8a66d0 in xmlParseElementStart /src/libxml2/parser.c:10136:16
+    #4 0x5588cf8a5997 in xmlParseElement /src/libxml2/parser.c:10071:9
+    #5 0x5588cf8b14f1 in xmlParseDocument /src/libxml2/parser.c:10902:2
+    #6 0x5588cf8c6b88 in xmlCtxtParseDocument /src/libxml2/parser.c:13988:5
+    #7 0x5588cf8ca024 in xmlCtxtReadMemory /src/libxml2/parser.c:14314:12
+    #8 0x5588cf82cbd4 in LLVMFuzzerTestOneInput /src/libxml2/fuzz/xml.c:68:15
+    #9 0x5588cf6e1430 in fuzzer::Fuzzer::ExecuteCallback(unsigned char const*, unsigned long) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:614:13
+    #10 0x5588cf6cc6a5 in fuzzer::RunOneTest(fuzzer::Fuzzer*, char const*, unsigned long) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerDriver.cpp:327:6
+    #11 0x5588cf6d213f in fuzzer::FuzzerDriver(int*, char***, int (*)(unsigned char const*, unsigned long)) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerDriver.cpp:862:9
+    #12 0x5588cf6fd3e2 in main /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerMain.cpp:20:10
+    #13 0x7f74ca961082 in __libc_start_main (/lib/x86_64-linux-gnu/libc.so.6+0x24082) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #14 0x5588cf6c488d in _start (/out/xml+0x18388d)
+
+DEDUP_TOKEN: __interceptor_free--xmlParseAttribute2--xmlParseStartTag2
+0x5020000008b0 is located 0 bytes inside of 9-byte region [0x5020000008b0,0x5020000008b9)
+freed by thread T0 here:
+    #0 0x5588cf7ecf66 in free /src/llvm-project/compiler-rt/lib/asan/asan_malloc_linux.cpp:52:3
+    #1 0x5588cf8e041f in xmlParseAttribute2 /src/libxml2/parser.c:9024:17
+    #2 0x5588cf8d8714 in xmlParseStartTag2 /src/libxml2/parser.c:9233:13
+    #3 0x5588cf8a66d0 in xmlParseElementStart /src/libxml2/parser.c:10136:16
+    #4 0x5588cf8a5997 in xmlParseElement /src/libxml2/parser.c:10071:9
+    #5 0x5588cf8b14f1 in xmlParseDocument /src/libxml2/parser.c:10902:2
+    #6 0x5588cf8c6b88 in xmlCtxtParseDocument /src/libxml2/parser.c:13988:5
+    #7 0x5588cf8ca024 in xmlCtxtReadMemory /src/libxml2/parser.c:14314:12
+    #8 0x5588cf82cbd4 in LLVMFuzzerTestOneInput /src/libxml2/fuzz/xml.c:68:15
+    #9 0x5588cf6e1430 in fuzzer::Fuzzer::ExecuteCallback(unsigned char const*, unsigned long) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:614:13
+    #10 0x5588cf6cc6a5 in fuzzer::RunOneTest(fuzzer::Fuzzer*, char const*, unsigned long) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerDriver.cpp:327:6
+    #11 0x5588cf6d213f in fuzzer::FuzzerDriver(int*, char***, int (*)(unsigned char const*, unsigned long)) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerDriver.cpp:862:9
+    #12 0x5588cf6fd3e2 in main /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerMain.cpp:20:10
+    #13 0x7f74ca961082 in __libc_start_main (/lib/x86_64-linux-gnu/libc.so.6+0x24082) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+
+DEDUP_TOKEN: __interceptor_free--xmlParseAttribute2--xmlParseStartTag2
+previously allocated by thread T0 here:
+    #0 0x5588cf7ed1ff in malloc /src/llvm-project/compiler-rt/lib/asan/asan_malloc_linux.cpp:68:3
+    #1 0x5588cf82d403 in xmlFuzzMalloc /src/libxml2/fuzz/fuzz.c:127:11
+    #2 0x5588cf9cd92a in xmlStrndup /src/libxml2/xmlstring.c:57:11
+    #3 0x5588cf8e0044 in xmlParseAttribute2 /src/libxml2/parser.c:9009:28
+    #4 0x5588cf8d8714 in xmlParseStartTag2 /src/libxml2/parser.c:9233:13
+    #5 0x5588cf8a66d0 in xmlParseElementStart /src/libxml2/parser.c:10136:16
+    #6 0x5588cf8a5997 in xmlParseElement /src/libxml2/parser.c:10071:9
+    #7 0x5588cf8b14f1 in xmlParseDocument /src/libxml2/parser.c:10902:2
+    #8 0x5588cf8c6b88 in xmlCtxtParseDocument /src/libxml2/parser.c:13988:5
+    #9 0x5588cf8ca024 in xmlCtxtReadMemory /src/libxml2/parser.c:14314:12
+    #10 0x5588cf82cbd4 in LLVMFuzzerTestOneInput /src/libxml2/fuzz/xml.c:68:15
+    #11 0x5588cf6e1430 in fuzzer::Fuzzer::ExecuteCallback(unsigned char const*, unsigned long) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:614:13
+    #12 0x5588cf6cc6a5 in fuzzer::RunOneTest(fuzzer::Fuzzer*, char const*, unsigned long) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerDriver.cpp:327:6
+    #13 0x5588cf6d213f in fuzzer::FuzzerDriver(int*, char***, int (*)(unsigned char const*, unsigned long)) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerDriver.cpp:862:9
+    #14 0x5588cf6fd3e2 in main /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerMain.cpp:20:10
+    #15 0x7f74ca961082 in __libc_start_main (/lib/x86_64-linux-gnu/libc.so.6+0x24082) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+
+DEDUP_TOKEN: __interceptor_malloc--xmlFuzzMalloc--xmlStrndup
+SUMMARY: AddressSanitizer: double-free /src/libxml2/parser.c:9028:13 in xmlParseAttribute2
+==18==ABORTING
+subprocess command returned a non-zero exit status: 1
+INFO:__main__:Running: docker run --privileged --shm-size=2g --platform linux/amd64 --rm -i -e HELPER=True -e ARCHITECTURE=x86_64 -v /home/qqor/crete/packages/python_oss_fuzz/.oss_fuzz/build/out/libxml2:/out -v /tmp/tmprhqi30s8:/testcase -t ghcr.io/aixcc-finals/base-runner:v1.3.0 reproduce xml -runs=100.
+
+</crash_log>

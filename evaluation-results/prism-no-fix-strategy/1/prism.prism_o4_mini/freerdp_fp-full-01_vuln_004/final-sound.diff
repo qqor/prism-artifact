@@ -1,0 +1,83 @@
+--- a/winpr/include/winpr/stream.h
++++ b/winpr/include/winpr/stream.h
+@@ -695,14 +695,14 @@
+ 		_v = stream_read_i64_be(_s, TRUE); \
+ 	} while (0)
+ 
+-	static INLINE void Stream_Read(wStream* _s, void* _b, size_t _n)
+-	{
+-		WINPR_ASSERT(_s);
+-		WINPR_ASSERT(_b || (_n == 0));
+-		WINPR_ASSERT(Stream_GetRemainingCapacity(_s) >= _n);
+-		memcpy(_b, (_s->pointer), (_n));
+-		Stream_Seek(_s, _n);
+-	}
++static INLINE void Stream_Read(wStream* _s, void* _b, size_t _n)
++{
++    WINPR_ASSERT(_s);
++    WINPR_ASSERT(_b || (_n == 0));
++    WINPR_ASSERT(Stream_GetRemainingLength(_s) >= _n);
++    memcpy(_b, (_s->pointer), (_n));
++    Stream_Seek(_s, _n);
++}
+ 
+ #define Stream_Peek_UINT8(_s, _v)       \
+ 	do                                  \
+
+--- a/libfreerdp/core/gcc.c
++++ b/libfreerdp/core/gcc.c
+@@ -1850,17 +1850,17 @@
+ 	WINPR_ASSERT(s);
+ 	WINPR_ASSERT(mcs);
+ 
+-	const size_t blockLength = Stream_GetRemainingLength(s);
+-	if (blockLength < 4)
+-		return FALSE;
+-
+-	Stream_Read_UINT8(s, mcs->channelCount); /* channelCount */
+-
+-	if (blockLength < 4 + (UINT8)mcs->channelCount * 12)
+-		return FALSE;
+-
+-	if (mcs->channelCount > CHANNEL_MAX_COUNT)
+-		return FALSE;
++	size_t remLen = Stream_GetRemainingLength(s);
++	if (remLen < 1)
++		return FALSE;
++	UINT8 channelCount;
++	Stream_Read_UINT8(s, channelCount);
++	if (channelCount > CHANNEL_MAX_COUNT)
++		return FALSE;
++	/* ensure enough remaining bytes for all channel definitions */
++	if (Stream_GetRemainingLength(s) < (size_t)channelCount * ((CHANNEL_NAME_LEN + 1) + sizeof(UINT32)))
++		return FALSE;
++	mcs->channelCount = channelCount;
+ 
+ 	/* channelDefArray */
+ 	for (UINT32 i = 0; i < mcs->channelCount; i++)
+@@ -1872,17 +1872,18 @@
+ 		 * - options: a 32-bit, unsigned integer. Channel option flags
+ 		 */
+ 		rdpMcsChannel* channel = &mcs->channels[i];
+-		Stream_Read(s, channel->Name, CHANNEL_NAME_LEN + 1); /* name (8 bytes) */
+-
++		if (Stream_GetRemainingLength(s) < (CHANNEL_NAME_LEN + 1))
++			return FALSE;
++		Stream_Read(s, channel->Name, CHANNEL_NAME_LEN + 1);
+ 		if (!memchr(channel->Name, 0, CHANNEL_NAME_LEN + 1))
+ 		{
+-			WLog_ERR(
+-			    TAG,
+-			    "protocol violation: received a static channel name with missing null-termination");
++			WLog_ERR(TAG,
++				"protocol violation: received a static channel name with missing null-termination");
+ 			return FALSE;
+ 		}
+-
+-		Stream_Read_UINT32(s, channel->options); /* options (4 bytes) */
++		if (Stream_GetRemainingLength(s) < sizeof(UINT32))
++			return FALSE;
++		Stream_Read_UINT32(s, channel->options);
+ 		channel->ChannelId = mcs->baseChannelId++;
+ 	}
+ 

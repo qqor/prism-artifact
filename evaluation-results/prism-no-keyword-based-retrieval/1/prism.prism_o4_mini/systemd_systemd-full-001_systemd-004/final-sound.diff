@@ -1,0 +1,38 @@
+--- a/src/shared/condition.c
++++ b/src/shared/condition.c
+@@ -97,12 +97,19 @@
+ }
+ 
+ Condition* condition_free_list_type(Condition *head, ConditionType type) {
+-        LIST_FOREACH(conditions, c, head)
++        Condition **link = &head;
++        Condition *c;
++
++        while ((c = *link)) {
+                 if (type < 0 || c->type == type) {
+-                        condition_free(c);
++                        *link = c->conditions_next;
++                        free(c->parameter);
++                        mfree(c);
++                } else {
++                        link = &c->conditions_next;
+                 }
+-
+-        assert(type >= 0 || !head);
++        }
++
+         return head;
+ }
+ 
+
+--- a/src/udev/net/link-config.c
++++ b/src/udev/net/link-config.c
+@@ -61,7 +61,7 @@
+         strv_free(config->dropins);
+ 
+         net_match_clear(&config->match);
+-        condition_free_list(config->conditions);
++        config->conditions = condition_free_list(config->conditions);
+ 
+         free(config->description);
+         strv_free(config->properties);

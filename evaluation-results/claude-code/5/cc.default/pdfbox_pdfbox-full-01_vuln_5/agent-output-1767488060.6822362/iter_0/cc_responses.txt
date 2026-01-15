@@ -1,0 +1,40 @@
+
+================================================================================
+Response 1
+================================================================================
+Now I can see the issue. The `readCharString` method at line 502 creates a byte array with the `length` parameter passed from `prevToken.intValue()` without any validation. A malicious PDF can provide an extremely large integer value, causing an `OutOfMemoryError` when trying to allocate the array.
+
+The fix should add a reasonable maximum limit check for the `length` parameter before allocating the byte array. Let me also check if there's a similar maximum value used elsewhere in the codebase for consistency.
+
+================================================================================
+Response 2
+================================================================================
+I can see that `PfbParser.java` uses `MAX_LENGTH = 100_000_000` as a maximum. However, for a CharString, we should use a much smaller reasonable maximum since CharStrings in Type 1 fonts are typically very small (usually a few hundred bytes at most). Let me also check the buffer remaining size - a sensible approach would be to:
+
+1. Check that `length` is non-negative
+2. Check that `length` does not exceed the remaining buffer size
+3. Optionally add a reasonable maximum constant as a sanity check
+
+Let me create the fix:
+
+================================================================================
+Response 3
+================================================================================
+The patch has been applied successfully. Here's a summary of the fix:
+
+## Summary
+
+**Bug:** `OutOfMemoryError` in `Type1Lexer.readCharString()` (line 507 in the original stack trace)
+
+**Root Cause:** The `readCharString(int length)` method directly allocated a byte array using the `length` parameter from the parsed font data without any validation. A maliciously crafted PDF could provide an extremely large integer value (e.g., 77308 as seen in the crash log metadata `/Length2 77308`), causing Java to attempt allocating an array that exceeds VM limits.
+
+**Fix Applied:** Added two validation checks before allocating the byte array:
+
+1. **Negative length check:** Throws `DamagedFontException` if `length < 0`
+2. **Buffer bounds check:** Throws `DamagedFontException` if `length > buffer.remaining()` - this ensures we never try to allocate more memory than the actual data available in the buffer
+
+This fix:
+- Prevents the `OutOfMemoryError` by rejecting invalid lengths early
+- Uses `DamagedFontException` which is consistent with other error handling in this class
+- Provides informative error messages for debugging
+- Is a minimal, targeted fix that doesn't change normal behavior for valid fonts

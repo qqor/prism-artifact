@@ -1,0 +1,45 @@
+
+================================================================================
+Response 1
+================================================================================
+Now I understand the issue. The bug is in the `parsePfb` method at line 166. The problem is that the `size` variable is read from 4 bytes and can be negative (due to signed integer interpretation) or extremely large. The check at line 162 (`newTotal > MAX_LENGTH`) only validates `newTotal`, but by that point, if `size` is negative (when the high bit is set in the 4-byte value), it could pass the check but then cause issues when creating the byte array.
+
+The issue is that `size` is computed without proper validation - if the bytes read represent a very large positive value or a negative value due to integer overflow, it could:
+1. Pass the `newTotal > MAX_LENGTH` check if `size` is negative (since adding a negative would decrease `total`)
+2. Then at line 166, `new byte[size]` with a very large (or even negative, which would throw) value causes OutOfMemoryError
+
+Let me check the exact issue more carefully:
+
+================================================================================
+Response 2
+================================================================================
+Now I see the bug clearly. The issue is:
+
+1. At lines 156-159, `size` is read as a signed integer from 4 bytes
+2. If the highest bit of the 4th byte is set, the resulting `size` will be negative (due to `<< 24` on a signed int)
+3. The check at line 162 `newTotal > MAX_LENGTH` doesn't catch negative sizes (since `total + negative` would be less than `MAX_LENGTH`)
+4. Additionally, even if `size` is positive but less than `MAX_LENGTH`, there's no direct validation that `size` itself is not negative or excessively large
+
+The fix needs to:
+1. Validate that `size` is not negative
+2. Validate that `size` itself doesn't exceed `MAX_LENGTH` (not just `newTotal`)
+
+================================================================================
+Response 3
+================================================================================
+The patch has been applied. Here's a summary of the fix:
+
+## Summary
+
+**Bug:** Out of Memory error in `PfbParser.java` at line 166 when allocating `new byte[size]`
+
+**Root Cause:** The `size` variable is read as a 4-byte signed integer (lines 156-159). When parsing malformed/malicious PFB font data:
+1. If the high bit of the 4th byte is set, the integer becomes negative due to signed arithmetic (`<< 24`)
+2. The existing validation `newTotal > MAX_LENGTH` didn't catch negative sizes (negative + total could be less than MAX_LENGTH)
+3. The code could attempt to allocate a huge array with an unchecked `size` value, leading to `OutOfMemoryError`
+
+**Fix:** Added validation immediately after reading the `size` value to check:
+- `size < 0` - catches cases where signed integer overflow produces negative values
+- `size > MAX_LENGTH` - catches individual segment sizes that are too large before attempting allocation
+
+This prevents the code from attempting to allocate an excessively large byte array that would cause the Out of Memory condition.

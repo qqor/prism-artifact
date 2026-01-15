@@ -1,0 +1,44 @@
+--- a/fontbox/src/main/java/org/apache/fontbox/type1/Type1Parser.java
++++ b/fontbox/src/main/java/org/apache/fontbox/type1/Type1Parser.java
+@@ -43,7 +43,7 @@
+     // constants for encryption
+     private static final int EEXEC_KEY = 55665;
+     private static final int CHARSTRING_KEY = 4330;
+-
++    private static final int MAX_ASCII_TOKENS = 10000;
+     // state
+     private Type1Lexer lexer;
+     private Type1Font font;
+@@ -214,18 +214,28 @@
+             // 0 1 255 {1 index exch /.notdef put } for
+             // we have to check "readonly" and "def" too
+             // as some fonts don't provide any dup-values, see PDFBOX-2134
++            int tokenCountReadEnc = 0;
+             while (!(lexer.peekKind(Token.NAME)
+                     && (lexer.peekToken().getText().equals("dup")
+                             || lexer.peekToken().getText().equals("readonly")
+                             || lexer.peekToken().getText().equals("def"))))
+             {
++                if (tokenCountReadEnc++ > MAX_ASCII_TOKENS)
++                {
++                    throw new IOException("Too many tokens in readEncoding skip loop: " + tokenCountReadEnc);
++                }
+                 lexer.nextToken();
+             }
+-            
++
+             Map<Integer, String> codeToName = new HashMap<>();
+-            while (lexer.peekKind(Token.NAME) &&
+-                    lexer.peekToken().getText().equals("dup"))
+-            {
++            int dupCountReadEnc = 0;
++            while (lexer.peekKind(Token.NAME)
++                    && lexer.peekToken().getText().equals("dup"))
++            {
++                if (dupCountReadEnc++ > MAX_ASCII_TOKENS)
++                {
++                    throw new IOException("Too many dup entries in readEncoding: " + dupCountReadEnc);
++                }
+                 read(Token.NAME, "dup");
+                 int code = read(Token.INTEGER).intValue();
+                 String name = read(Token.LITERAL).getText();

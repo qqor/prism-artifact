@@ -1,0 +1,45 @@
+--- a/src/udev/udev-rules.c
++++ b/src/udev/udev-rules.c
+@@ -5,6 +5,8 @@
+ #include "alloc-util.h"
+ #include "architecture.h"
+ #include "conf-files.h"
++#include <string.h>
++#include <errno.h>
+ #include "conf-parser.h"
+ #include "confidential-virt.h"
+ #include "constants.h"
+@@ -1140,7 +1142,8 @@
+ int udev_rule_parse_value(char *str, char **ret_value, char **ret_endpos, bool *ret_is_case_insensitive) {
+         char *i, *j, *m;
+         bool is_escaped = false, is_case_insensitive = false, is_prefix_match = false;
+-        int pos = 0;
++    int pos = 0;
++    size_t orig_len = strlen(str);
+ 
+         assert(str);
+         assert(ret_value);
+@@ -1215,13 +1218,16 @@
+                 * The return value must be terminated by two subsequent NULs
+                 * so it could be safely interpreted as nulstr.
+                 */
+-                if (is_prefix_match){
+-                        /* need more room to make rule glob match */
+-                        memcpy(str + pos - 1, unescaped, l + 1);
+-                        str[pos + l - 1] = '*';
+-                        str[pos + l] = '\0';
+-                        str[pos + l + 1] = '\0';
+-                        m = str + pos - 1;
++    if (is_prefix_match) {
++        /* need more room to make rule glob match */
++        /* ensure enough room for '*' and two terminating NUL bytes */
++        if (pos + l + 2 > orig_len)
++            return -EINVAL;
++        memcpy(str + pos - 1, unescaped, l + 1);
++        str[pos + l - 1] = '*';
++        str[pos + l]     = '\0';
++        str[pos + l + 1] = '\0';
++        m = str + pos - 1;
+ 
+                 } else {
+                         memcpy(m, unescaped, l + 1);

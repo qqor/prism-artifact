@@ -1,0 +1,53 @@
+diff --git a/src/udev/udev-rules.c b/src/udev/udev-rules.c
+index 9f9a970a6c..11c8517268 100644
+--- a/src/udev/udev-rules.c
++++ b/src/udev/udev-rules.c
+@@ -1140,6 +1140,7 @@ static void check_token_delimiters(UdevRuleLine *rule_line, const char *line) {
+ int udev_rule_parse_value(char *str, char **ret_value, char **ret_endpos, bool *ret_is_case_insensitive) {
+         char *i, *j, *m;
+         bool is_escaped = false, is_case_insensitive = false, is_prefix_match = false;
++        size_t str_len = strlen(str);
+         int pos = 0;
+ 
+         assert(str);
+@@ -1183,12 +1184,17 @@ int udev_rule_parse_value(char *str, char **ret_value, char **ret_endpos, bool *
+                 /*
+                  * The return value must be terminated by two subsequent NULs
+                  * so it could be safely interpreted as nulstr.
++                 * Check that we have enough space in the buffer.
+                  */
+                 if (is_prefix_match){
++                        if (j + 2 > str + str_len)
++                                return -EINVAL;
+                         j[0] = '*';
+                         j[1] = '\0';
+                         j[2] = '\0';
+                 } else {
++                        if (j + 1 > str + str_len)
++                                return -EINVAL;
+                         j[0] = '\0';
+                         j[1] = '\0';
+                 }
+@@ -1214,16 +1220,21 @@ int udev_rule_parse_value(char *str, char **ret_value, char **ret_endpos, bool *
+                 /*
+                 * The return value must be terminated by two subsequent NULs
+                 * so it could be safely interpreted as nulstr.
++                * Check that we have enough space in the buffer.
+                 */
+                 if (is_prefix_match){
++                        if (pos + l + 1 > (ssize_t)str_len)
++                                return -EINVAL;
+                         /* need more room to make rule glob match */
+-                        memcpy(str + pos - 1, unescaped, l + 1);
++                        memcpy(str + pos - 1, unescaped, l);
+                         str[pos + l - 1] = '*';
+                         str[pos + l] = '\0';
+                         str[pos + l + 1] = '\0';
+                         m = str + pos - 1;
+ 
+                 } else {
++                        if (m + l + 1 > str + str_len)
++                                return -EINVAL;
+                         memcpy(m, unescaped, l + 1);
+                         m[l] = '\0';
+                         m[l + 1] = '\0';

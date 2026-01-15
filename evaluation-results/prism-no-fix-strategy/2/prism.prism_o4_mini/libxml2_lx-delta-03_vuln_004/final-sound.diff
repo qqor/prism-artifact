@@ -1,0 +1,100 @@
+--- a/encoding.c
++++ b/encoding.c
+@@ -2846,6 +2846,7 @@
+     const unsigned char *instart = in;
+     const unsigned char *inend = in + (*inlen & ~1);
+     unsigned char *outstart = out;
++    unsigned char *outend   = out + *outlen;
+     unsigned long int b0, b1, b2, b3, c, d;
+     int ret = XML_ENC_ERR_SPACE;
+ 
+@@ -2865,46 +2866,65 @@
+         c = b0 | b1 | b2 | b3;
+ 
+         if (c < 0x80) {
++            /* ensure room for 1 byte */
++            if (outend - out < 1) {
++                ret = XML_ENC_ERR_SPACE;
++                break;
++            }
+             out[0] = c;
+             in += 4;
+             out += 1;
+         } else if (c < 0x800) {
+-            out[0] = (c >> 6)   | 0xC0;
+-            out[1] = (c & 0x3F) | 0x80;
++            /* ensure room for 2 bytes */
++            if (outend - out < 2) {
++                ret = XML_ENC_ERR_SPACE;
++                break;
++            }
++            out[0] = (c >> 6)        | 0xC0;
++            out[1] = (c & 0x3F)      | 0x80;
+             in += 4;
+             out += 2;
+         } else if ((c & 0xF800) != 0xD800) {
+-            out[0] =  (c >> 12)         | 0xE0;
++            /* ensure room for 3 bytes */
++            if (outend - out < 3) {
++                ret = XML_ENC_ERR_SPACE;
++                break;
++            }
++            out[0] = (c >> 12)         | 0xE0;
+             out[1] = ((c >>  6) & 0x3F) | 0x80;
+-            out[2] =  (c        & 0x3F) | 0x80;
++            out[2] = (c & 0x3F)         | 0x80;
+             in += 4;
+             out += 3;
+         } else {
+-            /* Surrogate pair */
++            /* surrogate pair */
++            /* verify leading surrogate */
+             if ((c & 0xFC00) != 0xD800) {
+-                ret = XML_ERR_INTERNAL_ERROR;
++                ret = XML_ENC_ERR_INTERNAL;
+                 break;
+             }
+-	        if (inend - in < 4)
+-		        break;
+-            d = in[2] | (in[3] << 8);
+-            if ((d & 0xFC00) != 0xDC00) {
+-                ret = XML_ERR_INTERNAL_ERROR;
++            /* verify room for surrogate trail */
++            if (inend - in < 4) {
++                ret = XML_ENC_ERR_SPACE;
+                 break;
+             }
+-            /*
+-                simplified due to encoding errors encountered with:
+-
+-                c = (c << 10) + d - ((0xD800 << 10) + 0xDC00 - 0x10000);
+-                out[0] =  (c >> 18)         | 0xF0;
+-                out[1] = ((c >> 12) & 0x3F) | 0x80;
+-                out[2] = ((c >>  6) & 0x3F) | 0x80;
+-                out[3] =  (c        & 0x3F) | 0x80;
+-            */
+-            out[0] = c & 0xff;
+-            out[1] = (c >> 8) & 0xff;
+-            out[2] = (c >> 0x10) & 0xff;
+-            out[3] = (c >> 0x18) & 0xff;
++            d = in[2] | (in[3] << 8);
++            /* verify trailing surrogate */
++            if ((d & 0xFC00) != 0xDC00) {
++                ret = XML_ENC_ERR_INTERNAL;
++                break;
++            }
++            /* combine surrogate pair into code point */
++            c = (c << 10) + d - ((0xD800 << 10) + 0xDC00 - 0x10000);
++            /* ensure room for 4 bytes */
++            if (outend - out < 4) {
++                ret = XML_ENC_ERR_SPACE;
++                break;
++            }
++            /* encode into UTF-8 */
++            out[0] = (c >> 18)        | 0xF0;
++            out[1] = ((c >> 12) & 0x3F) | 0x80;
++            out[2] = ((c >>  6) & 0x3F) | 0x80;
++            out[3] = (c & 0x3F)         | 0x80;
+             in += 4;
+             out += 4;
+         }

@@ -1,0 +1,138 @@
+
+================================================================================
+Response 1
+================================================================================
+Now I understand the issue. Let me look at the failed patch more carefully and analyze why it didn't work.
+
+The failed patch tried to add recursion protection in `showType3Glyph()` method, but there are several issues:
+
+1. **The recursion check happens AFTER `increaseLevel()`** - This means when `getLevel() > 50`, we return but the level was already increased. The `finally` block will decrease it, but the problem is that the check happens at the wrong point in the flow.
+
+2. **The real issue might be in a different location** - The timeout suggests an infinite loop or deep recursion that's not being caught. Looking at the code flow:
+   - `showType3Glyph()` calls `processType3Stream()` 
+   - `processType3Stream()` calls `processStreamOperators()`
+   - `processStreamOperators()` processes operators which can call `showText()` → `showGlyph()` → `showType3Glyph()` again
+
+Let me look for other places where recursion depth checking might be needed, particularly the `processStreamOperators` method or other stream processing methods:
+
+================================================================================
+Response 2
+================================================================================
+Let me look at one of these DrawObject implementations to see how they handle the recursion check correctly:
+
+================================================================================
+Response 3
+================================================================================
+Now I see the pattern. The DrawObject operator checks for recursion with `context.getLevel() > 50` **before** calling `showForm` or `showTransparencyGroup`. Notice that it has a bug - the `increaseLevel()` is called first, then the check happens. If `getLevel() > 50`, it returns but the `finally` block still calls `decreaseLevel()`, which is correct.
+
+The issue is that the failed patch was trying to add recursion protection to `showType3Glyph`, but the problem is actually that there's a different path causing the timeout. Looking at the code flow for Type3 fonts:
+
+1. `showType3Glyph` is called
+2. It calls `processType3Stream`
+3. `processType3Stream` calls `processStreamOperators`
+4. The operators can show more text, which leads back to `showGlyph` → `showType3Glyph`
+
+The failed patch incorrectly places the level check in `showType3Glyph`, but the problem is that `processType3Stream` method itself doesn't have recursion protection.
+
+**Let me take a completely different approach**: Instead of tracking recursion with the level counter, I'll track already-processed Type3 character procedures to detect cycles (when the same charProc is being processed recursively):
+
+================================================================================
+Response 4
+================================================================================
+Now I understand the issue better. Looking at the code, here's what I see:
+
+## Why the Failed Patch Didn't Work
+
+The failed patch added recursion checking to `showType3Glyph()`, but the problem is:
+
+1. The patch checks `getLevel() > 50` AFTER calling `increaseLevel()`, so when level hits 51, it returns - this is actually correct logic-wise
+2. However, **the issue might be in the `processType3Stream` method itself** - the patch puts the check in `showType3Glyph` but that method just calls `processType3Stream`. The `processType3Stream` doesn't have any recursion protection.
+3. More importantly, the timeout could be caused by **different recursion paths** - not just through `showType3Glyph` but through other methods like tiling patterns or transparency groups that also call stream processing.
+
+Let me take a **completely different approach**: Instead of trying to track the recursion level at specific entry points, I'll add recursion protection directly inside `processStreamOperators()` - which is the central method that all content stream processing goes through. This way, any recursive processing path will be caught.
+
+================================================================================
+Response 5
+================================================================================
+Now I need to add the closing brace and finally block at the end of the method:
+
+================================================================================
+Response 6
+================================================================================
+I need to modify the finally block to also decrease the level. The structure needs to wrap properly:
+
+================================================================================
+Response 7
+================================================================================
+Let me verify the full method structure looks correct:
+
+================================================================================
+Response 8
+================================================================================
+The method structure is correct. Now let me generate the patch:
+
+================================================================================
+Response 9
+================================================================================
+## Summary
+
+### Why the Failed Patch Didn't Work
+
+The failed patch tried to add recursion protection in `showType3Glyph()` method, but this approach had issues:
+
+1. **Wrong location in the call stack**: The patch added the check at `showType3Glyph()`, but this is just one entry point into the recursive stream processing. The actual deep recursion happens inside `processStreamOperators()` which is called by `processType3Stream()` and many other methods.
+
+2. **Incomplete coverage**: The recursion can occur through multiple paths:
+   - Type 3 fonts → `showType3Glyph` → `processType3Stream` → `processStreamOperators`
+   - Form XObjects → `showForm` → `processStream` → `processStreamOperators`  
+   - Transparency groups → `processTransparencyGroup` → `processStreamOperators`
+   - Tiling patterns → `processTilingPattern` → `processStreamOperators`
+   
+   By only protecting `showType3Glyph`, the patch left other recursive paths unprotected.
+
+3. **The `DrawObject` operator already has its own protection** for form XObjects (checking `getLevel() > 50`), but this doesn't cover cases where the recursion goes through Type3 streams repeatedly.
+
+### New Fix Approach
+
+The new patch takes a **completely different approach** by adding recursion protection directly inside `processStreamOperators()` - the central method that all content stream processing passes through. This provides comprehensive coverage for any recursive path:
+
+```diff
+diff --git a/pdfbox/src/main/java/org/apache/pdfbox/contentstream/PDFStreamEngine.java b/pdfbox/src/main/java/org/apache/pdfbox/contentstream/PDFStreamEngine.java
+index d8dc8042a..5ece87919 100644
+--- a/pdfbox/src/main/java/org/apache/pdfbox/contentstream/PDFStreamEngine.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/contentstream/PDFStreamEngine.java
+@@ -530,6 +530,15 @@ public abstract class PDFStreamEngine
+      */
+     private void processStreamOperators(PDContentStream contentStream) throws IOException
+     {
++        increaseLevel();
++        if (level > 50)
++        {
++            LOG.error("recursion is too deep, skipping content stream processing");
++            decreaseLevel();
++            return;
++        }
++        try
++        {
+         List<COSBase> arguments = new ArrayList<>();
+         PDFStreamParser parser = new PDFStreamParser(contentStream);
+         Object token = parser.parseNextToken();
+@@ -568,6 +577,11 @@ public abstract class PDFStreamEngine
+         {
+             shouldProcessColorOperators = oldShouldProcessColorOperators;
+         }
++        }
++        finally
++        {
++            decreaseLevel();
++        }
+     }
+ 
+     /**
+```
+
+This fix:
+1. Increments the recursion level counter at the start of stream processing
+2. Checks if recursion is too deep (>50 levels) and bails out early with an error log
+3. Uses a `finally` block to ensure the level is always decremented, even if an exception occurs
+4. Protects ALL recursive paths through the PDF processing engine, not just Type 3 fonts

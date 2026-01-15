@@ -1,0 +1,181 @@
+diff --git a/poi-ooxml/src/main/java/org/apache/poi/openxml4j/opc/internal/ContentType.java b/poi-ooxml/src/main/java/org/apache/poi/openxml4j/opc/internal/ContentType.java
+index f95aad6a3..0656df090 100644
+--- a/poi-ooxml/src/main/java/org/apache/poi/openxml4j/opc/internal/ContentType.java
++++ b/poi-ooxml/src/main/java/org/apache/poi/openxml4j/opc/internal/ContentType.java
+@@ -143,11 +143,30 @@ public final class ContentType {
+      *             If the specified content type is not valid with RFC 2616.
+      */
+     public ContentType(String contentType) throws InvalidFormatException {
+-        Matcher mMediaType = patternTypeSubType.matcher(contentType);
+-        if (!mMediaType.matches()) {
+-            // How about with parameters?
+-            mMediaType = patternTypeSubTypeParams.matcher(contentType);
++        // Limit input length to prevent ReDoS attacks
++        if (contentType == null || contentType.isEmpty()) {
++            throw new InvalidFormatException("Content type cannot be null or empty");
++        }
++        if (contentType.length() > 1024) {
++            throw new InvalidFormatException(
++                    "The specified content type is too long (max 1024 characters).");
+         }
++
++        // Parse manually to avoid ReDoS vulnerability with complex regex patterns
++        // Split on first semicolon to separate type/subtype from parameters
++        int semicolonIndex = contentType.indexOf(';');
++        String typeSubtype;
++        String paramsString = null;
++
++        if (semicolonIndex > 0) {
++            typeSubtype = contentType.substring(0, semicolonIndex);
++            paramsString = contentType.substring(semicolonIndex);
++        } else {
++            typeSubtype = contentType;
++        }
++
++        // Validate and extract type/subtype using simple regex (no nested quantifiers)
++        Matcher mMediaType = patternTypeSubType.matcher(typeSubtype);
+         if (!mMediaType.matches()) {
+             throw new InvalidFormatException(
+                     "The specified content type '"
+@@ -156,26 +175,123 @@ public final class ContentType {
+         }
+ 
+         // Type/subtype
+-        if (mMediaType.groupCount() >= 2) {
+-            this.type = mMediaType.group(1);
+-            this.subType = mMediaType.group(2);
+-
+-            // Parameters
+-            this.parameters = new HashMap<>();
+-            // Java RegExps are unhelpful, and won't do multiple group captures
+-            // See http://docs.oracle.com/javase/6/docs/api/java/util/regex/Pattern.html#cg
+-            if (mMediaType.groupCount() >= 5) {
+-                Matcher mParams = patternParams.matcher(contentType.substring(mMediaType.end(2)));
+-                while (mParams.find()) {
+-                    this.parameters.put(mParams.group(1), mParams.group(2));
+-                }
++        this.type = mMediaType.group(1);
++        this.subType = mMediaType.group(2);
++
++        // Parameters - parse manually to avoid ReDoS
++        this.parameters = new HashMap<>();
++        if (paramsString != null && !paramsString.isEmpty()) {
++            parseParameters(paramsString, contentType);
++        }
++    }
++
++    /**
++     * Parse parameters manually without complex regex to avoid ReDoS.
++     * Parses format like ";key1=value1;key2=value2"
++     */
++    private void parseParameters(String paramsString, String originalContentType) throws InvalidFormatException {
++        int i = 0;
++        int len = paramsString.length();
++
++        while (i < len) {
++            // Skip semicolon
++            if (paramsString.charAt(i) == ';') {
++                i++;
++            } else {
++                throw new InvalidFormatException(
++                        "The specified content type '"
++                        + originalContentType
++                        + "' is not compliant with RFC 2616: malformed parameters.");
+             }
+-        } else {
+-            // missing media type and subtype
+-            this.type = "";
+-            this.subType = "";
+-            this.parameters = Collections.emptyMap();
++
++            if (i >= len) break;
++
++            // Find the equals sign
++            int equalsIndex = paramsString.indexOf('=', i);
++            if (equalsIndex < 0) {
++                throw new InvalidFormatException(
++                        "The specified content type '"
++                        + originalContentType
++                        + "' is not compliant with RFC 2616: malformed parameters.");
++            }
++
++            // Extract key
++            String key = paramsString.substring(i, equalsIndex);
++            if (!isValidToken(key)) {
++                throw new InvalidFormatException(
++                        "The specified content type '"
++                        + originalContentType
++                        + "' is not compliant with RFC 2616: invalid parameter key.");
++            }
++
++            // Find the next semicolon or end of string for value
++            i = equalsIndex + 1;
++            int nextSemicolon = paramsString.indexOf(';', i);
++            String value;
++            if (nextSemicolon < 0) {
++                value = paramsString.substring(i);
++                i = len;
++            } else {
++                value = paramsString.substring(i, nextSemicolon);
++                i = nextSemicolon;
++            }
++
++            if (!isValidValue(value)) {
++                throw new InvalidFormatException(
++                        "The specified content type '"
++                        + originalContentType
++                        + "' is not compliant with RFC 2616: invalid parameter value.");
++            }
++
++            // Remove quotes if present
++            if (value.startsWith("\"") && value.endsWith("\"") && value.length() > 1) {
++                value = value.substring(1, value.length() - 1);
++            }
++
++            this.parameters.put(key, value);
++        }
++    }
++
++    /**
++     * Check if a string is a valid token according to RFC 2616
++     * token = 1*<any CHAR except CTLs or separators>
++     */
++    private boolean isValidToken(String token) {
++        if (token == null || token.isEmpty()) {
++            return false;
+         }
++        for (int i = 0; i < token.length(); i++) {
++            char c = token.charAt(i);
++            // Check if character is in valid range and not a separator
++            if (c < 0x21 || c > 0x7E ||
++                c == '(' || c == ')' || c == '<' || c == '>' || c == '@' ||
++                c == ',' || c == ';' || c == ':' || c == '\\' || c == '"' ||
++                c == '/' || c == '[' || c == ']' || c == '?' || c == '=' ||
++                c == '{' || c == '}' || c == ' ' || c == '\t') {
++                return false;
++            }
++        }
++        return true;
++    }
++
++    /**
++     * Check if a string is a valid value (token or quoted-string)
++     */
++    private boolean isValidValue(String value) {
++        if (value == null || value.isEmpty()) {
++            return false;
++        }
++
++        // Check if it's a quoted string
++        if (value.startsWith("\"") && value.endsWith("\"")) {
++            if (value.length() < 2) return false;
++            // For quoted strings, just check the content is reasonable
++            String content = value.substring(1, value.length() - 1);
++            return isValidToken(content) || content.isEmpty();
++        }
++
++        // Otherwise it should be a token
++        return isValidToken(value);
+     }
+ 
+     /**

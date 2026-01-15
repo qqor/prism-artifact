@@ -1,0 +1,14 @@
+{
+  "project_name": "wireshark",
+  "vulnerability_identifier": "wireshark_ws-delta-04_vuln_007",
+  "source_directory": "/home/qqor/aixcc/crete/.cache/official-afc-wireshark",
+  "llm_usage": {
+    "total_cost": 0.5069449,
+    "prompt_tokens": 363035,
+    "completion_tokens": 24456
+  },
+  "variant": "sound",
+  "diff": "--- a/epan/dissectors/packet-json.c\n+++ b/epan/dissectors/packet-json.c\n@@ -173,11 +173,13 @@\n \twmem_stack_push(data->array_idx, GINT_TO_POINTER(JSON_COMPACT_OBJECT_WITH_KEY));\n }\n \n-static char*\n-json_string_unescape(wmem_allocator_t *scope, const char *string, size_t *length_ptr)\n-{\n-\tsize_t read_index = 0;\n-\tsize_t string_length = strlen(string);\n+ static char*\n+ json_string_unescape(wmem_allocator_t *scope, const char *string, size_t *length_ptr)\n+ {\n+     /* suppress -Wunused-parameter when callers don’t use it */\n+     (void)length_ptr;\n+     size_t read_index = 0;\n+     size_t string_length = strlen(string);\n \n \twmem_strbuf_t* output_string_buffer = wmem_strbuf_new_sized(scope, string_length);\n \n@@ -350,22 +352,30 @@\n \t\t\t\t\t\t\t}\n \t\t\t\t\t\t}\n \t\t\t\t\t\t\n-\t\t\t\t\t\telse if (current_character == 'U') {\n-\t\t\t\t\t\t\tuint16_t lead_surrogate = code_point;\n-\t\t\t\t\t\t\tuint16_t trail_surrogate = 0;\n-\t\n-\t\t\t\t\t\t\tread_index++;\n-\t\n-\t\t\t\t\t\t\tfor (int i = 0; i < 8; i++)\n-\t\t\t\t\t\t\t{\n-\t\t\t\t\t\t\t\tcurrent_character = string[read_index];\n-\t\t\t\t\t\t\t\tread_index++;\n-\t\n-\t\t\t\t\t\t\t\tint nibble = ws_xton(current_character);\n-\t\n-\t\t\t\t\t\t\t\ttrail_surrogate <<= 4;\n-\t\t\t\t\t\t\t\ttrail_surrogate |= nibble;\n-\t\t\t\t\t\t\t}\n+         else if (current_character == 'U') {\n+             uint16_t lead_surrogate = code_point;\n+             uint16_t trail_surrogate = 0;\n+\n+             /* Make sure we have 8 hex digits left to read */\n+             if (read_index + 8 > string_length) {\n+                 /* incomplete \\UXXXXXXXX – treat as invalid escape */\n+                 wmem_strbuf_append_unichar_repl(output_string_buffer);\n+                 break;\n+             }\n+\n+             /* consume the 'U' */\n+             read_index++;\n+\n+             for (int i = 0; i < 8; i++) {\n+                 unsigned char c = string[read_index++];\n+                 int nibble = ws_xton(c);\n+                 if (nibble < 0) {\n+                     /* bad hex digit – invalid escape */\n+                     wmem_strbuf_append_unichar_repl(output_string_buffer);\n+                     break;\n+                 }\n+                 trail_surrogate = (trail_surrogate << 4) | nibble;\n+             }\n \t\n \t\t\t\t\t\t\tif ((IS_TRAIL_SURROGATE(trail_surrogate)))\n \t\t\t\t\t\t\t{\t\n",
+  "stdout": "",
+  "stderr": ""
+}

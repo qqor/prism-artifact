@@ -1,0 +1,47 @@
+
+================================================================================
+Response 1
+================================================================================
+Let me find the FreeRDP source directory:
+
+================================================================================
+Response 2
+================================================================================
+I can see the bug now. The issue is in the `x509_validate_subject_aternative_names` function:
+
+1. **Line 452**: Memory is allocated using `strlen((char *)ASN1_STRING_get0_data(gen_name->d.dNSName)) + 1` - this uses `strlen()` which counts bytes until a null terminator
+2. **Line 457-458**: Data is copied using `memcpy` with the size from `ASN1_STRING_length(gen_name->d.dNSName)` - this is the actual ASN.1 string length
+
+The problem is that `ASN1_STRING_get0_data()` returns a pointer to data that may not be null-terminated, so `strlen()` may return a value smaller than the actual `ASN1_STRING_length()`. When the ASN.1 string contains embedded null bytes or is not null-terminated, `strlen()` returns a shorter length than `ASN1_STRING_length()`, causing a heap buffer overflow when `memcpy` copies more bytes than were allocated.
+
+Let me create a patch to fix this:
+
+================================================================================
+Response 3
+================================================================================
+The patch has been applied. Let me also add null-termination after the memcpy to ensure the string is properly terminated:
+
+================================================================================
+Response 4
+================================================================================
+The patch has been applied successfully. Here's a summary of the fix:
+
+## Bug Analysis
+
+The heap-buffer-overflow occurred in `x509_validate_subject_aternative_names` function at line 457 of `x509_utils.c`.
+
+**Root Cause:**
+- Line 452 (original): Memory was allocated using `strlen()` on the ASN1 string data
+- Line 457-458: Data was copied using `ASN1_STRING_length()` to determine the copy size
+
+The problem is that ASN1 strings may:
+1. Contain embedded null bytes (which `strlen()` interprets as string end)
+2. Not be null-terminated
+
+This mismatch caused `malloc()` to allocate a smaller buffer (based on `strlen()`) than what `memcpy()` tried to write (based on `ASN1_STRING_length()`), resulting in a heap-buffer-overflow.
+
+## Fix Applied
+
+1. **Changed allocation** (line 452): Now uses `ASN1_STRING_length(gen_name->d.dNSName) + 1` instead of `strlen()` to ensure the buffer is large enough for the actual ASN1 string content.
+
+2. **Added null-termination** (line 459): Explicitly null-terminates the copied string to ensure `verify_san()` receives a properly terminated C string.

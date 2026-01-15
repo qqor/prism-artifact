@@ -1,0 +1,76 @@
+
+================================================================================
+Response 1
+================================================================================
+I'll analyze this heap-buffer-overflow bug and create a patch to fix it.
+
+Let me start by examining the relevant source files:
+
+================================================================================
+Response 2
+================================================================================
+Let me find the source directory first:
+
+================================================================================
+Response 3
+================================================================================
+Now I can see the issue! Looking at the crash log and the code, the bug is in the `x509_validate_subject_aternative_names` function at lines 452-458. The issue is:
+
+1. Line 452: Allocates memory based on `strlen()` of the data + 1
+2. Line 457-458: Copies `ASN1_STRING_length()` bytes
+
+The problem is that `strlen()` stops at the first null byte, but `ASN1_STRING_length()` returns the actual length which can be longer. This causes a heap-buffer-overflow when copying more bytes than allocated.
+
+Let me also check the header file to understand the function signature:
+
+================================================================================
+Response 4
+================================================================================
+Now I understand the issue completely. Let me create the patch to fix the heap-buffer-overflow:
+
+================================================================================
+Response 5
+================================================================================
+Perfect! Now let me verify the fix by reading the updated section:
+
+================================================================================
+Response 6
+================================================================================
+Excellent! The patch has been successfully applied. Let me create a summary of the fix:
+
+## Summary
+
+I've successfully fixed the **heap-buffer-overflow** vulnerability in the FreeRDP codebase. 
+
+### Root Cause
+The bug was in the `x509_validate_subject_aternative_names` function at line 452 in `/libfreerdp/crypto/x509_utils.c`:
+
+- **Original code**: Used `strlen()` to determine buffer size, which stops at the first null byte
+- **Problem**: Then copied `ASN1_STRING_length()` bytes, which returns the actual length (could be longer)
+- **Result**: When the ASN1 string contained null bytes or was longer than what `strlen()` reported, it caused a heap-buffer-overflow
+
+### The Fix
+Changed the allocation logic to use the actual ASN1 string length:
+
+**Before:**
+```c
+dns_name = malloc(strlen((char *)ASN1_STRING_get0_data(gen_name->d.dNSName)) + 1);
+memcpy(dns_name, (char *)ASN1_STRING_get0_data(gen_name->d.dNSName),  
+    ASN1_STRING_length(gen_name->d.dNSName));
+```
+
+**After:**
+```c
+int dns_length = ASN1_STRING_length(gen_name->d.dNSName);
+dns_name = malloc(dns_length + 1);
+memcpy(dns_name, (char *)ASN1_STRING_get0_data(gen_name->d.dNSName),
+    dns_length);
+dns_name[dns_length] = '\0';
+```
+
+### Key Changes
+1. ✅ Allocate memory based on `ASN1_STRING_length()` instead of `strlen()`
+2. ✅ Store the length in a variable to avoid calling the function twice
+3. ✅ Properly null-terminate the string after copying
+
+This ensures the allocated buffer is always large enough to hold the actual data being copied, preventing the heap-buffer-overflow.

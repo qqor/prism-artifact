@@ -1,0 +1,48 @@
+diff --git a/pdfbox/src/main/java/org/apache/pdfbox/contentstream/PDFStreamEngine.java b/pdfbox/src/main/java/org/apache/pdfbox/contentstream/PDFStreamEngine.java
+index d8dc8042a..26effa3ee 100644
+--- a/pdfbox/src/main/java/org/apache/pdfbox/contentstream/PDFStreamEngine.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/contentstream/PDFStreamEngine.java
+@@ -26,8 +26,10 @@ import java.util.ArrayDeque;
+ import java.util.ArrayList;
+ import java.util.Deque;
+ import java.util.HashMap;
++import java.util.HashSet;
+ import java.util.List;
+ import java.util.Map;
++import java.util.Set;
+ import java.util.zip.DataFormatException;
+ 
+ import org.apache.logging.log4j.Logger;
+@@ -91,6 +93,9 @@ public abstract class PDFStreamEngine
+     // used to monitor potentially recursive operations.
+     private int level = 0;
+ 
++    // tracks Type3 CharProcs currently being processed to detect cycles
++    private final Set<COSBase> processingType3CharProcs = new HashSet<>();
++
+     // default font, used if there isn't any font available
+     private PDFont defaultFont;
+ 
+@@ -870,7 +875,21 @@ public abstract class PDFStreamEngine
+         PDType3CharProc charProc = font.getCharProc(code);
+         if (charProc != null)
+         {
+-            processType3Stream(charProc, textRenderingMatrix);
++            COSBase charProcKey = charProc.getCOSObject();
++            if (processingType3CharProcs.contains(charProcKey))
++            {
++                LOG.warn("Skipping recursive Type3 CharProc to prevent infinite loop");
++                return;
++            }
++            processingType3CharProcs.add(charProcKey);
++            try
++            {
++                processType3Stream(charProc, textRenderingMatrix);
++            }
++            finally
++            {
++                processingType3CharProcs.remove(charProcKey);
++            }
+         }
+     }
+ 

@@ -1,0 +1,48 @@
+
+================================================================================
+Response 1
+================================================================================
+Let me find the correct path to the json.c file:
+
+================================================================================
+Response 2
+================================================================================
+I can see the issue. At line 633-634, the code checks `(end - state.ptr) < 3` before parsing "null", but it actually needs to read 4 characters (`n`, `u`, `l`, `l`). Let me look at the broader context to understand the pattern better:
+
+================================================================================
+Response 3
+================================================================================
+Now I can see the bug clearly. The code is parsing JSON keywords and has an off-by-one error in the bounds check for "null":
+
+- For "true" (4 chars): checks `(end - state.ptr) < 3` - this is **wrong**, should be `< 4`
+- For "false" (5 chars): checks `(end - state.ptr) < 4` - this is **wrong**, should be `< 5`  
+- For "null" (4 chars): checks `(end - state.ptr) < 3` - this is **wrong**, should be `< 4`
+
+The crash occurred at line 634 when parsing "null" - the check `< 3` allows reading when there are only 3 bytes remaining, but the code tries to read 4 bytes (`n`, `u`, `l`, `l`).
+
+Let me create and apply the fix:
+
+================================================================================
+Response 4
+================================================================================
+The patch has been applied. Here's a summary of the fix:
+
+## Summary
+
+The heap-buffer-overflow bug in `json.c` at line 634 was caused by **off-by-one errors in bounds checking** when parsing JSON keywords (`true`, `false`, `null`).
+
+### Root Cause
+The bounds checks were using the wrong values:
+- For "true" (4 characters): `(end - state.ptr) < 3` was insufficient
+- For "false" (5 characters): `(end - state.ptr) < 4` was insufficient  
+- For "null" (4 characters): `(end - state.ptr) < 3` was insufficient
+
+The check must ensure there are enough bytes remaining for the **entire keyword**, including the first character already read.
+
+### Fix Applied
+Changed the bounds checks to use correct values:
+1. **Line 602**: `< 3` → `< 4` (for "true" - 4 chars)
+2. **Line 618**: `< 4` → `< 5` (for "false" - 5 chars)  
+3. **Line 633**: `< 3` → `< 4` (for "null" - 4 chars)
+
+This ensures the parser doesn't read beyond the buffer when parsing truncated JSON input like `nul` (missing the final `l`).

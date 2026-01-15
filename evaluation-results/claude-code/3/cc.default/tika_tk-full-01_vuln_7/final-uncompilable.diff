@@ -1,0 +1,30 @@
+diff --git a/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-text-module/src/main/java/org/apache/tika/parser/csv/TextAndCSVParser.java b/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-text-module/src/main/java/org/apache/tika/parser/csv/TextAndCSVParser.java
+index 96f49d4e0..bf52ffe4a 100644
+--- a/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-text-module/src/main/java/org/apache/tika/parser/csv/TextAndCSVParser.java
++++ b/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-text-module/src/main/java/org/apache/tika/parser/csv/TextAndCSVParser.java
+@@ -268,16 +268,18 @@ public class TextAndCSVParser extends AbstractEncodingDetectorParser {
+     private void processURL(String urlString, String name, XHTMLContentHandler xhtml,
+                             Metadata parentMetadata,
+                             ParseContext context) throws IOException, SAXException {
+-        EmbeddedDocumentExtractor ex = EmbeddedDocumentUtil.getEmbeddedDocumentExtractor(context);
++        // SSRF vulnerability fix: Do not fetch URLs from untrusted CSV content
++        // URLs in CSV cells are stored as metadata/links only, not fetched
++        // This prevents Server Side Request Forgery attacks
+         Metadata metadata = new Metadata();
+         metadata.set(TikaCoreProperties.RESOURCE_NAME_KEY, name);
++        metadata.set(TikaCoreProperties.EMBEDDED_RESOURCE_TYPE,
++                TikaCoreProperties.EmbeddedResourceType.HYPERLINK.toString());
+         try {
+-            URL url = new URL(urlString);
+-            URLConnection connection = url.openConnection();
+-            connection.setConnectTimeout(5000);
+-            try (TikaInputStream tis = TikaInputStream.get(connection.getInputStream())) {
+-                ex.parseEmbedded(tis, xhtml, metadata, false);
+-            }
++            // Validate URL format but do not open connection
++            new URL(urlString);
++            // Store URL reference in metadata without fetching
++            parentMetadata.add("hyperlink", urlString);
+         } catch (Exception e) {
+             parentMetadata.set(TikaCoreProperties.EMBEDDED_EXCEPTION,
+                     ExceptionUtils.getStackTrace(e));

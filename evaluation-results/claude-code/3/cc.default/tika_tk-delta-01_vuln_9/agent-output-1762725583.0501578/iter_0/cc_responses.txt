@@ -1,0 +1,96 @@
+
+================================================================================
+Response 1
+================================================================================
+I'll analyze the crash log and create a patch to fix the OS Command Injection vulnerability in Apache Tika.
+
+Let me start by exploring the codebase to understand the structure and locate the vulnerable code.
+
+================================================================================
+Response 2
+================================================================================
+Now let me check the HTML parser-related code to understand the data flow:
+
+================================================================================
+Response 3
+================================================================================
+Now let me check if there's a source directory structure:
+
+================================================================================
+Response 4
+================================================================================
+Now let me understand the vulnerability better. The issue is that `ExternalParser` at line 314 executes commands with potentially attacker-controlled data. Looking at line 405 in HtmlHandler, it calls `exifToolParser.setCommand(path, "${INPUT}")` where `path` comes from metadata at line 364: `metadata.get("html_meta:exiftool_path")`. This metadata can be controlled by an attacker through HTML meta tags.
+
+The fix should validate/sanitize the command before execution. Let me create a patch:
+
+================================================================================
+Response 5
+================================================================================
+Now let me create the patches. The vulnerability is that:
+
+1. In `HtmlHandler.java`, line 364 reads `html_meta:exiftool_path` from metadata (which can be attacker-controlled)
+2. This path is passed to `exifToolParser.setCommand(path, "${INPUT}")` at line 405
+3. In `ExternalParser.java`, this command is executed at lines 312-314 without validation
+
+The fix should prevent execution of arbitrary commands. Let me create patches:
+
+================================================================================
+Response 6
+================================================================================
+Now let me apply the patches to the actual source files:
+
+================================================================================
+Response 7
+================================================================================
+Now let me apply the patch to HtmlHandler.java. First, let me read the full configureExifTool section:
+
+================================================================================
+Response 8
+================================================================================
+Perfect! Now let me verify the changes were applied correctly and update the todo list:
+
+================================================================================
+Response 9
+================================================================================
+Perfect! Let me create a summary of what was fixed. Let me also verify the patch file format is correct:
+
+================================================================================
+Response 10
+================================================================================
+Excellent! The patches have been successfully created and applied. Let me create a summary document:
+
+## Summary
+
+I've successfully created and applied a patch to fix the **OS Command Injection** vulnerability (CVE-critical) in Apache Tika. Here's what was done:
+
+### Vulnerability Analysis
+
+The crash log indicated an OS Command Injection vulnerability where:
+1. The `HtmlHandler` reads `html_meta:exiftool_path` from HTML metadata (line 364), which can be attacker-controlled through malicious HTML files
+2. This path is passed directly to `ExternalParser.setCommand()` without validation (line 405)
+3. `ExternalParser` then executes the command via `Runtime.exec()` (lines 312-314), allowing arbitrary command execution
+
+### Fix Applied
+
+The patch implements **defense in depth** with validation at two layers:
+
+#### 1. **ExternalParser.java** (tika-core)
+- Added `validateCommand()` method that checks all command arguments for dangerous shell metacharacters:
+  - `;`, `|`, `&`, `` ` ``, `$`, `(`, `)`, `<`, `>`, `"`, `'`, `\`, newlines
+- Throws `IllegalArgumentException` if dangerous characters are detected
+- Called automatically in `setCommand()` to validate all commands before they're stored
+
+#### 2. **HtmlHandler.java** (tika-parser-html-module)
+- Added `isValidExifToolPath()` validation method that uses regex to reject paths with shell metacharacters
+- Added early validation check before calling `configureExifTool()`
+- Wrapped `configureExifTool()` in try-catch to handle validation exceptions gracefully
+- Added logging to warn about rejected malicious paths
+
+### Files Modified
+1. `/tika-core/src/main/java/org/apache/tika/parser/external/ExternalParser.java`
+2. `/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-html-module/src/main/java/org/apache/tika/parser/html/HtmlHandler.java`
+
+### Patch File
+Created: `fix_command_injection.patch` in the root directory containing the unified diff format patch.
+
+The fix prevents attackers from injecting shell commands through HTML metadata, blocking the attack vector that allows remote code execution.

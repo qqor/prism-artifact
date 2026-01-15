@@ -1,0 +1,33 @@
+diff --git a/poi/src/main/java/org/apache/poi/ss/format/CellFormatPart.java b/poi/src/main/java/org/apache/poi/ss/format/CellFormatPart.java
+index ea8eaa37b..a2e819a27 100644
+--- a/poi/src/main/java/org/apache/poi/ss/format/CellFormatPart.java
++++ b/poi/src/main/java/org/apache/poi/ss/format/CellFormatPart.java
+@@ -49,6 +49,14 @@ import static org.apache.poi.ss.format.CellFormatter.quote;
+ public class CellFormatPart {
+     private static final Logger LOG = PoiLogManager.getLogger(CellFormatPart.class);
+ 
++    /**
++     * Maximum length of format strings to prevent stack overflow in regex matching.
++     * Java's regex engine uses recursion for repeating groups, and the complex
++     * FORMAT_PAT pattern can cause StackOverflowError on inputs that are too long.
++     * Excel format strings are typically very short (under 50 characters).
++     */
++    private static final int MAX_FORMAT_LENGTH = 255;
++
+     static final Map<String, Color> NAMED_COLORS;
+ 
+     private final Color color;
+@@ -182,6 +190,13 @@ public class CellFormatPart {
+      * @param desc The string to parse.
+      */
+     public CellFormatPart(Locale locale, String desc) {
++        // Guard against stack overflow in regex matching caused by very long format strings.
++        // Java's regex engine uses recursion for repeating groups, and FORMAT_PAT can cause
++        // StackOverflowError on long inputs. Excel format strings are typically short.
++        if (desc != null && desc.length() > MAX_FORMAT_LENGTH) {
++            throw new IllegalArgumentException("Format string too long: " + desc.length() +
++                    " characters exceeds maximum of " + MAX_FORMAT_LENGTH);
++        }
+         Matcher m = FORMAT_PAT.matcher(desc);
+         if (!m.matches()) {
+             throw new IllegalArgumentException("Unrecognized format: " + quote(

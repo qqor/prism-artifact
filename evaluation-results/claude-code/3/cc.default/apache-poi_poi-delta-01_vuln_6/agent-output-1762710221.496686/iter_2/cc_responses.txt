@@ -1,0 +1,289 @@
+
+================================================================================
+Response 1
+================================================================================
+I'll analyze the crash log and the failed patches to understand why they didn't work, then provide a new solution.
+
+## Analysis of Failed Patches
+
+**First Patch - Possessive Quantifiers:**
+The first patch tried to use possessive quantifiers (`++`) to prevent backtracking. However, this approach failed because:
+1. The stack overflow is still occurring in the pattern matching
+2. Possessive quantifiers alone don't prevent the nested repetition problem in the pattern `(;" + parameter + ")*`
+3. The core issue is the complex nested quantifiers that create exponential matching attempts
+
+**Second Patch - Input Validation:**
+The second patch added input validation checks, but it failed because:
+1. The checks were too simplistic (looking for ";;;" or "===")
+2. A malicious input can still trigger ReDoS without these obvious patterns
+3. The length limit (1024) might still allow problematic inputs
+4. The validation happens AFTER the patterns are already compiled, so it doesn't prevent the static initialization issue
+
+## Root Cause
+
+The real problem is in the regex pattern itself:
+```
+"^(" + token + "+)/(" + token + "+)(;" + parameter + ")*$"
+```
+
+Where `parameter = "(" + token + "++)=(\"?" + token + "++\"?)"` contains nested quantifiers. The `(;" + parameter + ")*` creates a situation where the regex engine can backtrack exponentially on inputs with many semicolons.
+
+## New Approach: Parse Without Complex Regex
+
+Instead of trying to fix the regex, I'll replace the regex-based validation with a simpler, more robust parsing approach that avoids ReDoS entirely.
+
+================================================================================
+Response 2
+================================================================================
+Let me find the correct file path:
+
+================================================================================
+Response 3
+================================================================================
+Now I understand the problem. The issue is that the regex pattern on line 133 has a nested quantifier structure `(;" + parameter + ")*` where `parameter` itself contains `+` quantifiers. This creates catastrophic backtracking.
+
+## Why Previous Patches Failed
+
+1. **First patch (possessive quantifiers)**: While possessive quantifiers help, the issue is that the `*` quantifier on line 133 `(;" + parameter + ")*$` still allows backtracking when matching fails. The pattern tries many combinations of how to split the input.
+
+2. **Second patch (input validation)**: The validation happens too late - the patterns are compiled in the static block and the ReDoS happens during the matching phase in the constructor. Also, the validation was too simplistic.
+
+## New Solution: Replace Regex with Manual Parsing
+
+Instead of using complex regex patterns, I'll replace the validation logic with a simple manual parser that doesn't use regex for the parameter parsing. This completely eliminates the ReDoS vulnerability.
+
+================================================================================
+Response 4
+================================================================================
+Perfect! Now let me create the patch file showing the complete changes:
+
+================================================================================
+Response 5
+================================================================================
+Perfect! Now let me create a summary document explaining the fix:
+
+## Summary: Fixing the Stack Overflow ReDoS Vulnerability in ContentType.java
+
+### Why the Previous Patches Failed
+
+**Patch 1 - Possessive Quantifiers (`++`):**
+- **Problem:** While possessive quantifiers prevent backtracking within individual token matches, they don't fix the core issue: the nested quantifier structure `(;" + parameter + ")*$`
+- **Why it failed:** The outer `*` quantifier still creates exponential complexity when trying different ways to split the input, especially with malicious inputs containing many semicolons
+
+**Patch 2 - Input Validation:**
+- **Problem:** The validation happens too late (after pattern compilation and during matching)
+- **Why it failed:** The checks for ";;;" or "===" are too simplistic - an attacker can craft inputs without these patterns that still trigger ReDoS. The fundamental regex vulnerability remains.
+
+### Root Cause Analysis
+
+The vulnerability exists in the regex pattern on line 133:
+```java
+Pattern.compile("^(" + token + "+)/(" + token + "+)(;" + parameter + ")*$")
+```
+
+Where `parameter = "(" + token + "+)=(\"?" + token + "+\"?)"`. This creates:
+- Nested quantifiers: `(;(...+)=(...+))*`
+- Catastrophic backtracking: When the regex engine fails to match, it tries exponentially many combinations
+- Stack overflow: Deep recursion in pattern matching exhausts the call stack
+
+### New Solution: Replace Regex with Manual Parsing
+
+**Approach:**
+1. **Pre-validate input length** (1024 char limit) to prevent resource exhaustion
+2. **Split the input manually** on the first semicolon to separate type/subtype from parameters
+3. **Use simple regex only for type/subtype** validation (no nested quantifiers)
+4. **Parse parameters manually** using string operations (indexOf, substring) instead of regex
+5. **Validate each token** character-by-character against RFC 2616 rules
+
+**Key improvements:**
+- **O(n) time complexity** instead of exponential
+- **No regex backtracking** on parameter parsing
+- **Early rejection** of malformed inputs before expensive operations
+- **Maintains RFC 2616 compliance** with proper token validation
+- **Safe and predictable** performance regardless of input
+
+This approach completely eliminates the ReDoS vulnerability by avoiding complex regex patterns for parameter parsing while still maintaining strict RFC 2616 compliance.
+
+```diff
+diff --git a/poi-ooxml/src/main/java/org/apache/poi/openxml4j/opc/internal/ContentType.java b/poi-ooxml/src/main/java/org/apache/poi/openxml4j/opc/internal/ContentType.java
+index f95aad6a3..0656df090 100644
+--- a/poi-ooxml/src/main/java/org/apache/poi/openxml4j/opc/internal/ContentType.java
++++ b/poi-ooxml/src/main/java/org/apache/poi/openxml4j/opc/internal/ContentType.java
+@@ -143,11 +143,30 @@ public final class ContentType {
+      *             If the specified content type is not valid with RFC 2616.
+      */
+     public ContentType(String contentType) throws InvalidFormatException {
+-        Matcher mMediaType = patternTypeSubType.matcher(contentType);
+-        if (!mMediaType.matches()) {
+-            // How about with parameters?
+-            mMediaType = patternTypeSubTypeParams.matcher(contentType);
++        // Limit input length to prevent ReDoS attacks
++        if (contentType == null || contentType.isEmpty()) {
++            throw new InvalidFormatException("Content type cannot be null or empty");
++        }
++        if (contentType.length() > 1024) {
++            throw new InvalidFormatException(
++                    "The specified content type is too long (max 1024 characters).");
+         }
++
++        // Parse manually to avoid ReDoS vulnerability with complex regex patterns
++        // Split on first semicolon to separate type/subtype from parameters
++        int semicolonIndex = contentType.indexOf(';');
++        String typeSubtype;
++        String paramsString = null;
++
++        if (semicolonIndex > 0) {
++            typeSubtype = contentType.substring(0, semicolonIndex);
++            paramsString = contentType.substring(semicolonIndex);
++        } else {
++            typeSubtype = contentType;
++        }
++
++        // Validate and extract type/subtype using simple regex (no nested quantifiers)
++        Matcher mMediaType = patternTypeSubType.matcher(typeSubtype);
+         if (!mMediaType.matches()) {
+             throw new InvalidFormatException(
+                     "The specified content type '"
+@@ -156,26 +175,123 @@ public final class ContentType {
+         }
+ 
+         // Type/subtype
+-        if (mMediaType.groupCount() >= 2) {
+-            this.type = mMediaType.group(1);
+-            this.subType = mMediaType.group(2);
+-
+-            // Parameters
+-            this.parameters = new HashMap<>();
+-            // Java RegExps are unhelpful, and won't do multiple group captures
+-            // See http://docs.oracle.com/javase/6/docs/api/java/util/regex/Pattern.html#cg
+-            if (mMediaType.groupCount() >= 5) {
+-                Matcher mParams = patternParams.matcher(contentType.substring(mMediaType.end(2)));
+-                while (mParams.find()) {
+-                    this.parameters.put(mParams.group(1), mParams.group(2));
+-                }
++        this.type = mMediaType.group(1);
++        this.subType = mMediaType.group(2);
++
++        // Parameters - parse manually to avoid ReDoS
++        this.parameters = new HashMap<>();
++        if (paramsString != null && !paramsString.isEmpty()) {
++            parseParameters(paramsString, contentType);
++        }
++    }
++
++    /**
++     * Parse parameters manually without complex regex to avoid ReDoS.
++     * Parses format like ";key1=value1;key2=value2"
++     */
++    private void parseParameters(String paramsString, String originalContentType) throws InvalidFormatException {
++        int i = 0;
++        int len = paramsString.length();
++
++        while (i < len) {
++            // Skip semicolon
++            if (paramsString.charAt(i) == ';') {
++                i++;
++            } else {
++                throw new InvalidFormatException(
++                        "The specified content type '"
++                        + originalContentType
++                        + "' is not compliant with RFC 2616: malformed parameters.");
+             }
+-        } else {
+-            // missing media type and subtype
+-            this.type = "";
+-            this.subType = "";
+-            this.parameters = Collections.emptyMap();
++
++            if (i >= len) break;
++
++            // Find the equals sign
++            int equalsIndex = paramsString.indexOf('=', i);
++            if (equalsIndex < 0) {
++                throw new InvalidFormatException(
++                        "The specified content type '"
++                        + originalContentType
++                        + "' is not compliant with RFC 2616: malformed parameters.");
++            }
++
++            // Extract key
++            String key = paramsString.substring(i, equalsIndex);
++            if (!isValidToken(key)) {
++                throw new InvalidFormatException(
++                        "The specified content type '"
++                        + originalContentType
++                        + "' is not compliant with RFC 2616: invalid parameter key.");
++            }
++
++            // Find the next semicolon or end of string for value
++            i = equalsIndex + 1;
++            int nextSemicolon = paramsString.indexOf(';', i);
++            String value;
++            if (nextSemicolon < 0) {
++                value = paramsString.substring(i);
++                i = len;
++            } else {
++                value = paramsString.substring(i, nextSemicolon);
++                i = nextSemicolon;
++            }
++
++            if (!isValidValue(value)) {
++                throw new InvalidFormatException(
++                        "The specified content type '"
++                        + originalContentType
++                        + "' is not compliant with RFC 2616: invalid parameter value.");
++            }
++
++            // Remove quotes if present
++            if (value.startsWith("\"") && value.endsWith("\"") && value.length() > 1) {
++                value = value.substring(1, value.length() - 1);
++            }
++
++            this.parameters.put(key, value);
++        }
++    }
++
++    /**
++     * Check if a string is a valid token according to RFC 2616
++     * token = 1*<any CHAR except CTLs or separators>
++     */
++    private boolean isValidToken(String token) {
++        if (token == null || token.isEmpty()) {
++            return false;
++        }
++        for (int i = 0; i < token.length(); i++) {
++            char c = token.charAt(i);
++            // Check if character is in valid range and not a separator
++            if (c < 0x21 || c > 0x7E ||
++                c == '(' || c == ')' || c == '<' || c == '>' || c == '@' ||
++                c == ',' || c == ';' || c == ':' || c == '\\' || c == '"' ||
++                c == '/' || c == '[' || c == ']' || c == '?' || c == '=' ||
++                c == '{' || c == '}' || c == ' ' || c == '\t') {
++                return false;
++            }
+         }
++        return true;
++    }
++
++    /**
++     * Check if a string is a valid value (token or quoted-string)
++     */
++    private boolean isValidValue(String value) {
++        if (value == null || value.isEmpty()) {
++            return false;
++        }
++
++        // Check if it's a quoted string
++        if (value.startsWith("\"") && value.endsWith("\"")) {
++            if (value.length() < 2) return false;
++            // For quoted strings, just check the content is reasonable
++            String content = value.substring(1, value.length() - 1);
++            return isValidToken(content) || content.isEmpty();
++        }
++
++        // Otherwise it should be a token
++        return isValidToken(value);
+     }
+ 
+     /**
+```

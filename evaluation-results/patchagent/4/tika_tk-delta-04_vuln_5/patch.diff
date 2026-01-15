@@ -1,0 +1,22 @@
+diff --git a/tika-pipes/tika-emitters/tika-emitter-fs/src/main/java/org/apache/tika/pipes/emitter/fs/FileSystemEmitter.java b/tika-pipes/tika-emitters/tika-emitter-fs/src/main/java/org/apache/tika/pipes/emitter/fs/FileSystemEmitter.java
+index 9142c9b..efd3819 100644
+--- a/tika-pipes/tika-emitters/tika-emitter-fs/src/main/java/org/apache/tika/pipes/emitter/fs/FileSystemEmitter.java
++++ b/tika-pipes/tika-emitters/tika-emitter-fs/src/main/java/org/apache/tika/pipes/emitter/fs/FileSystemEmitter.java
+@@ -144,7 +144,16 @@ public class FileSystemEmitter extends AbstractEmitter implements StreamEmitter
+ 
+     @Override
+     public void emit(String path, InputStream inputStream, Metadata userMetadata, ParseContext parseContext) throws IOException, TikaEmitterException {
+-        Path target = basePath.resolve(path);
++        // sanitize path to prevent directory traversal
++        Path relativePath = Paths.get(path);
++        if (relativePath.isAbsolute()) {
++            throw new TikaEmitterException("Invalid path (absolute paths not allowed): " + path);
++        }
++        Path normalizedRelativePath = relativePath.normalize();
++        Path target = basePath.resolve(normalizedRelativePath).normalize();
++        if (!target.startsWith(basePath.normalize())) {
++            throw new TikaEmitterException("Invalid path (directory traversal): " + path);
++        }
+ 
+         if (!Files.isDirectory(target.getParent())) {
+             Files.createDirectories(target.getParent());

@@ -1,0 +1,85 @@
+
+================================================================================
+Response 1
+================================================================================
+I'll analyze the crash log and create a patch to fix the out-of-memory issue in the Apache Commons Compress library.
+
+Let me start by exploring the codebase to understand the issue:
+
+================================================================================
+Response 2
+================================================================================
+Now let me read the relevant source files to understand the issue:
+
+================================================================================
+Response 3
+================================================================================
+Now I can see the issue. The problem is in the `initializeTables` method at line 186 of `LZWInputStream.java`. When a malicious input provides a very large `maxCodeSize`, it causes the allocation of extremely large arrays (prefixes, characters, outputStack), leading to an OutOfMemoryError.
+
+The crash occurs at line 86 of `ZCompressorInputStream.java` where it calls `initializeTables(maxCodeSize, memoryLimitInKiB)`. The issue is that when `memoryLimitInKiB` is -1 (no limit), it bypasses the memory check and directly allocates the arrays.
+
+Let me check if there's a source directory:
+
+================================================================================
+Response 4
+================================================================================
+Perfect! Now let me read the actual source files:
+
+================================================================================
+Response 5
+================================================================================
+Perfect! Now I understand the issue. The vulnerability is in `LZWInputStream.java`:
+
+1. The `initializeTables(int maxCodeSize)` method at line 178 doesn't have any upper bound check on `maxCodeSize`
+2. It only checks if `1 << maxCodeSize < 256`, but doesn't check if `maxCodeSize` is too large (e.g., 31)
+3. When `maxCodeSize` is 31, it tries to allocate arrays of size `1 << 31` = 2,147,483,648 elements, causing an OutOfMemoryError
+
+The fix needs to add a reasonable upper bound on `maxCodeSize`. Looking at the code, the Z format uses a 5-bit field (MAX_CODE_SIZE_MASK = 0x1f = 31) to store maxCodeSize, but not all values are reasonable. A reasonable maximum would be around 16-20 bits.
+
+Let me create the patch:
+
+================================================================================
+Response 6
+================================================================================
+Good! Now I also need to update the second `initializeTables` method that takes a memory limit parameter. This method should also enforce the same maximum bounds check before doing the memory calculation:
+
+================================================================================
+Response 7
+================================================================================
+Perfect! Now let me verify the changes and create a summary:
+
+================================================================================
+Response 8
+================================================================================
+Excellent! The patch has been successfully applied. Let me create a summary of the fix:
+
+## Summary
+
+I've successfully created and applied a patch to fix the **Out of Memory (OOM)** vulnerability in the Apache Commons Compress library. 
+
+### Root Cause Analysis
+
+The vulnerability was in the `LZWInputStream.java` file in the `initializeTables()` methods. The code was accepting arbitrarily large `maxCodeSize` values from untrusted input (in this case, from a malicious .Z compressed file). When `maxCodeSize` was very large (e.g., 31), it would attempt to allocate arrays of size `1 << 31` (over 2 billion elements), causing an OutOfMemoryError.
+
+The attack vector:
+1. A malicious .Z file provides a large `maxCodeSize` value (extracted from the third byte of the file header)
+2. `ZCompressorInputStream` reads this value and passes it to `initializeTables()`
+3. The code attempts to allocate three massive arrays: `prefixes`, `characters`, and `outputStack`
+4. This causes Java heap exhaustion and crashes the application
+
+### The Fix
+
+The patch adds validation to enforce a maximum `maxCodeSize` of **20 bits**, which limits the maximum table size to approximately 1 MB (1,048,576 entries × 6 bytes ≈ 6 MB total). This is a reasonable limit that:
+
+1. **Prevents OOM attacks**: Rejects excessively large code sizes before memory allocation
+2. **Maintains compatibility**: The limit of 20 bits is sufficient for legitimate LZW/Z compressed files
+3. **Applies consistently**: Both `initializeTables()` methods now enforce this limit, whether or not a memory limit parameter is provided
+
+### Changes Made
+
+Modified `./src/main/java/org/apache/commons/compress/compressors/lzw/LZWInputStream.java`:
+
+1. Added upper bound check `maxCodeSize > 20` in the first `initializeTables(int)` method
+2. Added the same check in the second `initializeTables(int, int)` method before memory limit validation
+
+The fix ensures that even when no explicit memory limit is set (memoryLimitInKiB = -1), the code will reject dangerous maxCodeSize values and throw an `IllegalArgumentException` instead of attempting to allocate excessive memory.

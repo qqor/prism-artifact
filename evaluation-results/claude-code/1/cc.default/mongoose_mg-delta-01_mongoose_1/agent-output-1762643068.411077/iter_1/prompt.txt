@@ -1,0 +1,103 @@
+I tried to fix a AddressSanitizer: stack-buffer-overflow vulnerability causing the crash log in the <crash_log> below.
+I failed to fix the vulnerability with the following patches:
+
+```diff
+diff --git a/src/fmt.c b/src/fmt.c
+index 8164e1ca..6afe1094 100644
+--- a/src/fmt.c
++++ b/src/fmt.c
+@@ -315,11 +315,11 @@ size_t mg_vxprintf(void (*out)(char, void *), void *param, const char *fmt,
+         for (j = 0; minus && pr < w && j + pr < w; j++)
+           n += scpy(out, param, &pad, 1);
+       } else if (c == 'e' || c == 'E') {
+-		  char tmp[8];
++		  char tmp[40];
+           double d = va_arg(*ap, double);
+           int64_t exponent = (int64_t)log10(my_fabs(d));
+           double mantissa = d / power(10, exponent);
+-          k = mg_dtoa(tmp, 10, mantissa, 8, c == 'e');
++          k = mg_dtoa(tmp, sizeof(tmp), mantissa, 8, c == 'e');
+           n += scpy(out, param, tmp, k);
+           out(c, param);
+           n++;
+
+```
+
+Explain why the patches failed and provide a new patch to fix the vulnerability.
+Do not repeat the same mistakes in the new patch.
+Try a completely different approach to fix the vulnerability.
+NEVER fix files outside the source directory.
+NEVER do any git operations in or outside the source directory.
+
+Below is the crash log:
+
+<crash_log>
+==ERROR: AddressSanitizer: stack-buffer-overflow on address 0x7f26f946f988 at pc 0x558f58f616ed bp 0x7ffcdc43a480 sp 0x7ffcdc43a478
+WRITE of size 1 at 0x7f26f946f988 thread T0
+SCARINESS: 46 (1-byte-write-stack-buffer-overflow)
+    #0 0x558f58f616ec in mg_pfn_iobuf_private(char, void*, bool) /src/mongoose/src/printf.c:32:22
+    #1 0x558f58f61908 in mg_putchar_iobuf_static(char, void*) /src/mongoose/src/printf.c:39:3
+    #2 0x558f58f28b70 in scpy(void (*)(char, void*), void*, char*, unsigned long) /src/mongoose/src/fmt.c:233:37
+    #3 0x558f58f2662b in mg_vxprintf /src/mongoose/src/fmt.c:315:14
+    #4 0x558f58f230d7 in mg_vsnprintf /src/mongoose/src/printf.c:48:14
+    #5 0x558f58f29988 in mg_snprintf /src/mongoose/src/printf.c:57:7
+    #6 0x558f58f282dc in mg_dtoa(char*, unsigned long, double, int, bool) /src/mongoose/src/fmt.c:205:10
+    #7 0x558f58f26aa0 in mg_vxprintf /src/mongoose/src/fmt.c:323:15
+    #8 0x558f58f208f9 in mg_log /src/mongoose/src/log.c:43:3
+    #9 0x558f58f32b5c in mg_http_parse /src/mongoose/src/http.c:317:9
+    #10 0x558f58f76712 in LLVMFuzzerTestOneInput /src/mongoose/test/fuzz.c:32:7
+    #11 0x558f58dd2350 in fuzzer::Fuzzer::ExecuteCallback(unsigned char const*, unsigned long) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:614:13
+    #12 0x558f58dbd5c5 in fuzzer::RunOneTest(fuzzer::Fuzzer*, char const*, unsigned long) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerDriver.cpp:327:6
+    #13 0x558f58dc305f in fuzzer::FuzzerDriver(int*, char***, int (*)(unsigned char const*, unsigned long)) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerDriver.cpp:862:9
+    #14 0x558f58dee302 in main /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerMain.cpp:20:10
+    #15 0x7f26f9c8b082 in __libc_start_main (/lib/x86_64-linux-gnu/libc.so.6+0x24082) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #16 0x558f58db57ad in _start (/out/fuzz+0x587ad)
+
+DEDUP_TOKEN: mg_pfn_iobuf_private(char, void*, bool)--mg_putchar_iobuf_static(char, void*)--scpy(void (*)(char, void*), void*, char*, unsigned long)
+Address 0x7f26f946f988 is located in stack of thread T0 at offset 136 in frame
+    #0 0x558f58f23bdf in mg_vxprintf /src/mongoose/src/fmt.c:247
+
+DEDUP_TOKEN: mg_vxprintf
+  This frame has 3 object(s):
+    [32, 33) 'pad' (line 252)
+    [48, 88) 'tmp' (line 276)
+    [128, 136) 'tmp371' (line 319) <== Memory access at offset 136 overflows this variable
+HINT: this may be a false positive if your program uses some custom stack unwind mechanism, swapcontext or vfork
+      (longjmp and C++ exceptions *are* supported)
+SUMMARY: AddressSanitizer: stack-buffer-overflow /src/mongoose/src/printf.c:32:22 in mg_pfn_iobuf_private(char, void*, bool)
+Shadow bytes around the buggy address:
+  0x7f26f946f700: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+  0x7f26f946f780: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+  0x7f26f946f800: f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5
+  0x7f26f946f880: f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5
+  0x7f26f946f900: f1 f1 f1 f1 01 f2 f8 f8 f8 f8 f8 f2 f2 f2 f2 f2
+=>0x7f26f946f980: 00[f3]f3 f3 00 00 00 00 00 00 00 00 00 00 00 00
+  0x7f26f946fa00: f1 f1 f1 f1 01 f2 f8 f8 f8 f8 f8 f2 f2 f2 f2 f2
+  0x7f26f946fa80: f8 f3 f3 f3 00 00 00 00 00 00 00 00 00 00 00 00
+  0x7f26f946fb00: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+  0x7f26f946fb80: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+  0x7f26f946fc00: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+Shadow byte legend (one shadow byte represents 8 application bytes):
+  Addressable:           00
+  Partially addressable: 01 02 03 04 05 06 07 
+  Heap left redzone:       fa
+  Freed heap region:       fd
+  Stack left redzone:      f1
+  Stack mid redzone:       f2
+  Stack right redzone:     f3
+  Stack after return:      f5
+  Stack use after scope:   f8
+  Global redzone:          f9
+  Global init order:       f6
+  Poisoned by user:        f7
+  Container overflow:      fc
+  Array cookie:            ac
+  Intra object redzone:    bb
+  ASan internal:           fe
+  Left alloca redzone:     ca
+  Right alloca redzone:    cb
+==18==ABORTING
+subprocess command returned a non-zero exit status: 1
+INFO:__main__:Running: docker run --privileged --shm-size=2g --platform linux/amd64 --rm -i -e HELPER=True -e ARCHITECTURE=x86_64 -v /home/qqor/aixcc/crete/packages/python_oss_fuzz/.oss_fuzz/build/out/mongoose:/out -v /tmp/tmp9_7xrrat:/testcase -t ghcr.io/aixcc-finals/base-runner:v1.3.0 reproduce fuzz -runs=100.
+
+</crash_log>

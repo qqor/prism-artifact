@@ -1,0 +1,49 @@
+diff --git a/libexif/exif-data.c b/libexif/exif-data.c
+index f3f6dbc..c4a6636 100644
+--- a/libexif/exif-data.c
++++ b/libexif/exif-data.c
+@@ -914,18 +914,32 @@ exif_data_load_data (ExifData *data, const unsigned char *d_orig,
+ 				  "ExifData", _("EXIF marker not found."));
+ 			return;
+ 		}
+-		if (ds < 3) {
+-			LOG_TOO_SMALL;
+-			return;
+-		}
+-		d++;
+-		ds--;
+-		len = (((unsigned int)d[0]) << 8) | d[1];
+-		exif_log (data->priv->log, EXIF_LOG_CODE_DEBUG, "ExifData",
+-			  "We have to deal with %i byte(s) of EXIF data.",
+-			  len);
+-		d += 2;
+-		ds = len - 2;	/* we do not want the full rest size, but only the size of the tag */
++        if (ds < 3) {
++            LOG_TOO_SMALL;
++            return;
++        }
++        /* Skip the APP1 marker byte */
++        d++;
++        ds--;
++        /* Read APP1 section length (includes the two length bytes) */
++        len = (((unsigned int)d[0]) << 8) | d[1];
++        exif_log (data->priv->log, EXIF_LOG_CODE_DEBUG, "ExifData",
++                  "We have to deal with %u byte(s) of EXIF data.",
++                  len);
++        /* Validate length: must include at least two length bytes and fit in remaining data */
++        if (len < 2) {
++            LOG_TOO_SMALL;
++            return;
++        }
++        if (len > ds) {
++            exif_log (data->priv->log, EXIF_LOG_CODE_CORRUPT_DATA, "ExifData",
++                      "EXIF APP1 section length mismatch (%u > %u).", len, ds);
++            return;
++        }
++        /* Advance past length field */
++        d += 2;
++        /* Set ds to remaining section size */
++        ds = len - 2;
+ 	}
+ 
+ 	/*

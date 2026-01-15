@@ -1,0 +1,130 @@
+
+================================================================================
+Response 1
+================================================================================
+Looking at the crash log, I can see the issue clearly:
+
+## Why the Previous Patch Failed
+
+The stack trace shows:
+```
+at app//org.apache.pdfbox.pdfparser.BaseParser.isLF(BaseParser.java:1220)
+at app//org.apache.pdfbox.pdfparser.BaseParser.isEOL(BaseParser.java:1209)
+at app//org.apache.pdfbox.pdfparser.BaseParser.readLine(BaseParser.java:1176)
+```
+
+The timeout is occurring in an **infinite loop** at line 1176 in `readLine()`, where it's checking `isEOL()` which calls `isLF()`. The previous patch added a line length limit, but the real problem is that **the loop condition `while ((c = source.read()) != -1)` is stuck in an infinite loop because the source is providing an endless stream of non-EOL characters**.
+
+The patch didn't fail because the limit was too high - it failed because **the malicious PDF is providing an infinite stream that never returns `-1` or EOL characters**, likely through a circular reference or corrupted stream structure.
+
+## Root Cause
+
+The `readLine()` method is being called from `parseXrefTable()`, which is parsing cross-reference tables. A malformed PDF can create a situation where:
+1. The source never reaches EOF (`source.read()` never returns `-1`)
+2. No EOL characters are encountered
+3. The loop runs forever
+
+## New Approach - Different Strategy
+
+Instead of just limiting line length, we need to **limit the total number of iterations** across all `readLine()` calls during a single parsing session. This prevents any single document from consuming unlimited CPU time.
+
+Let me create a patch:
+
+================================================================================
+Response 2
+================================================================================
+Now let me check around line 1210-1220 to see the isLF and isCR methods:
+
+================================================================================
+Response 3
+================================================================================
+Perfect! Now I understand the complete picture. Let me provide a comprehensive solution with a completely different approach:
+
+## Analysis
+
+**Why the previous patch failed:**
+1. The patch only added a per-line limit (1MB)
+2. The fuzzer creates a malicious PDF where `source.read()` returns an infinite stream of non-EOL bytes
+3. Even with a 1MB limit, if the fuzzer provides 1MB of data slowly enough or if there are multiple such lines, the timeout still occurs
+4. The limit was too high and didn't account for the cumulative effect of reading multiple malformed lines
+
+**The real issue:** The `readLine()` method can be called many times during parsing (once per line in xref tables, etc.), and a malicious PDF can make EACH call consume a lot of CPU time, or have MANY such calls.
+
+## New Approach: Multiple Defense Layers
+
+Instead of just limiting line length, I'll implement:
+1. **Much smaller line length limit** (4KB instead of 1MB - reasonable for PDF syntax)
+2. **Global iteration counter** to prevent cumulative attacks across multiple readLine() calls
+3. **Fail-fast on excessive reads** to prevent timeout
+
+Here's the patch:
+
+```diff
+diff --git a/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/BaseParser.java b/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/BaseParser.java
+index b928a66f7..e1a9c8d3f 100644
+--- a/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/BaseParser.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/BaseParser.java
+@@ -64,6 +64,12 @@ public abstract class BaseParser
+ 
+     private static final int MAX_LENGTH_LONG = Long.toString(Long.MAX_VALUE).length();
+ 
++    // Maximum characters to read in a single line (4KB is reasonable for PDF syntax)
++    private static final int MAX_LINE_LENGTH = 4096;
++    
++    // Global counter to prevent excessive reads across entire parsing session
++    private int totalReadLineIterations = 0;
++    private static final int MAX_TOTAL_READ_ITERATIONS = 10_000_000;
+     private static final Charset ALTERNATIVE_CHARSET;
+ 
+     private final Map<Long, COSObjectKey> keyCache = new HashMap<>();
+@@ -1170,13 +1176,33 @@ public abstract class BaseParser
+         StringBuilder buffer = new StringBuilder( 11 );
+ 
+         int c;
++        int charsRead = 0;
+         while ((c = source.read()) != -1)
+         {
++            // Global safety check: prevent cumulative DoS across all readLine calls
++            totalReadLineIterations++;
++            if (totalReadLineIterations > MAX_TOTAL_READ_ITERATIONS)
++            {
++                throw new IOException(
++                    "Parser exceeded maximum read iterations (" + MAX_TOTAL_READ_ITERATIONS + 
++                    ") at offset " + source.getPosition() + 
++                    ". This may indicate a malformed or malicious PDF.");
++            }
++            
+             // CR and LF are valid EOLs
+             if (isEOL(c))
+             {
+                 break;
+             }
++            
++            // Per-line safety check: prevent single extremely long line
++            charsRead++;
++            if (charsRead > MAX_LINE_LENGTH)
++            {
++                throw new IOException(
++                    "Line exceeds maximum length (" + MAX_LINE_LENGTH + 
++                    " bytes) at offset " + source.getPosition() + 
++                    ". This may indicate a malformed or malicious PDF.");
++            }
+             buffer.append( (char)c );
+         }
+         // CR+LF is also a valid EOL
+```
+
+## Key Differences from Previous Patch:
+
+1. **Throws IOException instead of just logging and breaking** - This ensures the parsing stops completely rather than continuing with potentially corrupted data
+
+2. **Much lower per-line limit** - 4KB instead of 1MB. PDF syntax lines (like xref entries) should be much smaller than this
+
+3. **Global iteration counter** - Tracks total iterations across ALL `readLine()` calls in the parsing session. This prevents:
+   - A PDF with millions of slightly-long lines
+   - Death by a thousand cuts attacks
+   - Cumulative resource exhaustion
+
+4. **Fail-fast with clear error messages** - Helps identify the attack vector and prevents silent corruption
+
+This multi-layered defense ensures that no single line or combination of lines can cause a timeout, regardless of how the malicious PDF is structured.

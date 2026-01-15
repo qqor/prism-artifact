@@ -1,0 +1,27 @@
+--- a/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-audiovideo-module/src/main/java/org/apache/tika/parser/m3/M3U8Parser.java
++++ b/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-audiovideo-module/src/main/java/org/apache/tika/parser/m3/M3U8Parser.java
+@@ -161,17 +161,14 @@
+         // split on , then the first value is the length (can be -1),
+         // the last value is the title; intermediate values are key=value format
+         metadata.add(PLAY_LIST_LINK, nextLine);
+-        if (! nextLine.startsWith("http")) {
+-            return;
++        // Skip fetching external resources to prevent SSRF
++        if (nextLine.startsWith("http://") || nextLine.startsWith("https://")) {
++            // Emit link in output without fetching content
++            xhtml.startElement("a", "href", nextLine);
++            xhtml.characters(nextLine);
++            xhtml.endElement("a");
+         }
+-        EmbeddedDocumentExtractor ex = EmbeddedDocumentUtil.getEmbeddedDocumentExtractor(context);
+-        Metadata m = new Metadata();
+-        if (ex.shouldParseEmbedded(m)) {
+-            try (TikaInputStream tis = TikaInputStream.get(new URL(nextLine))) {
+-                ex.parseEmbedded(tis, new BodyContentHandler(new EmbeddedContentHandler(xhtml)), m,
+-                        true);
+-            }
+-        }
++        return;
+     }
+ 
+     private String getNextContentLine(BufferedReader reader) throws IOException {

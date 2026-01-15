@@ -1,0 +1,43 @@
+--- a/libexif/apple/exif-mnote-data-apple.c
++++ b/libexif/apple/exif-mnote-data-apple.c
+@@ -85,16 +85,19 @@
+     tcount = (unsigned int) exif_get_short(buf + ofs + 14, d->order);
+ 
+     /* Sanity check the offset */
+-    if (buf_size < 6 + 16 + tcount * 6 + 4) {
++    /* Removed old sanity check; precise directory size validation follows */
++
++    /* printf("%s(%d): total %d tags\n", __FUNCTION__, __LINE__, tcount); */
++
++    ofs += 16;
++    /* Ensure directory entries are fully contained in buffer */
++    if (buf_size < ofs + tcount * 12) {
+         exif_log(md->log, EXIF_LOG_CODE_CORRUPT_DATA,
+-                 "ExifMnoteDataApple", "Short MakerNote");
+-        /*printf("%s(%d)\n", __FUNCTION__, __LINE__);*/
+-        return;
+-    }
+-
+-    /* printf("%s(%d): total %d tags\n", __FUNCTION__, __LINE__, tcount); */
+-
+-    ofs += 16;
++                 "ExifMnoteDataApple",
++                 "MakerNote directory overflow: %u entries exceed buffer %u",
++                 tcount, buf_size);
++        return;
++    }
+ 
+     exif_mnote_data_apple_free(md);
+ 
+@@ -117,9 +120,9 @@
+         } else {
+             dofs = ofs + 8;
+         }
+-	if (dofs > buf_size) {
++	if (dsize > buf_size || dofs > buf_size - dsize) {
+ 		exif_log (md->log, EXIF_LOG_CODE_CORRUPT_DATA,
+-                                  "ExifMnoteApplet", "Tag size overflow detected (%u vs size %u)", dofs, buf_size);
++                                  "ExifMnoteApplet", "Tag size overflow detected (offset %u + size %u > buffer %u)", dofs, dsize, buf_size);
+ 		continue;
+ 	}
+         ofs += 12;

@@ -1,0 +1,91 @@
+--- a/src/main/java/org/apache/commons/compress/compressors/lzw/LZWInputStream.java
++++ b/src/main/java/org/apache/commons/compress/compressors/lzw/LZWInputStream.java
+@@ -40,6 +40,9 @@
+     protected static final int DEFAULT_CODE_SIZE = 9;
+     protected static final int UNUSED_PREFIX = -1;
+ 
++    /** Default memory limit in KiB when no limit is specified. */
++    protected static final int DEFAULT_MEMORY_LIMIT_KiB = 64 * 1024;
++
+     private final byte[] oneByte = new byte[1];
+ 
+     protected final BitInputStream in;
+@@ -202,21 +205,22 @@
+      * @throws MemoryLimitException     if estimated memory usage is greater than memoryLimitKiB
+      * @throws IllegalArgumentException if {@code maxCodeSize} is not bigger than 0
+      */
+-    protected void initializeTables(final int maxCodeSize, final int memoryLimiKiB) throws MemoryLimitException {
++    protected void initializeTables(final int maxCodeSize, final int memoryLimitKiB) throws MemoryLimitException {
+         if (maxCodeSize <= 0) {
+             throw new IllegalArgumentException("maxCodeSize is " + maxCodeSize + ", must be bigger than 0");
+         }
+ 
+-        if (memoryLimiKiB > -1) {
+-            final int maxTableSize = 1 << maxCodeSize;
+-            // account for potential overflow
+-            final long memoryUsageBytes = (long) maxTableSize * 6; // (4 (prefixes) + 1 (characters) +1 (outputStack))
+-            final long memoryUsageKiB = memoryUsageBytes >> 10;
+-
+-            if (memoryUsageKiB > memoryLimiKiB) {
+-                throw new MemoryLimitException(memoryUsageKiB, memoryLimiKiB);
+-            }
+-        }
++        final int effectiveLimitKiB = memoryLimitKiB < 0 ? DEFAULT_MEMORY_LIMIT_KiB : memoryLimitKiB;
++        final int maxTableSize = 1 << maxCodeSize;
++
++        // account for potential overflow
++        final long memoryUsageBytes = (long) maxTableSize * 6; // (4 (prefixes) + 1 (characters) +1 (outputStack))
++        final long memoryUsageKiB = memoryUsageBytes >> 10;
++
++        if (memoryUsageKiB > effectiveLimitKiB) {
++            throw new MemoryLimitException(memoryUsageKiB, effectiveLimitKiB);
++        }
++
+         initializeTables(maxCodeSize);
+     }
+ 
+
+--- a/src/main/java/org/apache/commons/compress/compressors/z/ZCompressorInputStream.java
++++ b/src/main/java/org/apache/commons/compress/compressors/z/ZCompressorInputStream.java
+@@ -25,8 +25,9 @@
+ import org.apache.commons.compress.compressors.lzw.LZWInputStream;
+ 
+ /**
+- * Input stream that decompresses .Z files.
+- *
++ import org.apache.commons.compress.utils.InputStreamStatistics;
++ import static org.apache.commons.compress.compressors.lzw.LZWInputStream.DEFAULT_MEMORY_LIMIT_KiB;
++
+  * @NotThreadSafe
+  * @since 1.7
+  */
+@@ -60,17 +61,17 @@
+      * @throws IOException if an I/O error occurs.
+      */
+     public ZCompressorInputStream(final InputStream inputStream) throws IOException {
+-        this(inputStream, -1);
++        this(inputStream, DEFAULT_MEMORY_LIMIT_KiB);
+     }
+ 
+     /**
+      * Constructs a new instance.
+      *
+      * @param inputStream The underlying input stream.
+-     * @param memoryLimitInKiB maximum allowed estimated memory usage in kibibytes.
++ * @param memoryLimitKiB maximum allowed estimated memory usage in kibibytes.
+      * @throws IOException if an I/O error occurs.
+      */
+-    public ZCompressorInputStream(final InputStream inputStream, final int memoryLimitInKiB) throws IOException {
++    public ZCompressorInputStream(final InputStream inputStream, final int memoryLimitKiB) throws IOException {
+         super(inputStream, ByteOrder.LITTLE_ENDIAN);
+         final int firstByte = (int) in.readBits(8);
+         final int secondByte = (int) in.readBits(8);
+@@ -83,7 +84,7 @@
+         if (blockMode) {
+             setClearCode(DEFAULT_CODE_SIZE);
+         }
+-        initializeTables(maxCodeSize, memoryLimitInKiB);
++        initializeTables(maxCodeSize, memoryLimitKiB);
+         clearEntries();
+     }
+ 

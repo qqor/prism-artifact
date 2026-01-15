@@ -1,0 +1,94 @@
+
+================================================================================
+Response 1
+================================================================================
+Looking at the crash log, I can see the issue:
+
+```
+bash: /out/dav1d_fuzzer_mt: Permission denied
+subprocess command returned a non-zero exit status: 126
+```
+
+The problem is that the fuzzer binary `/out/dav1d_fuzzer_mt` doesn't have execute permissions. Let me examine the current state of the wrapper script and understand the issue better.
+
+================================================================================
+Response 2
+================================================================================
+Now I understand the issue. The crash log shows:
+
+```
+bash: /out/dav1d_fuzzer_mt: Permission denied
+```
+
+The wrapper script `dav1d_fuzzer_mt@NO_OOM` is trying to execute `dav1d_fuzzer_mt`, but there's a permission issue. The problem is:
+
+1. The original script removes execute permissions with `chmod -x` after running (line 24)
+2. The failed patch removed the `chmod -x` but kept the `chmod +x`
+3. However, the real issue is that **the wrapper script itself is what's being executed**, not the actual binary
+
+Looking at the crash log more carefully, the infrastructure is trying to run `/out/dav1d_fuzzer_mt` directly, not the `@NO_OOM` wrapper. This means the actual fuzzer binary `dav1d_fuzzer_mt` is having its permissions removed by the wrapper script on line 24.
+
+**Why the previous patch failed:**
+The patch removed the `chmod -x` line that was stripping execute permissions, but the crash log indicates the issue persists. Looking at the infrastructure, it seems the wrapper mechanism with `@NO_OOM` suffix might not be working as expected in this environment.
+
+**New approach:** Instead of relying on chmod operations, we should make the wrapper script use `exec` to replace itself with the actual binary, ensuring proper exit code handling without needing to manipulate permissions.
+
+================================================================================
+Response 3
+================================================================================
+## Explanation
+
+### Why the previous patch failed:
+
+The previous patch only removed the `chmod -x` line (line 24) that was stripping execute permissions after the fuzzer ran. However, it still kept the `chmod +x` line which implies the binary doesn't start with execute permissions. The real issue is more fundamental:
+
+1. The wrapper script was designed to toggle execute permissions on the actual binary to prevent infrastructure from detecting it prematurely
+2. The `chmod -x` at the end would strip permissions, causing the next run to fail since the binary wouldn't be executable when the infrastructure tries to run `/out/dav1d_fuzzer_mt` directly (not through the wrapper)
+
+### New approach (completely different):
+
+Instead of trying to manipulate file permissions dynamically, the new patch:
+
+1. **Removes ALL chmod operations entirely** - Both `chmod +x` and `chmod -x` are removed
+2. **Relies on the build system** - The binary should already have execute permissions from the build process
+3. **Adds proper quoting** - Changed `$this_dir/dav1d_fuzzer_mt` to `"$this_dir/dav1d_fuzzer_mt"` to handle paths with spaces correctly
+4. **Simplifies the script** - The wrapper now simply runs the binary and handles the OOM exit code (71) appropriately
+
+This approach is more robust because it doesn't depend on runtime permission manipulation that can fail in containerized/sandboxed environments or cause race conditions when the infrastructure tries to access the binary between runs.
+
+### New patch:
+
+```diff
+diff --git a/tests/libfuzzer/dav1d_fuzzer_mt@NO_OOM b/tests/libfuzzer/dav1d_fuzzer_mt@NO_OOM
+index 58909697..c8f2e4a5 100755
+--- a/tests/libfuzzer/dav1d_fuzzer_mt@NO_OOM
++++ b/tests/libfuzzer/dav1d_fuzzer_mt@NO_OOM
+@@ -6,23 +6,17 @@
+ # allocates more than 2.5GB in a single shot, there's probably something wrong.
+ # This is NOT true for dav1d. dav1d is a decoder for one of the most advanced
+ # compression systems available today. Getting it to allocate huge swathes of RAM
+-# is trivial, and in many cases expected. 
++# is trivial, and in many cases expected.
+ # So, this small wrapper script prevents OOMs from being caught as errors
+ # by our infrastructure
+ 
+ this_dir=$(dirname "$0")
+ 
+-# chmod the actual binary so that it's not picked up by our infrastructure
+-# until it's actually ready
+-chmod +x $this_dir/dav1d_fuzzer_mt
+-
+-$this_dir/dav1d_fuzzer_mt "$@"
++# Run the actual fuzzer binary and capture return code
++# No chmod operations - binary should already be executable from build
++"$this_dir/dav1d_fuzzer_mt" "$@"
+ 
+ RETURN_CODE=$?
+ 
+-# done, unset it
+-chmod -x $this_dir/dav1d_fuzzer_mt
+-
+ if [ $RETURN_CODE -eq 71 ]; then
+     exit 0
+ else
+```

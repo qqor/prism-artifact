@@ -1,0 +1,30 @@
+--- a/epan/dissectors/packet-aim.c
++++ b/epan/dissectors/packet-aim.c
+@@ -583,13 +583,21 @@
+ {
+ 	uint16_t buddyname_length;
+ 
+-	*name = wmem_alloc(pool, 256);
+-
+ 	buddyname_length = tvb_get_ntohs(tvb, offset);
+-
+-	if (pool)
+-		memcpy(*name, tvb_get_ptr(tvb,offset,1), buddyname_length);
+-
++	{
++		gint remaining = tvb_reported_length_remaining(tvb, offset + 2);
++		if (remaining < 0)
++			remaining = 0;
++		if ((guint)buddyname_length > (guint)remaining)
++			buddyname_length = remaining;
++	}
++	if (buddyname_length > 256)
++		buddyname_length = 256;
++	*name = wmem_alloc(pool, buddyname_length + 1);
++	if (pool) {
++		tvb_memcpy(tvb, *name, offset + 2, buddyname_length);
++		(*name)[buddyname_length] = '\0';
++	}
+ 	return buddyname_length;
+ }
+ 

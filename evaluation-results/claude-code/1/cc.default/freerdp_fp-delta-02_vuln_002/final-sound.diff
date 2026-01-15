@@ -1,0 +1,26 @@
+diff --git a/libfreerdp/crypto/x509_utils.c b/libfreerdp/crypto/x509_utils.c
+index 7a24a353e..fa88c01eb 100644
+--- a/libfreerdp/crypto/x509_utils.c
++++ b/libfreerdp/crypto/x509_utils.c
+@@ -448,14 +448,16 @@ BOOL x509_validate_subject_aternative_names(const X509* cert) {
+         GENERAL_NAME *gen_name = sk_GENERAL_NAME_value(san_names, i);
+ 
+         if (gen_name->type == GEN_DNS) {
+-			// Allocate string length + 1 for security
+-			dns_name = malloc( strlen((char *)ASN1_STRING_get0_data(gen_name->d.dNSName)) + 1);
++			// Allocate based on actual ASN1 string length, not strlen
++			int dns_length = ASN1_STRING_length(gen_name->d.dNSName);
++			dns_name = malloc(dns_length + 1);
+ 
+ 			if (dns_name == NULL)
+ 				goto end;
+-			
+-			memcpy(dns_name, (char *)ASN1_STRING_get0_data(gen_name->d.dNSName),  
+-				ASN1_STRING_length(gen_name->d.dNSName)) ;
++
++			memcpy(dns_name, (char *)ASN1_STRING_get0_data(gen_name->d.dNSName),
++				dns_length);
++			dns_name[dns_length] = '\0';
+ 			
+             if (!verify_san(dns_name)) {
+ 				free(dns_name);

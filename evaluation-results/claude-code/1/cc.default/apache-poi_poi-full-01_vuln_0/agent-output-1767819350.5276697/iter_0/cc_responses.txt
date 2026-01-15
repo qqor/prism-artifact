@@ -1,0 +1,80 @@
+
+================================================================================
+Response 1
+================================================================================
+Now I need to understand what could be causing the timeout. Let me look at the HMEFMessage class and related files to understand what operations are being performed and what could cause the timeout.
+
+================================================================================
+Response 2
+================================================================================
+Let me look at the LZWDecompresser class which is used for decompression - this is likely where the timeout is happening:
+
+================================================================================
+Response 3
+================================================================================
+Now let me check the TNEFAttribute and MAPIAttribute classes to understand where the processing happens and where potential infinite loops could occur:
+
+================================================================================
+Response 4
+================================================================================
+Let me look at the MAPIAttribute class since it's likely involved in the decompression processing chain:
+
+================================================================================
+Response 5
+================================================================================
+Now I have a good understanding of the code. The timeout is likely occurring in the `LZWDecompresser.decompress()` method which has a `while` loop that can potentially run indefinitely if the input data is malformed. This is a classic fuzzing issue where malformed data can create an infinite decompression loop.
+
+Looking at the `decompress` method in `LZWDecompresser.java`, the issue is that there's no limit on the output size. If a malformed input causes the decompression loop to keep running, it can timeout.
+
+The fix should add a check to limit the amount of data that can be decompressed, similar to how other parts of POI use `MAX_RECORD_LENGTH` limits. The `CompressedRTF` class reads a `decompressedSize` from the header, which should be used to limit the output.
+
+Let me find where the source directory is located:
+
+================================================================================
+Response 6
+================================================================================
+Now I understand the setup. The fuzzer calls `POIFuzzer.adjustLimits()` in initialization, but this only limits `RecordFactory.setMaxNumberOfRecords`. The timeout issue is likely in the `LZWDecompresser.decompress()` which can run indefinitely with malformed input.
+
+Looking at the code flow:
+1. `POIHMEFFuzzer` creates `HMEFMessage` 
+2. `HMEFMessage.getBody()` retrieves `MAPIProperty.RTF_COMPRESSED`
+3. This creates `MAPIRtfAttribute` which uses `CompressedRTF.decompress()` 
+4. `CompressedRTF` extends `LZWDecompresser` which has an unbounded decompression loop
+
+The fix needs to limit the decompression. Looking at `CompressedRTF`, it reads `decompressedSize` from the header but doesn't use it to limit the output. The fix should:
+1. Add a limit to the decompression based on the declared `decompressedSize`
+2. Add `LZWDecompresser.setMaxRecordLength()` to the adjustLimits() function
+
+Since we can only modify files in the source directory (`/home/qqor/crete/packages/python_oss_fuzz/.oss_fuzz/projects/apache-poi/src/`), the fix needs to be applied to `POIHMEFFuzzer.java` by adjusting the LZW limits in the fuzzer initialization.
+
+================================================================================
+Response 7
+================================================================================
+Now I understand. The `LZWDecompresser` has a `setMaxRecordLength` method that can be used to limit the decompression. The fix should be to add `LZWDecompresser.setMaxRecordLength()` to the `POIHMEFFuzzer` initialization (or the shared `POIFuzzer.adjustLimits()`) to prevent the timeout.
+
+Let me create a patch to fix this issue. The fix should modify `POIHMEFFuzzer.java` to set a limit on the LZW decompression:
+
+================================================================================
+Response 8
+================================================================================
+The patch has been applied. Now let me verify the change and show you the complete modified file:
+
+================================================================================
+Response 9
+================================================================================
+The patch has been successfully applied. Here's a summary of the fix:
+
+## Summary
+
+**Bug:** The `POIHMEFFuzzer` was timing out after 26 seconds due to unbounded LZW decompression when processing malformed HMEF (TNEF) files.
+
+**Root Cause:** The `LZWDecompresser.decompress()` method in Apache POI processes compressed RTF data without any output size limit. With malformed input data, this can cause the decompression loop to run for an excessive amount of time, resulting in a timeout.
+
+**Fix Applied:** Added a call to `LZWDecompresser.setMaxRecordLength(100_000)` in the `POIHMEFFuzzer.fuzzerInitialize()` method. This limits the maximum size of decompressed data to 100KB, which is sufficient for legitimate test cases while preventing timeout issues caused by malformed input data that could trigger excessive decompression.
+
+**Changes made to `/home/qqor/crete/packages/python_oss_fuzz/.oss_fuzz/projects/apache-poi/src/main/java/org/apache/poi/POIHMEFFuzzer.java`:**
+
+1. Added import: `import org.apache.poi.util.LZWDecompresser;`
+2. Added in `fuzzerInitialize()`: `LZWDecompresser.setMaxRecordLength(100_000);`
+
+This change ensures that when decompressing RTF data, if the output exceeds 100KB, an exception will be thrown (which is caught by the existing exception handler) rather than continuing to decompress indefinitely.

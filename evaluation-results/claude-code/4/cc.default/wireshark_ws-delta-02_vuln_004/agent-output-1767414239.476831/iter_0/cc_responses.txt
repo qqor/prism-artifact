@@ -1,0 +1,72 @@
+
+================================================================================
+Response 1
+================================================================================
+Let me find the source file first:
+
+================================================================================
+Response 2
+================================================================================
+Now I understand the bug. Looking at the crash log and the code:
+
+1. At line 902, `ident_name` is declared as `uint8_t ident_name[ICMP_MAX_IDENT_NAME_LENGTH]` - this is a stack buffer of size 128 bytes (as indicated by the frame info showing `[32, 160) 'ident_name.i'` which is 160-32=128 bytes).
+
+2. At line 927, `tvb_memcpy(tvb, ident_name, offset, obj_length - 4)` copies `obj_length - 4` bytes into the buffer without checking if the length exceeds `ICMP_MAX_IDENT_NAME_LENGTH`.
+
+3. The crash shows a WRITE of size 256 bytes, meaning `obj_length - 4` was around 256, overflowing the 128-byte buffer.
+
+Let me verify the constant `ICMP_MAX_IDENT_NAME_LENGTH`:
+
+================================================================================
+Response 3
+================================================================================
+The buffer is 128 bytes. The fix needs to limit the copy size to `ICMP_MAX_IDENT_NAME_LENGTH`. Let me create the patch:
+
+================================================================================
+Response 4
+================================================================================
+Now I'll apply the fix. The issue is that `obj_length - 4` could exceed `ICMP_MAX_IDENT_NAME_LENGTH` (128 bytes). We need to:
+
+1. Add a check to limit the copy size to the buffer size
+2. Also update the loop to use the limited size
+
+================================================================================
+Response 5
+================================================================================
+The patch has been applied successfully. Here's a summary of the fix:
+
+## Bug Analysis
+
+**Root Cause**: Stack buffer overflow in `dissect_interface_identification_object()` function in `packet-icmp.c`.
+
+The function declared a fixed-size buffer:
+```c
+uint8_t ident_name[ICMP_MAX_IDENT_NAME_LENGTH];  // 128 bytes
+```
+
+But copied data without bounds checking:
+```c
+tvb_memcpy(tvb, ident_name, offset, obj_length - 4);  // obj_length could be > 132
+```
+
+When `obj_length - 4` exceeded 128 bytes (e.g., 256 bytes as shown in the crash), it caused a stack buffer overflow.
+
+## Fix Applied
+
+Added bounds checking before the `tvb_memcpy()` call:
+
+```c
+{
+    uint16_t ident_name_len = obj_length - 4;
+    if (ident_name_len > ICMP_MAX_IDENT_NAME_LENGTH) {
+        ident_name_len = ICMP_MAX_IDENT_NAME_LENGTH;
+    }
+    tvb_memcpy(tvb, ident_name, offset, ident_name_len);
+
+    for (unsigned i = 0; i < ident_name_len; i++)
+        if (!g_ascii_isprint(ident_name[i]))
+            break;
+}
+```
+
+This ensures the copy operation never exceeds the buffer size, preventing the stack buffer overflow. The `proto_tree_add_item()` call is left unchanged as it reads directly from the TVB and handles its own bounds checking.

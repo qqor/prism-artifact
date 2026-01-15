@@ -1,0 +1,37 @@
+diff --git a/fontbox/src/main/java/org/apache/fontbox/type1/Type1Lexer.java b/fontbox/src/main/java/org/apache/fontbox/type1/Type1Lexer.java
+index 56aaf64ad..676e55163 100644
+--- a/fontbox/src/main/java/org/apache/fontbox/type1/Type1Lexer.java
++++ b/fontbox/src/main/java/org/apache/fontbox/type1/Type1Lexer.java
+@@ -117,11 +117,32 @@ class Type1Lexer
+     private Token readToken(Token prevToken) throws IOException
+     {
+         boolean skip;
++        int loopCount = 0;
++        int lastPosition = -1;
++        final int MAX_STALL_ITERATIONS = 100000;
++
+         do
+         {
+             skip = false;
+             while (buffer.hasRemaining())
+             {
++                // Detect if buffer position is not advancing (infinite loop protection)
++                int currentPosition = buffer.position();
++                if (currentPosition == lastPosition)
++                {
++                    loopCount++;
++                    if (loopCount > MAX_STALL_ITERATIONS)
++                    {
++                        throw new IOException("Buffer position not advancing at position " +
++                                currentPosition + ". Possible infinite loop in malformed font data.");
++                    }
++                }
++                else
++                {
++                    loopCount = 0;
++                    lastPosition = currentPosition;
++                }
++
+                 char c = getChar();
+ 
+                 // delimiters

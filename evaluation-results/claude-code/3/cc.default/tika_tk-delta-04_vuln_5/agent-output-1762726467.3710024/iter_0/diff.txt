@@ -1,0 +1,48 @@
+diff --git a/tika-pipes/tika-emitters/tika-emitter-fs/src/main/java/org/apache/tika/pipes/emitter/fs/FileSystemEmitter.java b/tika-pipes/tika-emitters/tika-emitter-fs/src/main/java/org/apache/tika/pipes/emitter/fs/FileSystemEmitter.java
+index 9142c9b7b..5300850f3 100644
+--- a/tika-pipes/tika-emitters/tika-emitter-fs/src/main/java/org/apache/tika/pipes/emitter/fs/FileSystemEmitter.java
++++ b/tika-pipes/tika-emitters/tika-emitter-fs/src/main/java/org/apache/tika/pipes/emitter/fs/FileSystemEmitter.java
+@@ -84,7 +84,8 @@ public class FileSystemEmitter extends AbstractEmitter implements StreamEmitter
+             emitKey += "." + fileExtension;
+         }
+         if (basePath != null) {
+-            output = basePath.resolve(emitKey);
++            output = basePath.resolve(emitKey).normalize();
++            validatePath(output, basePath);
+         } else {
+             output = Paths.get(emitKey);
+         }
+@@ -144,7 +145,8 @@ public class FileSystemEmitter extends AbstractEmitter implements StreamEmitter
+ 
+     @Override
+     public void emit(String path, InputStream inputStream, Metadata userMetadata, ParseContext parseContext) throws IOException, TikaEmitterException {
+-        Path target = basePath.resolve(path);
++        Path target = basePath.resolve(path).normalize();
++        validatePath(target, basePath);
+ 
+         if (!Files.isDirectory(target.getParent())) {
+             Files.createDirectories(target.getParent());
+@@ -164,6 +166,23 @@ public class FileSystemEmitter extends AbstractEmitter implements StreamEmitter
+         }
+     }
+ 
++    /**
++     * Validates that the resolved path is within the base path to prevent path traversal attacks.
++     *
++     * @param resolvedPath the resolved path to validate
++     * @param basePath the base path that should contain the resolved path
++     * @throws TikaEmitterException if the resolved path is outside the base path
++     */
++    private void validatePath(Path resolvedPath, Path basePath) throws TikaEmitterException {
++        Path normalizedBase = basePath.toAbsolutePath().normalize();
++        Path normalizedResolved = resolvedPath.toAbsolutePath().normalize();
++
++        if (!normalizedResolved.startsWith(normalizedBase)) {
++            throw new TikaEmitterException("Path traversal attempt detected: resolved path '" +
++                    normalizedResolved + "' is outside base path '" + normalizedBase + "'");
++        }
++    }
++
+     enum ON_EXISTS {
+         SKIP, EXCEPTION, REPLACE
+     }

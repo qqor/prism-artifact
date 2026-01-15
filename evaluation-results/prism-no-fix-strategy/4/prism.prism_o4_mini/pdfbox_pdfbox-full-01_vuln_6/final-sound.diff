@@ -1,0 +1,79 @@
+--- a/fontbox/src/main/java/org/apache/fontbox/pfb/PfbParser.java
++++ b/fontbox/src/main/java/org/apache/fontbox/pfb/PfbParser.java
+@@ -153,20 +153,22 @@
+                 throw new IOException("Incorrect record type: " + recordType);
+             }
+ 
+-            int size = in.read();
+-            size += in.read() << 8;
+-            size += in.read() << 16;
+-            size += in.read() << 24;
+-            LOG.debug("record type: {}, segment size: {}", recordType, size);
+-            long newTotal = total + size;
++            long sizeLong = ((long)(in.read() & 0xFF)) |
++                            ((long)(in.read() & 0xFF) << 8) |
++                            ((long)(in.read() & 0xFF) << 16) |
++                            ((long)(in.read() & 0xFF) << 24);
++            if (sizeLong < 0 || sizeLong > MAX_LENGTH) {
++                throw new IOException("Invalid segment size: " + sizeLong);
++            }
++            LOG.debug("record type: {}, segment size: {}", recordType, sizeLong);
++            long newTotal = total + sizeLong;
+             if (newTotal > MAX_LENGTH) {
+                 throw new IOException("record size would be too large: " + newTotal);
+             }
+-
++            int size = (int) sizeLong;
+             byte[] ar = new byte[size];
+             int got = in.read(ar);
+-            if (got != size)
+-            {
++            if (got != size) {
+                 throw new EOFException("EOF while reading PFB font");
+             }
+             total += size;
+
+--- a/fontbox/src/main/java/org/apache/fontbox/type1/Type1Font.java
++++ b/fontbox/src/main/java/org/apache/fontbox/type1/Type1Font.java
+@@ -20,6 +20,7 @@
+ import java.awt.geom.GeneralPath;
+ import java.io.IOException;
+ import java.io.InputStream;
++import java.io.ByteArrayOutputStream;
+ import java.util.ArrayList;
+ import java.util.Collections;
+ import java.util.LinkedHashMap;
+@@ -51,7 +52,21 @@
+      */
+     public static Type1Font createWithPFB(InputStream pfbStream) throws IOException
+     {
+-        PfbParser pfb = new PfbParser(pfbStream);
++        // Read PFB bytes with limit to avoid out-of-memory
++        final long PFB_MAX_BYTES = 100_000_000L;
++        ByteArrayOutputStream baos = new ByteArrayOutputStream();
++        byte[] buffer = new byte[8192];
++        long total = 0;
++        int bytesRead;
++        while ((bytesRead = pfbStream.read(buffer)) != -1) {
++            total += bytesRead;
++            if (total > PFB_MAX_BYTES) {
++                throw new IOException("PFB stream too large: " + total);
++            }
++            baos.write(buffer, 0, bytesRead);
++        }
++        byte[] pfbBytes = baos.toByteArray();
++        PfbParser pfb = new PfbParser(pfbBytes);
+         Type1Parser parser = new Type1Parser();
+         return parser.parse(pfb.getSegment1(), pfb.getSegment2());
+     }
+@@ -66,6 +81,10 @@
+      */
+     public static Type1Font createWithPFB(byte[] pfbBytes) throws IOException
+     {
++        final long PFB_MAX_BYTES = 100_000_000L;
++        if (pfbBytes.length > PFB_MAX_BYTES) {
++            throw new IOException("PFB byte array too large: " + pfbBytes.length);
++        }
+         PfbParser pfb = new PfbParser(pfbBytes);
+         Type1Parser parser = new Type1Parser();
+         return parser.parse(pfb.getSegment1(), pfb.getSegment2());

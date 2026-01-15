@@ -1,0 +1,38 @@
+diff --git a/poi-scratchpad/src/main/java/org/apache/poi/hmef/HMEFMessage.java b/poi-scratchpad/src/main/java/org/apache/poi/hmef/HMEFMessage.java
+index 26f523831..123db5de0 100644
+--- a/poi-scratchpad/src/main/java/org/apache/poi/hmef/HMEFMessage.java
++++ b/poi-scratchpad/src/main/java/org/apache/poi/hmef/HMEFMessage.java
+@@ -42,6 +42,11 @@ import org.apache.poi.util.LittleEndian;
+ public final class HMEFMessage {
+     public static final int HEADER_SIGNATURE = 0x223e9f78;
+ 
++    /**
++     * Maximum number of iterations to prevent infinite loops in malformed files
++     */
++    private static final int MAX_LOOP_ITERATIONS = 100000;
++
+     @SuppressWarnings("unused")
+     private int fileId;
+     private final List<TNEFAttribute> messageAttributes = new ArrayList<>();
+@@ -77,6 +82,7 @@ public final class HMEFMessage {
+ 
+     private void process(InputStream inp) throws IOException {
+        int level;
++       int iterationCount = 0;
+        do {
+            // Fetch the level
+            level = inp.read();
+@@ -97,6 +103,13 @@ public final class HMEFMessage {
+                 default:
+                     throw new IllegalStateException("Unhandled level " + level);
+             }
++
++            // Prevent infinite loops in malformed files
++            iterationCount++;
++            if (iterationCount > MAX_LOOP_ITERATIONS) {
++                throw new IllegalStateException(
++                    "Maximum iteration limit exceeded while processing TNEF message. Possible malformed file.");
++            }
+         } while (level != TNEFProperty.LEVEL_END_OF_FILE);
+     }
+ 

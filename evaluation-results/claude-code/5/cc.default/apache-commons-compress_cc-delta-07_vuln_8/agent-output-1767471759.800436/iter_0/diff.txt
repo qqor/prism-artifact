@@ -1,0 +1,41 @@
+diff --git a/src/main/java/org/apache/commons/compress/archivers/examples/Expander.java b/src/main/java/org/apache/commons/compress/archivers/examples/Expander.java
+index 30649f530..85a415347 100644
+--- a/src/main/java/org/apache/commons/compress/archivers/examples/Expander.java
++++ b/src/main/java/org/apache/commons/compress/archivers/examples/Expander.java
+@@ -471,14 +471,25 @@ public void expand(final ZipFile archive, final Path targetDirectory) throws IOE
+         if (! Files.isDirectory(targetDirectory)) {
+             Files.createDirectories(targetDirectory);
+         }
++        final Path normalizedTargetDir = targetDirectory.toAbsolutePath().normalize();
+         final Enumeration<ZipArchiveEntry> entries = archive.getEntries();
+         while (entries.hasMoreElements()) {
+             ZipArchiveEntry zae = entries.nextElement();
+             if (zae.isUnixSymlink()) {
+                 String targetName = IOUtils.toString(archive.getInputStream(zae),
+                         StandardCharsets.UTF_8);
+-                Path link = targetDirectory.resolve(zae.getName());
+-                Path target = targetDirectory.resolve(targetName);
++                Path link = targetDirectory.resolve(zae.getName()).normalize();
++                // Validate link path is within target directory
++                if (!link.toAbsolutePath().normalize().startsWith(normalizedTargetDir)) {
++                    throw new IOException(String.format("Zip slip '%s' + '%s' -> '%s'",
++                            targetDirectory, zae.getName(), link));
++                }
++                Path target = targetDirectory.resolve(targetName).normalize();
++                // Validate symlink target is within target directory
++                if (!target.toAbsolutePath().normalize().startsWith(normalizedTargetDir)) {
++                    throw new IOException(String.format("Symlink path traversal '%s' + '%s' -> '%s'",
++                            targetDirectory, targetName, target));
++                }
+                 Path parent = createParentDirectory(targetDirectory, link);
+ 
+                 if (!Files.isSameFile(link.getParent(), parent)) {
+@@ -489,7 +500,7 @@ public void expand(final ZipFile archive, final Path targetDirectory) throws IOE
+                 }
+             } else if (! zae.isDirectory()) {
+                 Path target = targetDirectory.resolve(zae.getName()).normalize();
+-                if (!target.startsWith(targetDirectory)) {
++                if (!target.toAbsolutePath().normalize().startsWith(normalizedTargetDir)) {
+                     throw new IOException(String.format("Zip slip '%s' + '%s' -> '%s'",
+                             targetDirectory, zae.getName(), target));
+                 }

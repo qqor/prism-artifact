@@ -1,0 +1,116 @@
+--- a/winpr/include/winpr/stream.h
++++ b/winpr/include/winpr/stream.h
+@@ -695,14 +695,27 @@
+ 		_v = stream_read_i64_be(_s, TRUE); \
+ 	} while (0)
+ 
+-	static INLINE void Stream_Read(wStream* _s, void* _b, size_t _n)
+-	{
+-		WINPR_ASSERT(_s);
+-		WINPR_ASSERT(_b || (_n == 0));
+-		WINPR_ASSERT(Stream_GetRemainingCapacity(_s) >= _n);
+-		memcpy(_b, (_s->pointer), (_n));
+-		Stream_Seek(_s, _n);
+-	}
++static INLINE BOOL Stream_Read(wStream* _s, void* _b, size_t _n)
++{
++    WINPR_ASSERT(_s);
++    WINPR_ASSERT(_b || (_n == 0));
++
++    /* Guard against reading past end-of-stream */
++    {
++        size_t rem = Stream_GetRemainingLength(_s);
++        if (rem < _n)
++        {
++            WLog_ERR(STREAM_TAG,
++                     "Stream_Read: requested %zu bytes but only %zu available",
++                     _n, rem);
++            return FALSE;
++        }
++    }
++
++    memcpy(_b, _s->pointer, _n);
++    Stream_Seek(_s, _n);
++    return TRUE;
++}
+ 
+ #define Stream_Peek_UINT8(_s, _v)       \
+ 	do                                  \
+@@ -772,9 +785,26 @@
+ 
+ #define Stream_Peek_INT64(_s, _v)           \
+ 	do                                      \
+-	{                                       \
+-		_v = stream_read_i64_le(_s, FALSE); \
+-	} while (0)
++static INLINE BOOL Stream_Read_UINT32_Safe(wStream* _s, UINT32* _v)
++{
++    WINPR_ASSERT(_s);
++    WINPR_ASSERT(_v);
++
++    size_t rem = Stream_GetRemainingLength(_s);
++    if (rem < sizeof(UINT32))
++    {
++        WLog_ERR(STREAM_TAG,
++                 "Stream_Read_UINT32: requested %zu bytes but only %zu available",
++                 (size_t)sizeof(UINT32), rem);
++        return FALSE;
++    }
++
++    *(_v) = stream_read_u32_le(_s);
++    return TRUE;
++}
++#undef Stream_Read_UINT32
++#define Stream_Read_UINT32(_s, _v) \
++    Stream_Read_UINT32_Safe((_s), &(_v))
+ 
+ #define Stream_Peek_UINT64_BE(_s, _v)       \
+ 	do                                      \
+
+--- a/libfreerdp/core/gcc.c
++++ b/libfreerdp/core/gcc.c
+@@ -1850,14 +1850,16 @@
+ 	WINPR_ASSERT(s);
+ 	WINPR_ASSERT(mcs);
+ 
+-	const size_t blockLength = Stream_GetRemainingLength(s);
+-	if (blockLength < 4)
+-		return FALSE;
+-
+-	Stream_Read_UINT8(s, mcs->channelCount); /* channelCount */
+-
+-	if (blockLength < 4 + (UINT8)mcs->channelCount * 12)
+-		return FALSE;
++    /* Read channel count */
++    if (Stream_GetRemainingLength(s) < sizeof(UINT8))
++        return FALSE;
++    if (!Stream_Read_UINT8(s, mcs->channelCount)) /* channelCount (1 byte) */
++        return FALSE;
++
++    /* Ensure enough bytes remain for all channel definitions */
++    const size_t entrySize = (size_t)(CHANNEL_NAME_LEN + 1 + sizeof(UINT32));
++    if (Stream_GetRemainingLength(s) < (size_t)mcs->channelCount * entrySize)
++        return FALSE;
+ 
+ 	if (mcs->channelCount > CHANNEL_MAX_COUNT)
+ 		return FALSE;
+@@ -1872,7 +1874,8 @@
+ 		 * - options: a 32-bit, unsigned integer. Channel option flags
+ 		 */
+ 		rdpMcsChannel* channel = &mcs->channels[i];
+-		Stream_Read(s, channel->Name, CHANNEL_NAME_LEN + 1); /* name (8 bytes) */
++        if (!Stream_Read(s, channel->Name, CHANNEL_NAME_LEN + 1)) /* name (8 bytes) */
++            return FALSE;
+ 
+ 		if (!memchr(channel->Name, 0, CHANNEL_NAME_LEN + 1))
+ 		{
+@@ -1882,7 +1885,8 @@
+ 			return FALSE;
+ 		}
+ 
+-		Stream_Read_UINT32(s, channel->options); /* options (4 bytes) */
++        if (!Stream_Read_UINT32(s, channel->options)) /* options (4 bytes) */
++            return FALSE;
+ 		channel->ChannelId = mcs->baseChannelId++;
+ 	}
+ 

@@ -1,0 +1,65 @@
+diff --git a/src/main/java/org/apache/commons/compress/archivers/tar/TarUtils.java b/src/main/java/org/apache/commons/compress/archivers/tar/TarUtils.java
+index 3b2b5be88..bad16778e 100644
+--- a/src/main/java/org/apache/commons/compress/archivers/tar/TarUtils.java
++++ b/src/main/java/org/apache/commons/compress/archivers/tar/TarUtils.java
+@@ -47,6 +47,12 @@ public class TarUtils {
+ 
+     private static final int BYTE_MASK = 255;
+ 
++    /**
++     * Maximum length value for PAX header entries to prevent integer overflow and potential DoS.
++     * This is a reasonable upper bound for header entry length (100MB).
++     */
++    private static final int MAX_PAX_HEADER_ENTRY_LENGTH = 100 * 1024 * 1024;
++
+     static final ZipEncoding DEFAULT_ENCODING = ZipEncodingHelper.getZipEncoding(Charset.defaultCharset());
+ 
+     /**
+@@ -645,12 +651,15 @@ protected static Map<String, String> parsePaxHeaders(final InputStream inputStre
+         final Map<String, String> headers = new HashMap<>(globalPaxHeaders);
+         Long offset = null;
+         // Format is "length keyword=value\n";
+-        int totalRead = 0;
++        long totalRead = 0;
+         while (true) { // get length
+             int ch;
+-            int len = 0;
+-            int read = 0;
++            long len = 0;
++            long read = 0;
+             while ((ch = inputStream.read()) != -1) {
++                if (totalRead < 0 || headerSize >= 0 && totalRead >= headerSize) {
++                    break;
++                }
+                 read++;
+                 totalRead++;
+                 if (ch == '\n') { // blank line in header
+@@ -668,7 +677,14 @@ protected static Map<String, String> parsePaxHeaders(final InputStream inputStre
+                         if (ch == '=') { // end of keyword
+                             final String keyword = coll.toString(StandardCharsets.UTF_8);
+                             // Get rest of entry
+-                            final int restLen = len - read;
++                            final long restLenLong = len - read;
++                            if (restLenLong < 0) {
++                                throw new IOException("Failed to read Paxheader. Invalid length calculation");
++                            }
++                            if (restLenLong > Integer.MAX_VALUE) {
++                                throw new IOException("Failed to read Paxheader. Value length " + restLenLong + " exceeds maximum");
++                            }
++                            final int restLen = (int) restLenLong;
+                             if (restLen <= 1) { // only NL
+                                 headers.remove(keyword);
+                             } else if (headerSize >= 0 && restLen > headerSize - totalRead) {
+@@ -729,6 +745,12 @@ protected static Map<String, String> parsePaxHeaders(final InputStream inputStre
+                 }
+                 len *= 10;
+                 len += ch - '0';
++                // Prevent integer overflow and potential DoS from malicious headers
++                if (len < 0 || len > MAX_PAX_HEADER_ENTRY_LENGTH) {
++                    throw new IOException("Failed to read Paxheader. Length " + len +
++                        " exceeds maximum allowed value of " + MAX_PAX_HEADER_ENTRY_LENGTH +
++                        " or caused overflow");
++                }
+             }
+             if (ch == -1) { // EOF
+                 break;

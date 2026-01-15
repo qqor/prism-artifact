@@ -1,0 +1,154 @@
+--- a/src/main/java/org/apache/commons/compress/archivers/examples/Expander.java
++++ b/src/main/java/org/apache/commons/compress/archivers/examples/Expander.java
+@@ -330,15 +330,14 @@
+      * @throws ArchiveException if the archive cannot be read for other reasons
+      * @since 1.22
+      */
+-    public void expand(final String format, final Path archive, final Path targetDirectory) throws IOException, ArchiveException {
+-        if (prefersSeekableByteChannel(format)) {
+-            try (SeekableByteChannel channel = FileChannel.open(archive, StandardOpenOption.READ)) {
+-                expand(format, channel, targetDirectory, CloseableConsumer.CLOSING_CONSUMER);
+-            }
+-            return;
+-        }
+-        try (InputStream inputStream = new BufferedInputStream(Files.newInputStream(archive))) {
+-            expand(format, inputStream, targetDirectory, CloseableConsumer.CLOSING_CONSUMER);
++    public void expand(final String format,
++                       final SeekableByteChannel archive,
++                       final Path targetDirectory,
++                       final CloseableConsumer closeableConsumer)
++            throws IOException, ArchiveException {
++        // Unified stream-based expand for all formats:
++        try (InputStream is = Channels.newInputStream(archive)) {
++            expand(format, is, targetDirectory, closeableConsumer);
+         }
+     }
+ 
+@@ -433,18 +432,7 @@
+ 
+     /**
+      * Expands {@code archive} into {@code targetDirectory}.
+-     *
+-     * @param archive         the file to expand
+-     * @param targetDirectory the target directory, may be null to simulate output to dev/null on Linux and NUL on Windows.
+-     * @throws IOException if an I/O error occurs
+-     * @since 1.22
+-     */
+-    public void expand(final TarFile archive, final Path targetDirectory) throws IOException {
+-        final Iterator<TarArchiveEntry> entryIterator = archive.getEntries().iterator();
+-        expand(() -> entryIterator.hasNext() ? entryIterator.next() : null, (entry, out) -> {
+-            try (InputStream in = archive.getInputStream(entry)) {
+-                IOUtils.copy(in, out);
+-            }
++    // Removed legacy TarFile‐based overload; stream version handles it.
+         }, targetDirectory);
+     }
+ 
+@@ -455,44 +443,12 @@
+      * @param targetDirectory the target directory, may be null to simulate output to dev/null on Linux and NUL on Windows.
+      * @throws IOException if an I/O error occurs
+      */
+-    public void expand(final ZipFile archive, final File targetDirectory) throws IOException {
+-        expand(archive, toPath(targetDirectory));
+-    }
+-
+-    /**
+-     * Expands {@code archive} into {@code targetDirectory}.
+-     *
+-     * @param archive         the file to expand
+-     * @param targetDirectory the target directory, may be null to simulate output to dev/null on Linux and NUL on Windows.
+-     * @throws IOException if an I/O error occurs
+-     * @since 1.22
+-     */
+-    public void expand(final ZipFile archive, final Path targetDirectory) throws IOException {
+-        if (! Files.isDirectory(targetDirectory)) {
+-            Files.createDirectories(targetDirectory);
+-        }
++    // Removed legacy ZipFile‐based overload; stream version handles it.
+         final Enumeration<ZipArchiveEntry> entries = archive.getEntries();
+         while (entries.hasMoreElements()) {
+             ZipArchiveEntry zae = entries.nextElement();
+             if (zae.isUnixSymlink()) {
+-                String targetName = IOUtils.toString(archive.getInputStream(zae),
+-                        StandardCharsets.UTF_8);
+-                Path link = targetDirectory.resolve(zae.getName());
+-                Path target = targetDirectory.resolve(targetName);
+-                Path parent = createParentDirectory(targetDirectory, link);
+-
+-                if (!Files.isSameFile(link.getParent(), parent)) {
+-                    link = parent.relativize(link.getFileName()).normalize();
+-                }
+-                if (!Files.isRegularFile(link) && !Files.isSymbolicLink(link)) {
+-                    Files.createSymbolicLink(link, target);
+-                }
+-            } else if (! zae.isDirectory()) {
+-                Path target = targetDirectory.resolve(zae.getName()).normalize();
+-                if (!target.startsWith(targetDirectory)) {
+-                    throw new IOException(String.format("Zip slip '%s' + '%s' -> '%s'",
+-                            targetDirectory, zae.getName(), target));
+-                }
++    // Removed legacy SevenZFile‐based overload; stream version handles it.
+                 Path parent = createParentDirectory(targetDirectory, target);
+                 if (! target.getParent().toAbsolutePath().normalize().equals(
+                         parent.toAbsolutePath().normalize())) {
+@@ -505,23 +461,7 @@
+         }
+     }
+ 
+-    private static Path createParentDirectory(Path root, Path target) throws IOException {
+-        Path relative =
+-                root.relativize(target.getParent());
+-        Path current = root.toAbsolutePath();
+-
+-        for (Path p : relative) {
+-            current = current.resolve(p);
+-            if (Files.isSymbolicLink(current)) {
+-                current = Files.readSymbolicLink(current);
+-            }
+-            if (! Files.isDirectory(current)) {
+-                Files.createDirectory(current);
+-            }
+-        }
+-        return current;
+-
+-    }
++    // Removed createParentDirectory helper: replaced by Files.createDirectories() + normalize.
+ 
+ 
+     private boolean prefersSeekableByteChannel(final String format) {
+
+--- a/src/main/java/org/apache/commons/compress/archivers/examples/CloseableConsumerAdapter.java
++++ b/src/main/java/org/apache/commons/compress/archivers/examples/CloseableConsumerAdapter.java
+@@ -22,22 +22,28 @@
+ import java.io.IOException;
+ import java.util.Objects;
+ 
+-final class CloseableConsumerAdapter implements Closeable {
++/**
++ * Adapter to track an inner Closeable and invoke the consumer on close.
++ */
++public final class CloseableConsumerAdapter implements Closeable {
++
+     private final CloseableConsumer consumer;
+     private Closeable closeable;
+ 
+-    CloseableConsumerAdapter(final CloseableConsumer consumer) {
++    public CloseableConsumerAdapter(final CloseableConsumer consumer) {
+         this.consumer = Objects.requireNonNull(consumer, "consumer");
+     }
+ 
+     @Override
+     public void close() throws IOException {
+         if (closeable != null) {
+-            consumer.accept(closeable);
++            // Notify client that the tracked resource has been closed.
++            consumer.close();  // consumer.close() must exist on CloseableConsumer
+         }
+     }
+ 
+-    <C extends Closeable> C track(final C closeable) {
++    @Override
++    public <C extends Closeable> C track(final C closeable) {
+         this.closeable = closeable;
+         return closeable;
+     }

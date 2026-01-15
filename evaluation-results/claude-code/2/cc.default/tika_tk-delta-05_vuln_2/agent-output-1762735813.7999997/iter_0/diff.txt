@@ -1,0 +1,27 @@
+diff --git a/tika-app/src/main/java/org/apache/tika/cli/TikaCLI.java b/tika-app/src/main/java/org/apache/tika/cli/TikaCLI.java
+index 703e21c48..26f944c16 100644
+--- a/tika-app/src/main/java/org/apache/tika/cli/TikaCLI.java
++++ b/tika-app/src/main/java/org/apache/tika/cli/TikaCLI.java
+@@ -1157,7 +1157,21 @@ public class TikaCLI {
+             } catch (IllegalArgumentException e) {
+                 LOG.warn("couldn't url decode name {}", normalizedName);
+             }
+-            File outputFile = new File(extractDir, normalizedName);
++
++            // Create the output file and validate it's within extractDir to prevent path traversal
++            File outputFile;
++            try {
++                outputFile = new File(extractDir, normalizedName);
++                // Validate that the canonical path is within the extraction directory
++                String canonicalExtractDir = extractDir.getCanonicalPath();
++                String canonicalOutputPath = outputFile.getCanonicalPath();
++                if (!canonicalOutputPath.startsWith(canonicalExtractDir + File.separator) &&
++                    !canonicalOutputPath.equals(canonicalExtractDir)) {
++                    throw new IOException("Path traversal attempt detected: " + normalizedName);
++                }
++            } catch (IOException e) {
++                throw new RuntimeException("Invalid output file path: " + normalizedName, e);
++            }
+             //if file already exists, prepend uuid
+             if (outputFile.exists()) {
+                 String fileName = FilenameUtils.getName(normalizedName);

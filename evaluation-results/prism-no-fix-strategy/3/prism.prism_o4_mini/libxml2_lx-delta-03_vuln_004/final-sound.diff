@@ -1,0 +1,90 @@
+--- a/encoding.c
++++ b/encoding.c
+@@ -2848,6 +2848,9 @@
+     unsigned char *outstart = out;
+     unsigned long int b0, b1, b2, b3, c, d;
+     int ret = XML_ENC_ERR_SPACE;
++    /* initialize output boundary for overflow checks */
++    int outavail = *outlen;
++    unsigned char *outend = out + outavail;
+ 
+     if ((in[0] != 0x20) && (in[1] != 0x20) && (in[2] != 0x20) && (in[3] != 0x20)) {
+         /* bom is managed already */
+@@ -2864,22 +2867,37 @@
+         b3 = (b3 << 0x18);
+         c = b0 | b1 | b2 | b3;
+ 
+-        if (c < 0x80) {
+-            out[0] = c;
+-            in += 4;
+-            out += 1;
+-        } else if (c < 0x800) {
+-            out[0] = (c >> 6)   | 0xC0;
+-            out[1] = (c & 0x3F) | 0x80;
+-            in += 4;
+-            out += 2;
+-        } else if ((c & 0xF800) != 0xD800) {
+-            out[0] =  (c >> 12)         | 0xE0;
+-            out[1] = ((c >>  6) & 0x3F) | 0x80;
+-            out[2] =  (c        & 0x3F) | 0x80;
+-            in += 4;
+-            out += 3;
+-        } else {
++    if (c < 0x80) {
++        /* ensure at least 1 byte available */
++        if (out + 1 > outend) {
++            ret = XML_ENC_ERR_SPACE;
++            break;
++        }
++        out[0] = c;
++        in += 4;
++        out += 1;
++    } else if (c < 0x800) {
++        /* ensure at least 2 bytes available */
++        if (out + 2 > outend) {
++            ret = XML_ENC_ERR_SPACE;
++            break;
++        }
++        out[0] = (c >> 6)   | 0xC0;
++        out[1] = (c & 0x3F) | 0x80;
++        in += 4;
++        out += 2;
++    } else if ((c & 0xF800) != 0xD800) {
++        /* ensure at least 3 bytes available */
++        if (out + 3 > outend) {
++            ret = XML_ENC_ERR_SPACE;
++            break;
++        }
++        out[0] = (c >> 12)         | 0xE0;
++        out[1] = ((c >> 6) & 0x3F) | 0x80;
++        out[2] = (c & 0x3F)        | 0x80;
++        in += 4;
++        out += 3;
++    } else {
+             /* Surrogate pair */
+             if ((c & 0xFC00) != 0xD800) {
+                 ret = XML_ERR_INTERNAL_ERROR;
+@@ -2901,12 +2919,17 @@
+                 out[2] = ((c >>  6) & 0x3F) | 0x80;
+                 out[3] =  (c        & 0x3F) | 0x80;
+             */
+-            out[0] = c & 0xff;
+-            out[1] = (c >> 8) & 0xff;
+-            out[2] = (c >> 0x10) & 0xff;
+-            out[3] = (c >> 0x18) & 0xff;
+-            in += 4;
+-            out += 4;
++        /* ensure at least 4 bytes available */
++        if (out + 4 > outend) {
++            ret = XML_ENC_ERR_SPACE;
++            break;
++        }
++        out[0] = c & 0xff;
++        out[1] = (c >> 8) & 0xff;
++        out[2] = (c >> 0x10) & 0xff;
++        out[3] = (c >> 0x18) & 0xff;
++        in += 4;
++        out += 4;
+         }
+     }
+ 

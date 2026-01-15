@@ -1,0 +1,14 @@
+{
+  "project_name": "systemd",
+  "vulnerability_identifier": "systemd_systemd-full-001_systemd-001",
+  "source_directory": "/home/qqor/crete/.cache/official-afc-systemd",
+  "llm_usage": {
+    "total_cost": 0.8077718000000003,
+    "prompt_tokens": 393562,
+    "completion_tokens": 85194
+  },
+  "variant": "sound",
+  "diff": "--- a/src/udev/udev-rules.c\n+++ b/src/udev/udev-rules.c\n@@ -1196,6 +1196,7 @@\n         } else {\n                 _cleanup_free_ char *unescaped = NULL;\n                 ssize_t l;\n+                char *dest, *end_ptr, *dest0;\n \n                 /* find the end position of value */\n                 for (i = m + 1; *i != '\"'; i++) {\n@@ -1209,27 +1210,29 @@\n                 if (l < 0)\n                         return l;\n \n-                assert(l <= i - (m + 1));\n-\n-                /*\n-                * The return value must be terminated by two subsequent NULs\n-                * so it could be safely interpreted as nulstr.\n-                */\n-                if (is_prefix_match){\n-                        /* need more room to make rule glob match */\n-                        memcpy(str + pos - 1, unescaped, l + 1);\n-                        str[pos + l - 1] = '*';\n-                        str[pos + l] = '\\0';\n-                        str[pos + l + 1] = '\\0';\n-                        m = str + pos - 1;\n-\n+                /* Initialize write pointers */\n+                end_ptr = str + strlen(str) + 1;\n+                dest = is_prefix_match ? str + pos - 1 : m;\n+                if ((size_t)(end_ptr - dest) < (size_t)(l + (is_prefix_match ? 3 : 2)))\n+                        return -EINVAL;\n+                dest0 = dest;\n+\n+                /* Copy unescaped data and append terminators/glob */\n+                memcpy(dest, unescaped, (size_t)l);\n+                if (is_prefix_match) {\n+                        dest[l]     = '*';\n+                        dest[l + 1] = '\\0';\n+                        dest[l + 2] = '\\0';\n+                        dest += l + 3;\n                 } else {\n-                        memcpy(m, unescaped, l + 1);\n-                        m[l] = '\\0';\n-                        m[l + 1] = '\\0';\n-                }\n+                        dest[l]     = '\\0';\n+                        dest[l + 1] = '\\0';\n+                        dest += l + 2;\n+                }\n+\n+                /* Update pointers */\n+                m = dest0;\n                 str = m;\n-\n         }\n \n         *ret_value = str;\n",
+  "stdout": "",
+  "stderr": ""
+}

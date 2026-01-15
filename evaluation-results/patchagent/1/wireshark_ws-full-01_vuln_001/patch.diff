@@ -1,0 +1,25 @@
+diff --git a/epan/dissectors/packet-openvpn.c b/epan/dissectors/packet-openvpn.c
+index b5486db..e93a7ec 100644
+--- a/epan/dissectors/packet-openvpn.c
++++ b/epan/dissectors/packet-openvpn.c
+@@ -309,8 +309,18 @@ dissect_openvpn_msg_common(tvbuff_t *tvb, packet_info *pinfo, proto_tree *openvp
+ 
+     wkc_len = tvb_get_ntohs(tvb, tvb_reported_length(tvb) - 2);
+     data_len = msg_length_remaining - wkc_len;
+-    tvb_memcpy(tvb, buf, offset, data_len);
+-    if (!strcmp((char*)&buf[0], "OpenVPN"))
++    /* Safely copy only up to buf size - 1 bytes and null-terminate */
++    {
++        int copy_len = data_len;
++        if (copy_len < 0)
++            copy_len = 0;
++        else if (copy_len > (int)(sizeof(buf) - 1))
++            copy_len = sizeof(buf) - 1;
++
++        tvb_memcpy(tvb, buf, offset, copy_len);
++        buf[copy_len] = '\0';
++    }
++    if (strcmp((char *)buf, "OpenVPN") == 0)
+         return 0;
+   }
+ 

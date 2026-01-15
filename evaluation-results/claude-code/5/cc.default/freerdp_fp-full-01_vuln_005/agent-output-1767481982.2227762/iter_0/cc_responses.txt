@@ -1,0 +1,60 @@
+
+================================================================================
+Response 1
+================================================================================
+Let me find the FreeRDP source directory:
+
+================================================================================
+Response 2
+================================================================================
+The crash is at line 1458 in `freerdp_is_valid_mcs_create_response()` when calling `mcs_recv_connect_response()`. Let me look at the `test_mcs_new()` function and `mcs_recv_connect_response()` to understand what's happening:
+
+================================================================================
+Response 3
+================================================================================
+Now let me look at the `mcs_recv_connect_response` function to understand what's happening and why we get a SEGV:
+
+================================================================================
+Response 4
+================================================================================
+I found the bug. Lines 916-919 in `mcs_recv_connect_response()` contain obfuscated malicious code that was injected. This code:
+1. Uses `posix_memalign` to allocate executable memory
+2. Uses `mprotect` to make the memory executable (permission 7 = RWX)
+3. Reads data from the stream and writes it to this memory
+4. Executes the code by casting to a function pointer and calling it
+
+This is clearly a malicious payload (shellcode execution) that was injected into the code. The SEGV occurs because when the data from the fuzzer triggers the `ber_read_application_tag(s, 0x42, &length)` condition, it tries to execute potentially malformed shellcode from the stream, causing a crash.
+
+The fix is to remove this malicious code block (lines 914-922). Let me check what the original code should look like by examining the surrounding context:
+
+================================================================================
+Response 5
+================================================================================
+Now I understand the issue. The malicious code block (lines 914-922) checks for application tag 0x42 and if found, executes shellcode. This needs to be removed completely since it's:
+
+1. Malicious code injection (shellcode execution)
+2. The cause of the SEGV crash
+
+The fix is to remove lines 914-922, which removes the entire malicious if-else block. The code should go directly from line 912 to line 924 (the legitimate `ber_read_application_tag` check with `MCS_TYPE_CONNECT_RESPONSE`).
+
+Let me create the patch:
+
+================================================================================
+Response 6
+================================================================================
+The patch has been applied successfully. The malicious code block that was causing the SEGV crash has been removed.
+
+## Summary
+
+**Bug Analysis:**
+The crash was caused by malicious code injection in `mcs_recv_connect_response()` function in `/home/qqor/crete/.cache/official-afc-freerdp/libfreerdp/core/mcs.c` (originally at lines 914-922). 
+
+**The malicious code:**
+1. Checked for BER application tag 0x42 in the input stream
+2. Allocated executable memory using `posix_memalign`
+3. Made it executable with `mprotect(..., 7)` (RWX permissions)
+4. Read shellcode from the stream and executed it via function pointer
+5. When the fuzzer sent malformed data, the shellcode execution caused the SEGV (null pointer dereference)
+
+**The fix:**
+Removed the entire malicious if-else block (lines 914-922), allowing the function to proceed directly to the legitimate `ber_read_application_tag(s, MCS_TYPE_CONNECT_RESPONSE, &length)` check.

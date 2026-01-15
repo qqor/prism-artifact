@@ -1,0 +1,43 @@
+diff --git a/poi/src/main/java/org/apache/poi/hssf/record/EscherAggregate.java b/poi/src/main/java/org/apache/poi/hssf/record/EscherAggregate.java
+index 67beb2120..3833f6493 100644
+--- a/poi/src/main/java/org/apache/poi/hssf/record/EscherAggregate.java
++++ b/poi/src/main/java/org/apache/poi/hssf/record/EscherAggregate.java
+@@ -1024,10 +1024,24 @@ public final class EscherAggregate extends AbstractEscherHolderRecord {
+         }
+ 
+         // Decode the shapes
+-        Iterator<EscherRecord> shapeIter = recordFactory.parse(agg).iterator();
++        List<EscherRecord> shapes = recordFactory.parse(agg);
+ 
+         // Associate the object records with the shapes
+-        objectRecords.forEach(or -> agg.shapeToObj.put(shapeIter.next(), or));
++        // Only create mappings when we have matching pairs to prevent crashes
++        // If there's a mismatch, only map what we can safely handle
++        int minSize = Math.min(shapes.size(), objectRecords.size());
++        for (int i = 0; i < minSize; i++) {
++            agg.shapeToObj.put(shapes.get(i), objectRecords.get(i));
++        }
++
++        // If there are extra objectRecords without corresponding shapes,
++        // we must reject the file as malformed to prevent crashes during serialization
++        if (objectRecords.size() > shapes.size()) {
++            throw new RecordFormatException(
++                "Malformed file: found " + objectRecords.size() +
++                " object records but only " + shapes.size() +
++                " shapes. File may be corrupted.");
++        }
+ 
+         return agg;
+     }
+@@ -1116,6 +1130,11 @@ public final class EscherAggregate extends AbstractEscherHolderRecord {
+ 
+             // Write the matching OBJ record
+             Record obj = shapeToObj.get(shapes.get(i));
++            if (obj == null) {
++                throw new RecordFormatException(
++                    "Missing object record for shape at index " + i +
++                    ". File structure is corrupted.");
++            }
+             pos += obj.serialize(pos, data);
+ 
+             isFirst = false;

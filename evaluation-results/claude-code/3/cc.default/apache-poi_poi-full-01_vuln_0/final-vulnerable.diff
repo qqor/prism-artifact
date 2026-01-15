@@ -1,0 +1,62 @@
+diff --git a/poi-scratchpad/src/main/java/org/apache/poi/hmef/CompressedRTF.java b/poi-scratchpad/src/main/java/org/apache/poi/hmef/CompressedRTF.java
+index 46988b9ec..463d1dfd4 100644
+--- a/poi-scratchpad/src/main/java/org/apache/poi/hmef/CompressedRTF.java
++++ b/poi-scratchpad/src/main/java/org/apache/poi/hmef/CompressedRTF.java
+@@ -22,9 +22,11 @@ import java.io.InputStream;
+ import java.io.OutputStream;
+ import java.nio.charset.StandardCharsets;
+ 
++import org.apache.commons.io.input.BoundedInputStream;
+ import org.apache.poi.util.IOUtils;
+ import org.apache.poi.util.LZWDecompresser;
+ import org.apache.poi.util.LittleEndian;
++import org.apache.poi.util.RecordFormatException;
+ 
+ 
+ /**
+@@ -62,6 +64,9 @@ public final class CompressedRTF extends LZWDecompresser {
+       super(true, 2, true);
+    }
+ 
++   // Maximum allowed compressed size to prevent denial-of-service attacks (50 MB)
++   private static final int MAX_COMPRESSED_SIZE = 50_000_000;
++
+    /**
+     * Decompresses the whole of the compressed RTF
+     *  stream, outputting the resulting RTF bytes.
+@@ -78,20 +83,32 @@ public final class CompressedRTF extends LZWDecompresser {
+       int compressionType = LittleEndian.readInt(src);
+       /* int dataCRC = */ LittleEndian.readInt(src);
+ 
++      // Validate compressed size to prevent denial-of-service attacks
++      // compressedSize includes the 12-byte header, so the actual data is compressedSize - 12
++      int actualCompressedDataSize = compressedSize - 12;
++      if (actualCompressedDataSize < 0 || actualCompressedDataSize > MAX_COMPRESSED_SIZE) {
++         throw new RecordFormatException("Invalid compressed size: " + compressedSize);
++      }
++
+       // TODO - Handle CRC checking on the output side
+ 
+       // Do we need to do anything?
+       if(compressionType == UNCOMPRESSED_SIGNATURE_INT) {
+-         // Nope, nothing fancy to do
+-         IOUtils.copy(src, res);
++         // Nope, nothing fancy to do - but limit how much we copy
++         IOUtils.copy(BoundedInputStream.builder().setInputStream(src).setMaxCount(actualCompressedDataSize).get(), res);
++         return;
+       } else if(compressionType == COMPRESSED_SIGNATURE_INT) {
+          // We need to decompress it below
+       } else {
+          throw new IllegalArgumentException("Invalid compression signature " + compressionType);
+       }
+ 
++      // Wrap input stream to limit bytes read based on declared compressed size
++      // This prevents infinite loops or excessive processing from malicious input
++      InputStream boundedSrc = BoundedInputStream.builder().setInputStream(src).setMaxCount(actualCompressedDataSize).get();
++
+       // Have it processed
+-      super.decompress(src, res);
++      super.decompress(boundedSrc, res);
+    }
+ 
+    /**

@@ -1,0 +1,57 @@
+
+================================================================================
+Response 1
+================================================================================
+Let me read more context to understand the issue better, especially the beginning of the `freerdp_bio_read_pem_with_policy` function:
+
+================================================================================
+Response 2
+================================================================================
+I found the bug. The issue is in the `freerdp_bio_read_pem_with_policy` function. Here's the problem:
+
+1. `offset` and `length` are declared as `uint16_t` (max value 65535)
+2. `blocksize` is 2048
+3. In each iteration of the loop, `length += blocksize` which can cause an **integer overflow** when `length` exceeds 65535
+4. When `length` overflows, it wraps around to a small value (e.g., if `length` was 64512 and you add 2048, it becomes 64512 + 2048 = 66560, but as uint16_t it becomes 66560 - 65536 = 1024)
+5. After the loop, `pem[offset] = '\0'` writes to `pem[offset]`, but `offset` may be larger than the actual allocated buffer size due to the overflow in `length`
+
+The fix is to change the types from `uint16_t` to `size_t` to handle larger buffers properly without integer overflow:
+
+================================================================================
+Response 3
+================================================================================
+The fix has been applied. Let me verify the change is correct by reading the updated section:
+
+================================================================================
+Response 4
+================================================================================
+The patch has been successfully applied. Here's a summary of the fix:
+
+## Bug Analysis
+
+**Root Cause:** Integer overflow in the `freerdp_bio_read_pem_with_policy` function at line 1570 in `certificate.c`.
+
+The variables `blocksize`, `offset`, and `length` were declared as `uint16_t` (16-bit unsigned integers with max value 65535). When reading large PEM data:
+
+1. `length` starts at 2048 and increments by 2048 each iteration
+2. After ~32 iterations, `length` overflows (wraps around from 65536 to 0)
+3. This causes `realloc(pem, length + 1)` to allocate a much smaller buffer than expected
+4. Later, `pem[offset] = '\0'` at line 1570 writes past the end of the allocated buffer (heap-buffer-overflow)
+
+## Fix Applied
+
+Changed the type declarations from `uint16_t` to `size_t`:
+
+```c
+// Before:
+const uint16_t blocksize = 2048;
+uint16_t offset = 0;
+uint16_t length = blocksize;
+
+// After:
+const size_t blocksize = 2048;
+size_t offset = 0;
+size_t length = blocksize;
+```
+
+Using `size_t` (which is typically 64-bit on modern systems) ensures these values can grow large enough to handle any reasonably-sized PEM data without overflow.

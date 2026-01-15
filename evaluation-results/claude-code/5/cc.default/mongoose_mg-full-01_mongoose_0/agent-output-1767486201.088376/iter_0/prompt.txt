@@ -1,0 +1,66 @@
+Create a patch to fix a AddressSanitizer: stack-buffer-overflow bug given below and apply it to the code.
+NEVER fix files outside the source directory.
+NEVER do any git operations in or outside the source directory.
+
+Below is the crash log:
+
+<crash_log>
+==ERROR: AddressSanitizer: stack-buffer-overflow on address 0x7f0fabdbd83e at pc 0x562e6d741379 bp 0x7ffc0c274cf0 sp 0x7ffc0c274ce8
+WRITE of size 1 at 0x7f0fabdbd83e thread T0
+SCARINESS: 46 (1-byte-write-stack-buffer-overflow)
+    #0 0x562e6d741378 in mg_json_get /src/mongoose/src/json.c:186:28
+    #1 0x562e6d77241c in LLVMFuzzerTestOneInput /src/mongoose/test/fuzz.c:81:3
+    #2 0x562e6d5d1350 in fuzzer::Fuzzer::ExecuteCallback(unsigned char const*, unsigned long) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:614:13
+    #3 0x562e6d5bc5c5 in fuzzer::RunOneTest(fuzzer::Fuzzer*, char const*, unsigned long) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerDriver.cpp:327:6
+    #4 0x562e6d5c205f in fuzzer::FuzzerDriver(int*, char***, int (*)(unsigned char const*, unsigned long)) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerDriver.cpp:862:9
+    #5 0x562e6d5ed302 in main /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerMain.cpp:20:10
+    #6 0x7f0fabeb0082 in __libc_start_main (/lib/x86_64-linux-gnu/libc.so.6+0x24082) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #7 0x562e6d5b47ad in _start (/out/fuzz+0x557ad)
+
+DEDUP_TOKEN: mg_json_get--LLVMFuzzerTestOneInput--fuzzer::Fuzzer::ExecuteCallback(unsigned char const*, unsigned long)
+Address 0x7f0fabdbd83e is located in stack of thread T0 at offset 62 in frame
+    #0 0x562e6d74070f in mg_json_get /src/mongoose/src/json.c:127
+
+DEDUP_TOKEN: mg_json_get
+  This frame has 2 object(s):
+    [32, 62) 'nesting' (line 131) <== Memory access at offset 62 overflows this variable
+    [96, 100) 'numlen' (line 197)
+HINT: this may be a false positive if your program uses some custom stack unwind mechanism, swapcontext or vfork
+      (longjmp and C++ exceptions *are* supported)
+SUMMARY: AddressSanitizer: stack-buffer-overflow /src/mongoose/src/json.c:186:28 in mg_json_get
+Shadow bytes around the buggy address:
+  0x7f0fabdbd580: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+  0x7f0fabdbd600: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+  0x7f0fabdbd680: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+  0x7f0fabdbd700: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+  0x7f0fabdbd780: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+=>0x7f0fabdbd800: f1 f1 f1 f1 00 00 00[06]f2 f2 f2 f2 f8 f3 f3 f3
+  0x7f0fabdbd880: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+  0x7f0fabdbd900: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+  0x7f0fabdbd980: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+  0x7f0fabdbda00: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+  0x7f0fabdbda80: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+Shadow byte legend (one shadow byte represents 8 application bytes):
+  Addressable:           00
+  Partially addressable: 01 02 03 04 05 06 07 
+  Heap left redzone:       fa
+  Freed heap region:       fd
+  Stack left redzone:      f1
+  Stack mid redzone:       f2
+  Stack right redzone:     f3
+  Stack after return:      f5
+  Stack use after scope:   f8
+  Global redzone:          f9
+  Global init order:       f6
+  Poisoned by user:        f7
+  Container overflow:      fc
+  Array cookie:            ac
+  Intra object redzone:    bb
+  ASan internal:           fe
+  Left alloca redzone:     ca
+  Right alloca redzone:    cb
+==18==ABORTING
+subprocess command returned a non-zero exit status: 1
+INFO:__main__:Running: docker run --privileged --shm-size=2g --platform linux/amd64 --rm -i -e HELPER=True -e ARCHITECTURE=x86_64 -v /home/qqor/crete/packages/python_oss_fuzz/.oss_fuzz/build/out/mongoose:/out -v /tmp/tmplgdqpmmd:/testcase -t ghcr.io/aixcc-finals/base-runner:v1.3.0 reproduce fuzz -runs=100.
+
+</crash_log>

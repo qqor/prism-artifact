@@ -1,0 +1,54 @@
+--- a/lib/request.c
++++ b/lib/request.c
+@@ -105,7 +105,7 @@
+     (void)req_flush(data);
+   Curl_client_reset(data);
+ #ifndef CURL_DISABLE_DOH
+-  Curl_doh_close(data);
++  Curl_doh_cleanup(data);
+ #endif
+   return CURLE_OK;
+ }
+@@ -123,7 +123,7 @@
+     Curl_bufq_reset(&req->sendbuf);
+ 
+ #ifndef CURL_DISABLE_DOH
+-  Curl_doh_close(data);
++  Curl_doh_cleanup(data);
+ #endif
+   /* Can no longer memset() this struct as we need to keep some state */
+   req->size = -1;
+
+--- a/lib/doh.c
++++ b/lib/doh.c
+@@ -1402,11 +1402,14 @@
+ void Curl_doh_close(struct Curl_easy *data)
+ {
+   struct doh_probes *doh = data->req.doh;
+-  if(doh && data->multi) {
+-    struct Curl_easy *probe_data;
+-    curl_off_t mid;
+-    size_t slot;
+-    for(slot = 0; slot < DOH_SLOT_COUNT; slot++) {
++  /* nothing to do if no DOH data, no outstanding probes, or no multi handle */
++  if(!doh || doh->pending == 0 || !data->multi)
++    return;
++
++  struct Curl_easy *probe_data;
++  curl_off_t mid;
++  size_t slot;
++  for(slot = 0; slot < DOH_SLOT_COUNT; slot++) {
+       mid = doh->probe[slot].easy_mid;
+       if(mid < 0)
+         continue;
+@@ -1434,8 +1437,9 @@
+   if(doh) {
+     Curl_doh_close(data);
+     curl_slist_free_all(doh->req_hds);
+-    data->req.doh->req_hds = NULL;
++    doh->req_hds = NULL;
+     Curl_safefree(data->req.doh);
++    data->req.doh = NULL;
+   }
+ }
+ 

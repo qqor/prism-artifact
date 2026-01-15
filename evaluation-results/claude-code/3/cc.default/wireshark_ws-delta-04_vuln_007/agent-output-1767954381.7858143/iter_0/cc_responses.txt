@@ -1,0 +1,53 @@
+
+================================================================================
+Response 1
+================================================================================
+Now I can see the issue. Looking at the crash log, the bug is in `json_string_unescape` at line 361:29. The error occurs when processing a `\U` escape sequence for surrogate pairs. 
+
+Looking at lines 353-378, there's a loop that reads 8 characters for a `\U` escape (handling trail surrogate), but it doesn't have the bounds check that exists in other similar loops in the code. 
+
+The problematic code is:
+```c
+else if (current_character == 'U') {
+    uint16_t lead_surrogate = code_point;
+    uint16_t trail_surrogate = 0;
+
+    read_index++;
+
+    for (int i = 0; i < 8; i++)
+    {
+        current_character = string[read_index];  // Line 361 - No bounds check!
+        read_index++;
+
+        int nibble = ws_xton(current_character);
+
+        trail_surrogate <<= 4;
+        trail_surrogate |= nibble;
+    }
+```
+
+The loop at line 359-368 is missing the bounds check `if (!(read_index < string_length))` that exists in similar loops elsewhere in the function (e.g., lines 269-291 and 319-341).
+
+Let me create a patch to fix this:
+
+================================================================================
+Response 2
+================================================================================
+The patch has been applied. Let me explain the fix:
+
+## Summary of the Bug and Fix
+
+**Bug:** A heap-buffer-overflow in `json_string_unescape()` at line 361 in `packet-json.c`.
+
+**Root Cause:** When parsing JSON strings with Unicode escape sequences like `\U0000d83d\U0000`, the code was handling surrogate pairs. However, in the case where a lead surrogate (`\U`) is followed by another `\U` escape for the trail surrogate, the loop that reads the 8 hex digits for the trail surrogate (lines 359-368 in the original code) was missing:
+1. A bounds check to ensure `read_index` doesn't exceed `string_length`
+2. A validation check for the nibble value (to ensure it's a valid hex digit)
+
+This caused the code to read beyond the end of the allocated string buffer when processing truncated or malformed Unicode escape sequences like `\U0000d83d\U0000` (which is incomplete - only 4 digits instead of 8 for the second `\U`).
+
+**Fix:** Added the same bounds and validity checks that exist in the similar loop handling lowercase `\u` escapes (lines 319-341):
+1. Added `if (!(read_index < string_length))` check before reading each character to prevent buffer overflow
+2. Added `if (nibble < 0)` check to handle invalid hex characters
+3. Both conditions set `is_valid_unicode_character = false` and `break` out of the loop when triggered
+
+This ensures the parser safely handles malformed input without reading past the end of the buffer.

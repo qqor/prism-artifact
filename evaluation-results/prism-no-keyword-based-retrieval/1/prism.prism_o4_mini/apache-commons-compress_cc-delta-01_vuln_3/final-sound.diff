@@ -1,0 +1,64 @@
+--- a/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java
++++ b/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java
+@@ -219,9 +219,43 @@
+      * Since they are parsed into long values, maximum length of each is the same as Long.MAX_VALUE which is 19 digits.
+      * </p>
+      */
+-    private static final Pattern PAX_EXTENDED_HEADER_FILE_TIMES_PATTERN = Pattern.compile(
+-            "(-?(?:\\d{1,19}|(?:.|\\d)*))(?:\\.\\d{1,19})?");
+-
++    private static final int MAX_TIMESTAMP_LENGTH = 40;
++    private static boolean isValidDecimalSeconds(String s) {
++        if (s == null || s.length() == 0 || s.length() > MAX_TIMESTAMP_LENGTH) {
++            return false;
++        }
++        int pos = 0, n = s.length();
++        if (s.charAt(0) == '-') {
++            if (n == 1) {
++                return false;
++            }
++            pos++;
++        }
++        int dotCount = 0, intLen = 0, fracLen = 0;
++        for (int i = pos; i < n; i++) {
++            char c = s.charAt(i);
++            if (c == '.') {
++                dotCount++;
++                if (dotCount > 1 || intLen < 1) {
++                    return false;
++                }
++                continue;
++            }
++            if (c < '0' || c > '9') {
++                return false;
++            }
++            if (dotCount == 0) {
++                if (++intLen > 19) {
++                    return false;
++                }
++            } else {
++                if (++fracLen > 19) {
++                    return false;
++                }
++            }
++        }
++        return intLen >= 1;
++    }
+     private static FileTime fileTimeFromOptionalSeconds(final long seconds) {
+         return seconds <= 0 ? null : FileTimes.fromUnixTime(seconds);
+     }
+@@ -271,13 +305,7 @@
+                                                           final String value) throws IOException {
+ 
+         // Validate field values to prevent denial of service attacks with BigDecimal values (see JDK-6560193)
+-        Matcher fileTimesMatcher = PAX_EXTENDED_HEADER_FILE_TIMES_PATTERN.matcher(value);
+-        if (! fileTimesMatcher.matches()) {
+-            throw new IOException(
+-                    "Corrupted PAX header. Time field value is invalid '" + value + "'");
+-        }
+-        //As with the check above, exponents should not be allowed.
+-        if (value.contains("e") || value.contains("E")) {
++        if (!isValidDecimalSeconds(value)) {
+             throw new IOException(
+                     "Corrupted PAX header. Time field value is invalid '" + value + "'");
+         }

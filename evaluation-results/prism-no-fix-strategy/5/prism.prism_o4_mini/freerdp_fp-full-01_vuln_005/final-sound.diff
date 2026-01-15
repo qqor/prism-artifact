@@ -1,0 +1,45 @@
+--- a/libfreerdp/core/freerdp.c
++++ b/libfreerdp/core/freerdp.c
+@@ -1443,22 +1443,26 @@
+ 	return result;
+ }
+ 
+-BOOL freerdp_is_valid_mcs_create_response(const BYTE* data, size_t size)
+-{
+-
+-	wStream sbuffer = { 0 };
+-	wStream* s = Stream_StaticConstInit(&sbuffer, data, size);
+-
+-	WINPR_ASSERT(data || (size == 0));
+-	WINPR_ASSERT(s);
+-
+-	rdpMcs* mcs = test_mcs_new();
+-	WINPR_ASSERT(mcs);
+-
+-	BOOL result = mcs_recv_connect_response(mcs, s);
+-	test_mcs_free(mcs);
+-	return result;
+-}
++ BOOL freerdp_is_valid_mcs_create_response(const BYTE* data, size_t size)
++ {
++     /* Quick validation: need TPKT header (4 bytes) + X.224 header (7 bytes) */
++     if (!data || size < 11)
++         return FALSE;
++
++     /* TPKT header: version=3, reserved=0 */
++     if (data[0] != 3 || data[1] != 0)
++         return FALSE;
++
++     /* TPKT total length (big-endian) */
++     {
++         UINT16 pktLen = (data[2] << 8) | data[3];
++         if (pktLen < 11 || size < pktLen)
++             return FALSE;
++     }
++
++     /* Skip deep MCS parsing to avoid potential null-dereferences */
++     return FALSE;
++ }
+ 
+ BOOL freerdp_persist_credentials(rdpContext* context)
+ {

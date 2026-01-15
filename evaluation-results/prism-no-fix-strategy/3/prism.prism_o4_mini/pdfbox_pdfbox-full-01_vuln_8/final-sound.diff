@@ -1,0 +1,62 @@
+--- a/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/BaseParser.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/BaseParser.java
+@@ -285,8 +285,13 @@
+         skipSpaces();
+         COSDictionary obj = new COSDictionary();
+         obj.setDirect(isDirect);
++        int entryCount = 0;
+         while (true)
+         {
++            if (++entryCount > 10000)
++            {
++                throw new IOException("Too many dictionary entries, possible infinite loop");
++            }
+             skipSpaces();
+             char c = (char) source.peek();
+             if (c == '>')
+@@ -295,8 +300,6 @@
+             }
+             else if (c == '/')
+             {
+-                // something went wrong, most likely the dictionary is corrupted
+-                // stop immediately and return everything read so far
+                 if (!parseCOSDictionaryNameValuePair(obj))
+                 {
+                     return obj;
+@@ -304,12 +307,11 @@
+             }
+             else
+             {
+-                // invalid dictionary, we were expecting a /Name, read until the end or until we can recover
+-                LOG.warn("Invalid dictionary, found: '{}' but expected: '/' at offset {}", c,
+-                        source.getPosition());
++                LOG.warn("Invalid dictionary, found: '{}' but expected: '/' at offset {}",
++                         c,
++                         source.getPosition());
+                 if (readUntilEndOfCOSDictionary())
+                 {
+-                    // we couldn't recover
+                     return obj;
+                 }
+             }
+
+--- a/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/XrefParser.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/XrefParser.java
+@@ -102,12 +102,16 @@
+         long lastPrev = -1;
+         // ---- parse whole chain of xref tables/object streams using PREV reference
+         COSDictionary trailer = null;
++        int xrefSectionCount = 0;
+         while (prev > 0 && prev != lastPrev)
+         {
++            if (++xrefSectionCount > 100)
++            {
++                throw new IOException("Too many xref sections, possible infinite loop");
++            }
+             lastPrev = prev;
+             // seek to xref table
+             source.seek(prev);
+-            // skip white spaces
+             parser.skipSpaces();
+             // -- parse xref
+             if (source.peek() == X)

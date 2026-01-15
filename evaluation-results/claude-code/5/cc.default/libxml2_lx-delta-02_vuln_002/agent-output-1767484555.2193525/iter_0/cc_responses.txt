@@ -1,0 +1,52 @@
+
+================================================================================
+Response 1
+================================================================================
+The source code is in the current directory. Let me read the parser.c file around lines 9009-9028 where the double-free occurs:
+
+================================================================================
+Response 2
+================================================================================
+Now I can see the bug! Let me analyze it:
+
+1. At line 9024, `xmlFree(internal_val)` is called inside the `else` block (for invalid `xml:tab` values)
+2. At line 9027-9029, `xmlFree(internal_val)` is called again if `internal_val` is not NULL
+
+This causes a double-free when `xml:tab` has an invalid value, because:
+1. First free at line 9024 inside the else block
+2. Second free at line 9028 because `internal_val` is still non-NULL
+
+The fix is to set `internal_val = NULL` after freeing it inside the else block at line 9024, so the check at line 9027 won't trigger another free.
+
+Let me also check the similar code for `xml:space` around line 9004 to see if there's a similar pattern:
+
+================================================================================
+Response 3
+================================================================================
+I see - for `xml:space`, there's no `xmlFree` inside the else block (around lines 8999-9003), so it doesn't have a double-free issue. But for `xml:tab`, there is an `xmlFree` inside the else block at line 9024, which causes the double-free when combined with the later check at lines 9027-9029.
+
+Now let me create and apply the fix. The fix is simple: set `internal_val = NULL` after freeing it at line 9024:
+
+================================================================================
+Response 4
+================================================================================
+The fix has been applied. Now let me create a patch file:
+
+================================================================================
+Response 5
+================================================================================
+I've successfully created and applied the patch to fix the AddressSanitizer double-free bug in `parser.c`.
+
+## Summary
+
+**Bug Analysis:**
+The double-free bug occurred in `xmlParseAttribute2()` function in `parser.c` at lines 9024 and 9028:
+
+1. **First free (line 9024):** When parsing an `xml:tab` attribute with an invalid value (not "default", "preserve", "expand", or "skip"), the code would free `internal_val` inside the `else` block after printing a warning.
+
+2. **Second free (line 9028-9029):** Later in the function, there's a cleanup block that frees `internal_val` if it's not NULL. Since the pointer was freed but not set to NULL, this caused a double-free.
+
+**Fix Applied:**
+Added `internal_val = NULL;` after the `xmlFree(internal_val);` call at line 9024. This ensures the cleanup block at line 9028-9029 won't attempt to free the already-freed memory.
+
+**Patch file created:** `/home/qqor/crete/.cache/official-afc-libxml2/fix-double-free.patch`

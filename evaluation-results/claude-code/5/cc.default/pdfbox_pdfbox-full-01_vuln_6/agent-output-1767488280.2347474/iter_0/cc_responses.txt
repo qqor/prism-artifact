@@ -1,0 +1,108 @@
+
+================================================================================
+Response 1
+================================================================================
+Let me explore the source directory structure:
+
+================================================================================
+Response 2
+================================================================================
+Let me explore the pdfbox project source directory:
+
+================================================================================
+Response 3
+================================================================================
+Now let me extract and read the PfbParser.java source file:
+
+================================================================================
+Response 4
+================================================================================
+Now I can see the issue. Looking at the crash log, the OOM error occurs at `PfbParser.java:166` which corresponds to `byte[] ar = new byte[size];`. The issue is that the `size` variable is read from the input without validation - it's a 4-byte integer that can be up to 2GB (or even negative/huge if signed interpretation is considered), and if a malicious/malformed PDF provides an extremely large value, it will try to allocate that much memory and cause an OOM.
+
+Let me find the source directory for the actual project:
+
+================================================================================
+Response 5
+================================================================================
+These are only the fuzzer test files. I need to find where the actual source directory for pdfbox is. Let me check the build process:
+
+================================================================================
+Response 6
+================================================================================
+The source code is in the tarball. Let me check where the source directory should be extracted and used:
+
+================================================================================
+Response 7
+================================================================================
+So the source gets extracted to `$SRC/project-parent/pdfbox`. The tarball extracts to a `pdfbox/` directory. Let me look at the actual file path in the tarball:
+
+================================================================================
+Response 8
+================================================================================
+Now I need to understand where the source directory is and where it's expected. Let me read the file directly from /tmp to understand it properly:
+
+================================================================================
+Response 9
+================================================================================
+Now I can clearly see the issue. At line 156, when parsing the PFB, the `size` value is read from the input file (lines 151-154) without any validation. The size is read as a 4-byte little-endian integer which can be up to ~2GB. A malicious or malformed input can specify an extremely large size, causing `new byte[size]` to attempt a huge allocation and trigger an OOM error.
+
+The fix should:
+1. Add a maximum size limit for segment allocation
+2. Also validate that the size doesn't exceed the remaining bytes in the input buffer
+
+Let me also verify the line number from the stack trace (line 166 in the error) - since the code I see has `byte[] ar = new byte[size];` at line 156, there might be a slight difference. Looking more carefully, the crash trace says line 166, but the actual allocation is at line 156 in this code. This could be due to version differences, but the fix location is the same.
+
+Now let me create the patch. I'll work with the extracted source in /tmp/pdfbox:
+
+================================================================================
+Response 10
+================================================================================
+Now let me repack the tarball and apply it to the project's pkgs directory:
+
+================================================================================
+Response 11
+================================================================================
+The patch has been applied. Let me verify the changes are in place:
+
+================================================================================
+Response 12
+================================================================================
+The patch has been successfully applied. Let me provide a summary of the fix:
+
+## Summary
+
+I've created and applied a patch to fix the Out-of-Memory vulnerability in `PfbParser.java` (in the fontbox module of pdfbox).
+
+### The Bug
+The `parsePfb()` method reads a 4-byte segment size from the input without validation, then allocates a byte array of that size:
+```java
+int size = in.read();
+size += in.read() << 8;
+size += in.read() << 16;
+size += in.read() << 24;
+byte[] ar = new byte[size];  // OOM if size is huge!
+```
+
+A malicious or malformed PDF/PFB file could specify an extremely large segment size (up to ~2GB), causing an Out-of-Memory error when trying to allocate the byte array.
+
+### The Fix
+Added two validation checks before allocating the byte array:
+
+1. **Maximum size limit** - Added a constant `MAX_SEGMENT_SIZE = 16 * 1024 * 1024` (16 MB) and check that the size doesn't exceed it (or is negative due to integer overflow).
+
+2. **Available data check** - Verify that the claimed size doesn't exceed the actual remaining bytes in the input buffer, which prevents attempts to allocate more memory than there is data.
+
+```java
+if (size < 0 || size > MAX_SEGMENT_SIZE)
+{
+    throw new IOException("Invalid PFB segment size: " + size);
+}
+if (size > in.available())
+{
+    throw new IOException("PFB segment size " + size + " exceeds available data " + in.available());
+}
+byte[] ar = new byte[size];
+```
+
+The patched `pdfbox.tar.gz` has been placed at:
+`/home/qqor/crete/packages/python_oss_fuzz/.oss_fuzz/projects/pdfbox/pkgs/pdfbox.tar.gz`

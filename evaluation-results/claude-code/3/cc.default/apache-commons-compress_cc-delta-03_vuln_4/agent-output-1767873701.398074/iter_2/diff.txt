@@ -1,0 +1,28 @@
+diff --git a/src/main/java/org/apache/commons/compress/archivers/tar/TarUtils.java b/src/main/java/org/apache/commons/compress/archivers/tar/TarUtils.java
+index 3b2b5be88..73c8996fa 100644
+--- a/src/main/java/org/apache/commons/compress/archivers/tar/TarUtils.java
++++ b/src/main/java/org/apache/commons/compress/archivers/tar/TarUtils.java
+@@ -755,6 +755,13 @@ public static TarArchiveStructSparse parseSparse(final byte[] buffer, final int
+         return new TarArchiveStructSparse(sparseOffset, sparseNumbytes);
+     }
+ 
++    /**
++     * Maximum number of bytes to read for a single number line in PAX 1.X sparse headers.
++     * Long.MAX_VALUE (9223372036854775807) has 19 digits, so 32 is a generous upper bound
++     * that prevents infinite loops on malicious input while allowing all valid values.
++     */
++    private static final int MAX_LINE_LENGTH_FOR_PAX_1X = 32;
++
+     /**
+      * For 1.X PAX Format, the sparse headers are stored in the file data block, preceding the actual file data. It consists of a series of decimal numbers
+      * delimited by newlines.
+@@ -769,6 +776,9 @@ private static long[] readLineOfNumberForPax1X(final InputStream inputStream) th
+         long bytesRead = 0;
+         while ((number = inputStream.read()) != '\n') {
+             bytesRead += 1;
++            if (bytesRead > MAX_LINE_LENGTH_FOR_PAX_1X) {
++                throw new IOException("Corrupted TAR archive. Number line in sparse headers block exceeds maximum length");
++            }
+             if (number == -1) {
+                 throw new IOException("Unexpected EOF when reading parse information of 1.X PAX format");
+             }

@@ -1,0 +1,38 @@
+--- a/HTMLparser.c
++++ b/HTMLparser.c
+@@ -3574,16 +3574,28 @@
+         chunkSize = in - chunk;
+         extraSize = chunkSize + replSize;
+ 
+-        if (extraSize > buffer_size) {
+-            size_t newSize = (used + extraSize) * 2;
+-            xmlChar *tmp = (xmlChar *) xmlRealloc(buffer, newSize + 1);
+-
+-            if (tmp == NULL) {
++        {
++            size_t needed = used + extraSize;
++            size_t maxLen = (ctxt->options & HTML_PARSE_HUGE) ?
++                            XML_MAX_HUGE_LENGTH :
++                            XML_MAX_TEXT_LENGTH;
++            if (needed > maxLen) {
+                 htmlErrMemory(ctxt);
+                 goto error;
+             }
+-            buffer = tmp;
+-            buffer_size = newSize;
++            if (needed > buffer_size) {
++                size_t newSize = buffer_size ? buffer_size * 2 : needed;
++                if (newSize < needed)
++                    newSize = needed;
++                xmlChar *tmp = (xmlChar *) xmlRealloc(buffer, newSize + 1);
++
++                if (tmp == NULL) {
++                    htmlErrMemory(ctxt);
++                    goto error;
++                }
++                buffer = tmp;
++                buffer_size = newSize;
++            }
+         }
+ 
+         if (chunkSize > 0) {

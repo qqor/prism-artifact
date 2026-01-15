@@ -1,0 +1,158 @@
+I tried to fix a timeout after 25 seconds vulnerability causing the crash log in the <crash_log> below.
+I failed to fix the vulnerability with the following patches:
+
+```diff
+diff --git a/pdfbox/src/main/java/org/apache/pdfbox/filter/CCITTFaxDecoderStream.java b/pdfbox/src/main/java/org/apache/pdfbox/filter/CCITTFaxDecoderStream.java
+index 5f01e4ce8..b42179ac8 100644
+--- a/pdfbox/src/main/java/org/apache/pdfbox/filter/CCITTFaxDecoderStream.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/filter/CCITTFaxDecoderStream.java
+@@ -182,11 +182,25 @@ final class CCITTFaxDecoderStream extends FilterInputStream {
+         int index = 0;
+         changesCurrentRowCount = 0;
+ 
++        // Maximum iterations to prevent infinite loops with malformed input
++        int maxModeIterations = columns * 10 + 1000;
++        int modeIterations = 0;
++
+         mode: while (index < columns) {
++            if (++modeIterations > maxModeIterations) {
++                throw new IOException("CCITT decode2D exceeded maximum iterations, possible malformed stream");
++            }
+             // read mode
+             Node n = codeTree.root;
+ 
++            // Maximum iterations for inner loop to prevent infinite loops
++            int maxInnerIterations = 100;
++            int innerIterations = 0;
++
+             while (true) {
++                if (++innerIterations > maxInnerIterations) {
++                    throw new IOException("CCITT decode2D inner loop exceeded maximum iterations, possible malformed stream");
++                }
+                 n = n.walk(readBit());
+ 
+                 if (n == null) {
+@@ -272,11 +286,26 @@ final class CCITTFaxDecoderStream extends FilterInputStream {
+         if (optionByteAligned) {
+             resetBuffer();
+         }
++
++        // Maximum iterations to prevent infinite loops with malformed input
++        int maxOuterIterations = columns * 10 + 1000;
++        int outerIterations = 0;
++
+         eof: while (true) {
++            if (++outerIterations > maxOuterIterations) {
++                throw new IOException("CCITT decodeRowType4 exceeded maximum iterations, possible malformed stream");
++            }
+             // read till next EOL code
+             Node n = eolOnlyTree.root;
+ 
++            // Maximum iterations for inner loop
++            int maxInnerIterations = 100;
++            int innerIterations = 0;
++
+             while (true) {
++                if (++innerIterations > maxInnerIterations) {
++                    throw new IOException("CCITT decodeRowType4 inner loop exceeded maximum iterations, possible malformed stream");
++                }
+                 n = n.walk(readBit());
+ 
+                 if (n == null) {
+@@ -376,7 +405,14 @@ final class CCITTFaxDecoderStream extends FilterInputStream {
+ 
+         Node n = tree.root;
+ 
++        // Maximum iterations to prevent infinite loops with malformed input
++        int maxIterations = columns + 1000;
++        int iterations = 0;
++
+         while (true) {
++            if (++iterations > maxIterations) {
++                throw new IOException("CCITT decodeRun exceeded maximum iterations, possible malformed stream");
++            }
+             boolean bit = readBit();
+             n = n.walk(bit);
+ 
+
+```
+
+Explain why the patches failed and provide a new patch to fix the vulnerability.
+Do not repeat the same mistakes in the new patch.
+Try a completely different approach to fix the vulnerability.
+NEVER fix files outside the source directory.
+NEVER do any git operations in or outside the source directory.
+
+Below is the crash log:
+
+<crash_log>
+== ERROR: libFuzzer: timeout after 25 seconds
+
+Stack traces of all JVM threads:
+Thread[Signal Dispatcher,9,system]
+
+Thread[Common-Cleaner,8,InnocuousThreadGroup]
+	at java.base@17.0.2/java.lang.Object.wait(Native Method)
+	at java.base@17.0.2/java.lang.ref.ReferenceQueue.remove(ReferenceQueue.java:155)
+	at java.base@17.0.2/jdk.internal.ref.CleanerImpl.run(CleanerImpl.java:140)
+	at java.base@17.0.2/java.lang.Thread.run(Thread.java:833)
+	at java.base@17.0.2/jdk.internal.misc.InnocuousThread.run(InnocuousThread.java:162)
+
+Thread[Cleaner-0,5,InnocuousThreadGroup]
+	at java.base@17.0.2/java.lang.Object.wait(Native Method)
+	at java.base@17.0.2/java.lang.ref.ReferenceQueue.remove(ReferenceQueue.java:155)
+	at java.base@17.0.2/jdk.internal.ref.CleanerImpl.run(CleanerImpl.java:140)
+	at java.base@17.0.2/java.lang.Thread.run(Thread.java:833)
+	at java.base@17.0.2/jdk.internal.misc.InnocuousThread.run(InnocuousThread.java:162)
+
+Thread[Reference Handler,10,system]
+	at java.base@17.0.2/java.lang.ref.Reference.waitForReferencePendingList(Native Method)
+	at java.base@17.0.2/java.lang.ref.Reference.processPendingReferences(Reference.java:253)
+	at java.base@17.0.2/java.lang.ref.Reference$ReferenceHandler.run(Reference.java:215)
+
+Thread[Attach Listener,9,system]
+
+Thread[Finalizer,8,system]
+	at java.base@17.0.2/java.lang.Object.wait(Native Method)
+	at java.base@17.0.2/java.lang.ref.ReferenceQueue.remove(ReferenceQueue.java:155)
+	at java.base@17.0.2/java.lang.ref.ReferenceQueue.remove(ReferenceQueue.java:176)
+	at java.base@17.0.2/java.lang.ref.Finalizer$FinalizerThread.run(Finalizer.java:172)
+
+Thread[Notification Thread,9,system]
+
+Thread[main,5,main]
+	at app//com.code_intelligence.jazzer.driver.FuzzTargetRunner.dumpAllStackTraces(FuzzTargetRunner.java:534)
+
+Thread[process reaper,10,system]
+	at java.base@17.0.2/jdk.internal.misc.Unsafe.park(Native Method)
+	at java.base@17.0.2/java.util.concurrent.locks.LockSupport.parkNanos(LockSupport.java:252)
+	at java.base@17.0.2/java.util.concurrent.SynchronousQueue$TransferStack.transfer(SynchronousQueue.java:401)
+	at java.base@17.0.2/java.util.concurrent.SynchronousQueue.poll(SynchronousQueue.java:903)
+	at java.base@17.0.2/java.util.concurrent.ThreadPoolExecutor.getTask(ThreadPoolExecutor.java:1061)
+	at java.base@17.0.2/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1122)
+	at java.base@17.0.2/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:635)
+	at java.base@17.0.2/java.lang.Thread.run(Thread.java:833)
+
+Garbage collector stats:
+INFO: Instrumented com.sun.management.internal.PlatformMBeanProviderImpl (took 4 ms, size +14%)
+INFO: detected a native library load, enabling interception for libc functions
+INFO: Instrumented com.sun.management.internal.PlatformMBeanProviderImpl$1 (took 1 ms, size +8%)
+INFO: Instrumented com.sun.management.internal.PlatformMBeanProviderImpl$2 (took 0 ms, size +4%)
+INFO: Instrumented com.sun.management.internal.PlatformMBeanProviderImpl$3 (took 0 ms, size +4%)
+INFO: Instrumented com.sun.management.internal.PlatformMBeanProviderImpl$4 (took 0 ms, size +6%)
+INFO: Instrumented com.sun.management.internal.DiagnosticCommandImpl (took 5 ms, size +16%)
+INFO: Instrumented com.sun.management.DiagnosticCommandMBean (took 0 ms, size +0%)
+INFO: Instrumented com.sun.management.internal.PlatformMBeanProviderImpl$5 (took 0 ms, size +6%)
+INFO: Instrumented com.sun.management.internal.GarbageCollectorExtImpl (took 2 ms, size +13%)
+INFO: Instrumented com.sun.management.GarbageCollectorMXBean (took 0 ms, size +0%)
+INFO: Instrumented com.sun.jmx.mbeanserver.GetPropertyAction (took 0 ms, size +13%)
+INFO: Instrumented com.sun.jmx.mbeanserver.Util (took 3 ms, size +13%)
+
+PS MarkSweep: 0 collections took 0ms
+PS Scavenge: 101 collections took 206ms
+
+SUMMARY: libFuzzer: timeout
+subprocess command returned a non-zero exit status: 70
+INFO:__main__:Running: docker run --privileged --shm-size=2g --platform linux/amd64 --rm -i -e HELPER=True -e ARCHITECTURE=x86_64 -v /home/qqor/crete/packages/python_oss_fuzz/.oss_fuzz/build/out/pdfbox:/out -v /tmp/tmpdgx5qym8:/testcase -t ghcr.io/aixcc-finals/base-runner:v1.3.0 reproduce PDFExtractTextFuzzer -runs=100.
+
+</crash_log>

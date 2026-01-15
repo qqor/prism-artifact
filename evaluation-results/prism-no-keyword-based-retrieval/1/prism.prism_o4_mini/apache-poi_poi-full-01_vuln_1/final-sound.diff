@@ -1,0 +1,52 @@
+--- a/poi/src/main/java/org/apache/poi/util/IOUtils.java
++++ b/poi/src/main/java/org/apache/poi/util/IOUtils.java
+@@ -60,7 +60,14 @@
+     private static int MAX_BYTE_ARRAY_INIT_SIZE = -1;
+ 
+     /**
+-     * The default size of the bytearray used while reading input streams. This is meant to be pretty small.
++     * Global default maximum record length for safe allocations via IOUtils.
++     * Can be overridden per record type via {@link #setByteArrayMaxOverride(int)}.
++     */
++    public static final int MAX_RECORD_LENGTH = Integer.MAX_VALUE;
++
++    /**
++     * Peeks at the first 8 bytes of the stream. Returns those bytes, but
++     *  with the stream unaffected. Requires a stream that supports mark/reset,
+      */
+     private static final int DEFAULT_BUFFER_SIZE = 4096;
+ 
+
+--- a/poi/src/main/java/org/apache/poi/util/StringUtil.java
++++ b/poi/src/main/java/org/apache/poi/util/StringUtil.java
+@@ -24,6 +24,7 @@
+ import java.nio.charset.StandardCharsets;
+ import java.util.Arrays;
+ import java.util.Locale;
++import org.apache.poi.util.IOUtils;
+ 
+ /**
+  * Collection of string handling utilities
+@@ -91,6 +92,10 @@
+             throw new IllegalArgumentException("Illegal length " + len);
+         }
+ 
++        long byteLen = (long) len * 2;
++        if (byteLen > IOUtils.MAX_RECORD_LENGTH) {
++            throw new IllegalArgumentException("Requested UnicodeLE string length exceeds maximum: " + len);
++        }
+         return new String(string, offset, len * 2, UTF16LE);
+     }
+ 
+
+--- a/poi-scratchpad/src/main/java/org/apache/poi/hmef/attribute/MAPIAttribute.java
++++ b/poi-scratchpad/src/main/java/org/apache/poi/hmef/attribute/MAPIAttribute.java
+@@ -168,7 +168,7 @@
+                   if (mplen < 0) {
+                      throw new IOException("Did not expect negative value: " + mplen);
+                   }
+-                  byte[] mpdata = new byte[mplen];
++                  byte[] mpdata = IOUtils.safelyAllocate(mplen, MAX_RECORD_LENGTH);
+                   if (IOUtils.readFully(inp, mpdata) < 0) {
+                      throw new IOException("Not enough data to read " + mplen + " bytes for attribute name");
+                   }

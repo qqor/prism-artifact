@@ -1,0 +1,47 @@
+diff --git a/epan/dissectors/packet-netbios.c b/epan/dissectors/packet-netbios.c
+index 9d55d61..3e06083 100644
+--- a/epan/dissectors/packet-netbios.c
++++ b/epan/dissectors/packet-netbios.c
+@@ -718,19 +718,29 @@ dissect_netb_terminate_trace( tvbuff_t *tvb, packet_info *pinfo _U_, int offset,
+     proto_tree_add_item(ttree, hf_netb_trace_initiator, tvb, offset + NB_INIT_NAME, 16, ENC_ASCII | ENC_NA);
+     proto_tree_add_item(ttree, hf_netb_trace_signature, tvb, offset + NB_SIGNATURE, 8, ENC_NA);
+ 
+-	/* Convert signature field to a string */
+-	while ( tvb_offset_exists(tvb, offset + NB_SIGNATURE + i) ) {
+-		byte = tvb_get_uint8(tvb, offset + NB_SIGNATURE + i);
+-
+-		signature[index++] = hex_digits[byte >> 4];
+-		signature[index++] = hex_digits[byte & 0x0F];
+-
+-		i++;
+-	}
+-
+-	signature[index] = '\0';
+-	
+-	proto_tree_add_string(ttree, hf_netb_trace_signature, tvb, offset + NB_SIGNATURE, i - 1, signature);
++    /* Convert signature field to a hex string with bounds checking */
++    {
++        /* Maximum raw bytes based on signature type */
++        int raw_max = (flag & 0x80) ? (NB_SIZE_HMAC / 2) : (NB_SIZE_TMAC / 2);
++        /* Process up to raw_max bytes */
++        while (i < raw_max && tvb_offset_exists(tvb, offset + NB_SIGNATURE + i)) {
++            byte = tvb_get_uint8(tvb, offset + NB_SIGNATURE + i);
++            signature[index++] = hex_digits[byte >> 4];
++            signature[index++] = hex_digits[byte & 0x0F];
++            i++;
++        }
++        /* Null-terminate within allocated buffer */
++        if (index >= 0 && index <= raw_max*2)
++            signature[index] = '\0';
++        else
++            signature[raw_max*2] = '\0';
++        /* Add the formatted signature string to the tree */
++        /* length: raw bytes processed minus 1, emulating previous behavior */
++        proto_tree_add_string(ttree, hf_netb_trace_signature,
++                              tvb, offset + NB_SIGNATURE,
++                              (i > 0) ? (i - 1) : 0,
++                              signature);
++    }
+ 
+ 	free(signature);
+ 

@@ -1,0 +1,45 @@
+diff --git a/fontbox/src/main/java/org/apache/fontbox/pfb/PfbParser.java b/fontbox/src/main/java/org/apache/fontbox/pfb/PfbParser.java
+index cda8dc6..3f7c7e4 100644
+--- a/fontbox/src/main/java/org/apache/fontbox/pfb/PfbParser.java
++++ b/fontbox/src/main/java/org/apache/fontbox/pfb/PfbParser.java
+@@ -152,24 +152,32 @@ public class PfbParser
+             {
+                 throw new IOException("Incorrect record type: " + recordType);
+             }
+-
+-            int size = in.read();
+-            size += in.read() << 8;
+-            size += in.read() << 16;
+-            size += in.read() << 24;
++            // read 4-byte little-endian unsigned segment size
++            long size = 0;
++            for (int i = 0; i < 4; i++) {
++                int b = in.read();
++                if (b < 0) {
++                    throw new EOFException("EOF while reading PFB segment size");
++                }
++                size |= (long)(b & 0xFF) << (8 * i);
++            }
+             LOG.debug("record type: {}, segment size: {}", recordType, size);
++            if (size > MAX_LENGTH) {
++                throw new IOException("record size would be too large: " + size);
++            }
+             long newTotal = total + size;
+             if (newTotal > MAX_LENGTH) {
+                 throw new IOException("record size would be too large: " + newTotal);
+             }
++            int isize = (int) size;
+ 
+-            byte[] ar = new byte[size];
++            byte[] ar = new byte[isize];
+             int got = in.read(ar);
+-            if (got != size)
++            if (got != isize)
+             {
+                 throw new EOFException("EOF while reading PFB font");
+             }
+-            total += size;
++            total += isize;
+             typeList.add(recordType);
+             barrList.add(ar);
+         }

@@ -1,0 +1,14 @@
+{
+  "project_name": "pdfbox",
+  "vulnerability_identifier": "pdfbox_pdfbox-full-01_vuln_8",
+  "source_directory": "/home/qqor/aixcc/crete/.cache/official-afc-pdfbox",
+  "llm_usage": {
+    "total_cost": 0.18237340000000002,
+    "prompt_tokens": 121190,
+    "completion_tokens": 11151
+  },
+  "variant": "sound",
+  "diff": "--- a/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/BaseParser.java\n+++ b/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/BaseParser.java\n@@ -1316,13 +1316,19 @@\n      *\n      * @throws IOException If there is an error reading from the stream.\n      */\n-    protected void skipSpaces() throws IOException\n-    {\n-        int c = source.read();\n-        // 37 is the % character, a comment\n-        while( isWhitespace(c) || c == 37)\n-        {\n-            if ( c == 37 )\n+private static final int MAX_SKIP_SPACES = 100000;\n+\n+protected void skipSpaces() throws IOException\n+{\n+    int iteration = 0;\n+    int c = source.read();\n+    // 37 is the % character, a comment\n+    while (isWhitespace(c) || c == 37)\n+    {\n+        if (++iteration > MAX_SKIP_SPACES) {\n+            throw new IOException(\"skipSpaces exceeded maximum iterations: \" + iteration);\n+        }\n+        if (c == 37)\n             {\n                 // skip past the comment section\n                 c = source.read();\n\n--- a/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/XrefParser.java\n+++ b/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/XrefParser.java\n@@ -102,13 +102,16 @@\n         long lastPrev = -1;\n         // ---- parse whole chain of xref tables/object streams using PREV reference\n         COSDictionary trailer = null;\n-        while (prev > 0 && prev != lastPrev)\n-        {\n-            lastPrev = prev;\n-            // seek to xref table\n-            source.seek(prev);\n-            // skip white spaces\n-            parser.skipSpaces();\n+    final int MAX_XREF_LOOPS = 10000;\n+    int loopCount = 0;\n+    while (prev > 0 && prev != lastPrev)\n+    {\n+        if (++loopCount > MAX_XREF_LOOPS) {\n+            throw new IOException(\"parseXref exceeded maximum iterations: \" + loopCount);\n+        }\n+        lastPrev = prev;\n+        source.seek(prev);\n+        parser.skipSpaces();\n             // -- parse xref\n             if (source.peek() == X)\n             {\n",
+  "stdout": "",
+  "stderr": ""
+}

@@ -1,0 +1,14 @@
+{
+  "project_name": "tika",
+  "vulnerability_identifier": "tika_tk-delta-04_vuln_5",
+  "source_directory": "/home/qqor/aixcc/crete/.cache/official-afc-tika",
+  "llm_usage": {
+    "total_cost": 0.0,
+    "prompt_tokens": 0,
+    "completion_tokens": 0
+  },
+  "variant": "sound",
+  "diff": "diff --git a/tika-pipes/tika-emitters/tika-emitter-fs/src/main/java/org/apache/tika/pipes/emitter/fs/FileSystemEmitter.java b/tika-pipes/tika-emitters/tika-emitter-fs/src/main/java/org/apache/tika/pipes/emitter/fs/FileSystemEmitter.java\nindex 9142c9b7b..5300850f3 100644\n--- a/tika-pipes/tika-emitters/tika-emitter-fs/src/main/java/org/apache/tika/pipes/emitter/fs/FileSystemEmitter.java\n+++ b/tika-pipes/tika-emitters/tika-emitter-fs/src/main/java/org/apache/tika/pipes/emitter/fs/FileSystemEmitter.java\n@@ -84,7 +84,8 @@ public class FileSystemEmitter extends AbstractEmitter implements StreamEmitter\n             emitKey += \".\" + fileExtension;\n         }\n         if (basePath != null) {\n-            output = basePath.resolve(emitKey);\n+            output = basePath.resolve(emitKey).normalize();\n+            validatePath(output, basePath);\n         } else {\n             output = Paths.get(emitKey);\n         }\n@@ -144,7 +145,8 @@ public class FileSystemEmitter extends AbstractEmitter implements StreamEmitter\n \n     @Override\n     public void emit(String path, InputStream inputStream, Metadata userMetadata, ParseContext parseContext) throws IOException, TikaEmitterException {\n-        Path target = basePath.resolve(path);\n+        Path target = basePath.resolve(path).normalize();\n+        validatePath(target, basePath);\n \n         if (!Files.isDirectory(target.getParent())) {\n             Files.createDirectories(target.getParent());\n@@ -164,6 +166,23 @@ public class FileSystemEmitter extends AbstractEmitter implements StreamEmitter\n         }\n     }\n \n+    /**\n+     * Validates that the resolved path is within the base path to prevent path traversal attacks.\n+     *\n+     * @param resolvedPath the resolved path to validate\n+     * @param basePath the base path that should contain the resolved path\n+     * @throws TikaEmitterException if the resolved path is outside the base path\n+     */\n+    private void validatePath(Path resolvedPath, Path basePath) throws TikaEmitterException {\n+        Path normalizedBase = basePath.toAbsolutePath().normalize();\n+        Path normalizedResolved = resolvedPath.toAbsolutePath().normalize();\n+\n+        if (!normalizedResolved.startsWith(normalizedBase)) {\n+            throw new TikaEmitterException(\"Path traversal attempt detected: resolved path '\" +\n+                    normalizedResolved + \"' is outside base path '\" + normalizedBase + \"'\");\n+        }\n+    }\n+\n     enum ON_EXISTS {\n         SKIP, EXCEPTION, REPLACE\n     }\n",
+  "stdout": "",
+  "stderr": ""
+}

@@ -1,0 +1,37 @@
+--- a/src/main/java/org/apache/commons/compress/archivers/examples/Expander.java
++++ b/src/main/java/org/apache/commons/compress/archivers/examples/Expander.java
+@@ -70,20 +70,27 @@
+         final Path targetDirPath = nullTarget ? null : targetDirectory.normalize();
+         T nextEntry = supplier.get();
+         while (nextEntry != null) {
+-            final Path targetPath = nullTarget ? null : nextEntry.resolveIn(targetDirPath);
++            // Safely resolve the entry path to prevent directory traversal (zip slip)
++            final Path targetEntryPath = nullTarget
++                                        ? null
++                                        : targetDirPath.resolve(nextEntry.getName()).normalize();
++            if (!nullTarget && !targetEntryPath.startsWith(targetDirPath)) {
++                throw new IOException("Zip slip detected: entry " + nextEntry.getName()
++                                      + " resolves outside target: " + targetEntryPath);
++            }
+             if (nextEntry.isDirectory()) {
+-                if (!nullTarget && !Files.isDirectory(targetPath) && Files.createDirectories(targetPath) == null) {
+-                    throw new IOException("Failed to create directory " + targetPath);
++                if (!nullTarget && !Files.isDirectory(targetEntryPath)) {
++                    Files.createDirectories(targetEntryPath);
+                 }
+             } else {
+-                final Path parent = nullTarget ? null : targetPath.getParent();
+-                if (!nullTarget && !Files.isDirectory(parent) && Files.createDirectories(parent) == null) {
+-                    throw new IOException("Failed to create directory " + parent);
++                final Path parent = nullTarget ? null : targetEntryPath.getParent();
++                if (!nullTarget && !Files.isDirectory(parent)) {
++                    Files.createDirectories(parent);
+                 }
+                 if (nullTarget) {
+                     writer.accept(nextEntry, NullOutputStream.INSTANCE);
+                 } else {
+-                    try (OutputStream outputStream = Files.newOutputStream(targetPath)) {
++                    try (OutputStream outputStream = Files.newOutputStream(targetEntryPath)) {
+                         writer.accept(nextEntry, outputStream);
+                     }
+                 }

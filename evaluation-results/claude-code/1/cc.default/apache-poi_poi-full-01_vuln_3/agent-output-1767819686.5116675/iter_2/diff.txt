@@ -1,0 +1,35 @@
+diff --git a/poi/src/main/java/org/apache/poi/hssf/record/aggregates/FormulaRecordAggregate.java b/poi/src/main/java/org/apache/poi/hssf/record/aggregates/FormulaRecordAggregate.java
+index 5ce1f62f6..a4e012c6a 100644
+--- a/poi/src/main/java/org/apache/poi/hssf/record/aggregates/FormulaRecordAggregate.java
++++ b/poi/src/main/java/org/apache/poi/hssf/record/aggregates/FormulaRecordAggregate.java
+@@ -90,14 +90,24 @@ public final class FormulaRecordAggregate extends RecordAggregate implements Cel
+      * (see TestValueRecordsAggregate.testSpuriousSharedFormulaFlag()).<p>
+      */
+     private static void handleMissingSharedFormulaRecord(FormulaRecord formula) {
+-        // make sure 'unshared' formula is actually available
+-        Ptg firstToken = formula.getParsedExpression()[0];
+-        if (firstToken instanceof ExpPtg) {
++        // Make sure 'unshared' formula is actually available.
++        // Since getExpReference() returned null (which is why this method was called),
++        // we know the formula's byte encoding is either:
++        // 1. Not exactly 5 bytes (the size of ExpPtg/TblPtg), OR
++        // 2. Exactly 5 bytes but first byte is not ExpPtg.sid or TblPtg.sid
++        //
++        // In either case, the formula cannot be a properly-formed ExpPtg reference,
++        // so we don't need to parse it to check. We just need to verify the formula
++        // has some content (non-zero encoded token size).
++        Formula f = formula.getFormula();
++        if (f.getEncodedTokenSize() == 0) {
+             throw new RecordFormatException(
+-                    "SharedFormulaRecord not found for FormulaRecord with (isSharedFormula=true)");
++                    "SharedFormulaRecord not found for FormulaRecord with (isSharedFormula=true) and empty formula");
+         }
+-        // could log an info message here since this is a fairly unusual occurrence.
+-        formula.setSharedFormula(false); // no point leaving the flag erroneously set
++        // The formula has content and is not an ExpPtg reference (verified by getExpReference() returning null).
++        // This means the shared formula flag was erroneously set, and the actual formula tokens
++        // are present in the record. Clear the flag.
++        formula.setSharedFormula(false);
+     }
+ 
+     public FormulaRecord getFormulaRecord() {

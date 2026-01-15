@@ -1,0 +1,100 @@
+--- a/core/src/main/java/org/apache/logging/log4j/core/lookup/JndiLookup.java
++++ b/core/src/main/java/org/apache/logging/log4j/core/lookup/JndiLookup.java
+@@ -28,12 +28,27 @@
+ @Plugin(name = "jndi", category = "Lookup")
+ public class JndiLookup implements StrLookup {
+ 
+-    private static boolean ENABLE_JNDI = true;
++    private static boolean ENABLE_JNDI = false;
++
++    /**
++     * Enables or disables JNDI lookups.
++     * When disabled (the default), remote JNDI lookups are suppressed.
++     */
++    public static void setEnableJndi(final boolean enable) {
++        ENABLE_JNDI = enable;
++    }
++
++    /**
++     * Checks if JNDI lookups are enabled.
++     *
++     * @return true if JNDI lookups are enabled.
++     */
++    public static boolean isEnableJndi() {
++        return ENABLE_JNDI;
++    }
+ 
+     /** JNDI resourcce path prefix used in a J2EE container */
+     static final String CONTAINER_JNDI_RESOURCE_PATH_PREFIX = "java:comp/env/";
+-
+-    /**
+      * Get the value of the JNDI resource.
+      * @param key  the JNDI resource name to be looked up, may be null
+      * @return The value of the JNDI resource.
+@@ -51,7 +66,7 @@
+      */
+     @Override
+     public String lookup(final LogEvent event, final String key) {
+-        if (key == null || ! ENABLE_JNDI) {
++        if (!isEnableJndi() || key == null) {
+             return null;
+         }
+ 
+
+--- a/core/pom.xml
++++ b/core/pom.xml
+@@ -113,7 +113,14 @@
+       <groupId>org.mockejb</groupId>
+       <artifactId>mockejb</artifactId>
+       <scope>test</scope>
+-    </dependency>
++      </dependency>
++      <!-- MockEJB JNDI dependency for tests -->
++      <dependency>
++        <groupId>org.mockejb</groupId>
++        <artifactId>mockejb-jndi</artifactId>
++        <version>2.0.0</version>
++        <scope>test</scope>
++      </dependency>
+     <dependency>
+       <groupId>ch.qos.logback</groupId>
+       <artifactId>logback-core</artifactId>
+
+--- a/core/src/test/java/org/apache/logging/log4j/core/lookup/JndiLookupTest.java
++++ b/core/src/test/java/org/apache/logging/log4j/core/lookup/JndiLookupTest.java
+@@ -27,7 +27,9 @@
+ import org.junit.Before;
+ import org.junit.Test;
+ import org.mockejb.jndi.MockContextFactory;
+-
++import org.apache.logging.log4j.core.lookup.JndiLookup;
++import static org.apache.logging.log4j.core.lookup.JndiLookup.CONTAINER_JNDI_RESOURCE_PATH_PREFIX;
++import org.apache.logging.log4j.core.LogEvent;
+ /**
+  * JndiLookupTest
+  */
+@@ -38,9 +40,10 @@
+ 
+     @Before
+     public void before() throws NamingException {
++        JndiLookup.setEnableJndi(true);
+         MockContextFactory.setAsInitial();
+         Context context = new InitialContext();
+-        context.bind(JndiLookup.CONTAINER_JNDI_RESOURCE_PATH_PREFIX + TEST_CONTEXT_RESOURCE_NAME, TEST_CONTEXT_NAME);
++        context.bind(CONTAINER_JNDI_RESOURCE_PATH_PREFIX + TEST_CONTEXT_RESOURCE_NAME, TEST_CONTEXT_NAME);
+     }
+ 
+     @After
+@@ -64,4 +67,12 @@
+         String nonExistingResource = lookup.lookup("logging/non-existing-resource");
+         assertNull(nonExistingResource);
+     }
++
++    @Test
++    public void testDisabledByDefault() {
++        // Default JNDI lookups are disabled
++        final JndiLookup lookup = new JndiLookup();
++        assertNull(lookup.lookup("someResource"));
++        assertNull(lookup.lookup((LogEvent) null, TEST_CONTEXT_RESOURCE_NAME));
++    }
+ }

@@ -1,0 +1,19 @@
+diff --git a/poi-scratchpad/src/main/java/org/apache/poi/hmef/attribute/MAPIAttribute.java b/poi-scratchpad/src/main/java/org/apache/poi/hmef/attribute/MAPIAttribute.java
+index 651fee520..d1f99edb7 100644
+--- a/poi-scratchpad/src/main/java/org/apache/poi/hmef/attribute/MAPIAttribute.java
++++ b/poi-scratchpad/src/main/java/org/apache/poi/hmef/attribute/MAPIAttribute.java
+@@ -165,8 +165,12 @@ public class MAPIAttribute {
+                } else {
+                   // Custom name was stored
+                   int mplen = LittleEndian.readInt(inp);
+-                  if (mplen < 0) {
+-                     throw new IOException("Did not expect negative value: " + mplen);
++                  // Validate length to prevent OOM - property names should be reasonably sized
++                  // Even very long property names shouldn't exceed 64KB
++                  if (mplen < 0 || mplen > 65536) {
++                     throw new IOException("Invalid property name length: " + mplen +
++                        " (expected between 0 and 65536 bytes). " +
++                        "This may indicate a corrupted or malicious file.");
+                   }
+                   byte[] mpdata = new byte[mplen];
+                   if (IOUtils.readFully(inp, mpdata) < 0) {

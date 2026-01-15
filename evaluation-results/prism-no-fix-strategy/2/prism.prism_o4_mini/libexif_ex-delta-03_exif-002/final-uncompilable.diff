@@ -1,0 +1,75 @@
+--- a/libexif/exif-data.c
++++ b/libexif/exif-data.c
+@@ -165,7 +165,7 @@
+ 			   const unsigned char *d,
+ 			   unsigned int size, unsigned int offset)
+ {
+-	unsigned int s, doff;
++    size_t s, doff;
+ 
+ 	entry->tag        = exif_get_short (d + offset + 0, data->priv->order);
+ 	entry->format     = exif_get_short (d + offset + 2, data->priv->order);
+@@ -180,31 +180,38 @@
+ 
+ 	/* {0,1,2,4,8} x { 0x00000000 .. 0xffffffff } 
+ 	 *   -> { 0x000000000 .. 0x7fffffff8 } */
+-	s = exif_format_get_size(entry->format) * entry->components;
+-	if ((s < entry->components) || (s == 0)){
+-		return 0;
+-	}
+-
+-	/*
+-	 * Size? If bigger than 4 bytes, the actual data is not
+-	 * in the entry but somewhere else (offset).
+-	 */
+-	if (s > 4)
+-		doff = exif_get_long (d + offset + 8, data->priv->order);
+-	else
+-		doff = offset + 8;
+-
+-	/* Sanity checks */
+-	if (doff >= size) {
+-		exif_log (data->priv->log, EXIF_LOG_CODE_DEBUG, "ExifData",
+-				  "Tag starts past end of buffer (%u > %u)", doff, size);
+-		return 0;
+-	}
+-
+-	if (s > size - doff) {
+-		exif_log (data->priv->log, EXIF_LOG_CODE_DEBUG, "ExifData",
+-				  "Tag data goes past end of buffer (%u > %u)", doff+s, size);
+-		return 0;
++    /* Ensure the buffer can hold the 12-byte entry header */
++    if (size < 12 || offset > size - 12)
++        return 0;
++
++    /* compute data size with overflow and zero-length check */
++    {
++        size_t fmt_size = exif_format_get_size(entry->format);
++        if (fmt_size == 0 || entry->components == 0 ||
++            entry->components > ((size_t)-1) / fmt_size)
++            return 0;
++        s = fmt_size * entry->components;
++    }
++
++    /* determine data offset */
++    if (s > 4) {
++        /* ensure we can read the 4-byte offset field */
++        if (offset > size - (8 + 4))
++            return 0;
++        /* safe to read 4-byte TIFF offset since header fits */
++        ExifLong roff = exif_get_long(d + offset + 8,
++                                      data->priv->order);
++        /* negative or too large offset+length */
++        if (roff < 0 || (size_t)roff > size - s)
++            return 0;
++        doff = (size_t)roff;
++    } else {
++        doff = offset + 8;
++    }
++
++    /* final bounds: region [doff, doff+s) must lie within buffer */
++    if (s > size - doff)
++        return 0;
+ 	}
+ 
+ 	entry->data = exif_data_alloc (data, s);

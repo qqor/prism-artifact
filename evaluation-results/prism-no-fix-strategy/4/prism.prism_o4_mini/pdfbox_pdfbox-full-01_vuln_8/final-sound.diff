@@ -1,0 +1,56 @@
+--- a/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/BaseParser.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/BaseParser.java
+@@ -1316,13 +1316,19 @@
+      *
+      * @throws IOException If there is an error reading from the stream.
+      */
+-    protected void skipSpaces() throws IOException
+-    {
+-        int c = source.read();
+-        // 37 is the % character, a comment
+-        while( isWhitespace(c) || c == 37)
+-        {
+-            if ( c == 37 )
++private static final int MAX_SKIP_SPACES = 100000;
++
++protected void skipSpaces() throws IOException
++{
++    int iteration = 0;
++    int c = source.read();
++    // 37 is the % character, a comment
++    while (isWhitespace(c) || c == 37)
++    {
++        if (++iteration > MAX_SKIP_SPACES) {
++            throw new IOException("skipSpaces exceeded maximum iterations: " + iteration);
++        }
++        if (c == 37)
+             {
+                 // skip past the comment section
+                 c = source.read();
+
+--- a/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/XrefParser.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/XrefParser.java
+@@ -102,13 +102,16 @@
+         long lastPrev = -1;
+         // ---- parse whole chain of xref tables/object streams using PREV reference
+         COSDictionary trailer = null;
+-        while (prev > 0 && prev != lastPrev)
+-        {
+-            lastPrev = prev;
+-            // seek to xref table
+-            source.seek(prev);
+-            // skip white spaces
+-            parser.skipSpaces();
++    final int MAX_XREF_LOOPS = 10000;
++    int loopCount = 0;
++    while (prev > 0 && prev != lastPrev)
++    {
++        if (++loopCount > MAX_XREF_LOOPS) {
++            throw new IOException("parseXref exceeded maximum iterations: " + loopCount);
++        }
++        lastPrev = prev;
++        source.seek(prev);
++        parser.skipSpaces();
+             // -- parse xref
+             if (source.peek() == X)
+             {

@@ -1,0 +1,60 @@
+--- a/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java
++++ b/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java
+@@ -270,27 +270,38 @@
+     private static Instant parseInstantFromDecimalSeconds(final String key,
+                                                           final String value) throws IOException {
+ 
+-        // Validate field values to prevent denial of service attacks with BigDecimal values (see JDK-6560193)
+-        Matcher fileTimesMatcher = PAX_EXTENDED_HEADER_FILE_TIMES_PATTERN.matcher(value);
+-        if (! fileTimesMatcher.matches()) {
+-            throw new IOException(
+-                    "Corrupted PAX header. Time field value is invalid '" + value + "'");
+-        }
+-        //As with the check above, exponents should not be allowed.
+-        if (value.contains("e") || value.contains("E")) {
+-            throw new IOException(
+-                    "Corrupted PAX header. Time field value is invalid '" + value + "'");
+-        }
+-
+-        final BigDecimal epochSeconds = new BigDecimal(value);
+-        final long seconds = epochSeconds.longValue();
+-        final long nanos = epochSeconds.remainder(BigDecimal.ONE).movePointRight(9).longValue();
++        // Validate PAX time field: optional leading '-', digits, optional single '.', up to 9 fractional digits
++        String val = value;
++        if (val.startsWith("-")) {
++            val = val.substring(1);
++        }
++        String[] parts = val.split("\\.", -1);
++        if (parts.length == 0 || parts.length > 2) {
++            throw new IOException("Corrupt PAX header. Time field value is invalid '" + value + "'");
++        }
++        String intPart = parts[0];
++        String fracPart = parts.length == 2 ? parts[1] : "";
++        if (intPart.length() < 1 || intPart.length() > 19 || fracPart.length() > 9) {
++            throw new IOException("Corrupt PAX header. Time field value is invalid '" + value + "'");
++        }
++        // ensure all characters are digits
++        for (char c : intPart.toCharArray()) {
++            if (!Character.isDigit(c)) {
++                throw new IOException("Corrupt PAX header. Time field value is invalid '" + value + "'");
++            }
++        }
++        for (char c : fracPart.toCharArray()) {
++            if (!Character.isDigit(c)) {
++                throw new IOException("Corrupt PAX header. Time field value is invalid '" + value + "'");
++            }
++        }
+         try {
++            BigDecimal epochSeconds = new BigDecimal(value);
++            long seconds = epochSeconds.longValue();
++            long nanos = epochSeconds.remainder(BigDecimal.ONE).movePointRight(9).longValue();
+             return Instant.ofEpochSecond(seconds, nanos);
+-        } catch (DateTimeException | ArithmeticException e) {
+-            // DateTimeException: Thrown if the instant exceeds the maximum or minimum instant.
+-            // ArithmeticException: Thrown if numeric overflow occurs.
+-            throw new IOException("Corrupted PAX header. Time field value is invalid '" + value + "'", e);
++        } catch (NumberFormatException | DateTimeException | ArithmeticException e) {
++            throw new IOException("Corrupt PAX header. Time field value is invalid '" + value + "'", e);
+         }
+     }
+ 

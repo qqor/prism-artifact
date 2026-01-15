@@ -1,0 +1,112 @@
+I tried to fix a timeout after 25 seconds vulnerability causing the crash log in the <crash_log> below.
+I failed to fix the vulnerability with the following patches:
+
+```diff
+diff --git a/src/main/java/org/apache/commons/compress/archivers/tar/TarUtils.java b/src/main/java/org/apache/commons/compress/archivers/tar/TarUtils.java
+index 3b2b5be88..160d3abfe 100644
+--- a/src/main/java/org/apache/commons/compress/archivers/tar/TarUtils.java
++++ b/src/main/java/org/apache/commons/compress/archivers/tar/TarUtils.java
+@@ -560,6 +560,13 @@ protected static List<TarArchiveStructSparse> parsePAX1XSparseHeaders(final Inpu
+             // overflow while reading number?
+             throw new IOException("Corrupted TAR archive. Negative value in sparse headers block");
+         }
++        // Sanity check to prevent excessive iterations on corrupted/malicious archives.
++        // A reasonable limit based on typical block sizes - each sparse header requires at least
++        // 2 bytes in the data block (offset\n + numbytes\n), so limit to what could fit in a reasonable file.
++        final int maxSparseHeaders = 1024 * 1024; // 1M headers max
++        if (sparseHeadersCount > maxSparseHeaders) {
++            throw new IOException("Corrupted TAR archive. Too many sparse headers: " + sparseHeadersCount);
++        }
+         bytesRead += readResult[1];
+         while (sparseHeadersCount-- > 0) {
+             readResult = readLineOfNumberForPax1X(inputStream);
+
+``````diff
+diff --git a/src/main/java/org/apache/commons/compress/archivers/tar/TarUtils.java b/src/main/java/org/apache/commons/compress/archivers/tar/TarUtils.java
+index 3b2b5be88..67a0bd808 100644
+--- a/src/main/java/org/apache/commons/compress/archivers/tar/TarUtils.java
++++ b/src/main/java/org/apache/commons/compress/archivers/tar/TarUtils.java
+@@ -767,6 +767,10 @@ private static long[] readLineOfNumberForPax1X(final InputStream inputStream) th
+         int number;
+         long result = 0;
+         long bytesRead = 0;
++        // Limit max digits to prevent denial of service. 19 digits can represent
++        // values up to Long.MAX_VALUE (9223372036854775807), which is sufficient.
++        final int maxDigits = 19;
++        int digitCount = 0;
+         while ((number = inputStream.read()) != '\n') {
+             bytesRead += 1;
+             if (number == -1) {
+@@ -775,6 +779,10 @@ private static long[] readLineOfNumberForPax1X(final InputStream inputStream) th
+             if (number < '0' || number > '9') {
+                 throw new IOException("Corrupted TAR archive. Non-numeric value in sparse headers block");
+             }
++            digitCount++;
++            if (digitCount > maxDigits) {
++                throw new IOException("Corrupted TAR archive. Number exceeds maximum length in sparse headers block");
++            }
+             result = result * 10 + (number - '0');
+         }
+         bytesRead += 1;
+
+```
+
+Explain why the patches failed and provide a new patch to fix the vulnerability.
+Do not repeat the same mistakes in the new patch.
+Try a completely different approach to fix the vulnerability.
+NEVER fix files outside the source directory.
+NEVER do any git operations in or outside the source directory.
+
+Below is the crash log:
+
+<crash_log>
+== ERROR: libFuzzer: timeout after 25 seconds
+
+Stack traces of all JVM threads:
+Thread[Reference Handler,10,system]
+	at java.base@17.0.2/java.lang.ref.Reference.waitForReferencePendingList(Native Method)
+	at java.base@17.0.2/java.lang.ref.Reference.processPendingReferences(Reference.java:253)
+	at java.base@17.0.2/java.lang.ref.Reference$ReferenceHandler.run(Reference.java:215)
+
+Thread[Notification Thread,9,system]
+
+Thread[Finalizer,8,system]
+	at java.base@17.0.2/java.lang.Object.wait(Native Method)
+	at java.base@17.0.2/java.lang.ref.ReferenceQueue.remove(ReferenceQueue.java:155)
+	at java.base@17.0.2/java.lang.ref.ReferenceQueue.remove(ReferenceQueue.java:176)
+	at java.base@17.0.2/java.lang.ref.Finalizer$FinalizerThread.run(Finalizer.java:172)
+
+Thread[process reaper,10,system]
+	at java.base@17.0.2/jdk.internal.misc.Unsafe.park(Native Method)
+	at java.base@17.0.2/java.util.concurrent.locks.LockSupport.parkNanos(LockSupport.java:252)
+	at java.base@17.0.2/java.util.concurrent.SynchronousQueue$TransferStack.transfer(SynchronousQueue.java:401)
+	at java.base@17.0.2/java.util.concurrent.SynchronousQueue.poll(SynchronousQueue.java:903)
+	at java.base@17.0.2/java.util.concurrent.ThreadPoolExecutor.getTask(ThreadPoolExecutor.java:1061)
+	at java.base@17.0.2/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1122)
+	at java.base@17.0.2/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:635)
+	at java.base@17.0.2/java.lang.Thread.run(Thread.java:833)
+
+Thread[Attach Listener,9,system]
+
+Thread[Common-Cleaner,8,InnocuousThreadGroup]
+	at java.base@17.0.2/java.lang.Object.wait(Native Method)
+	at java.base@17.0.2/java.lang.ref.ReferenceQueue.remove(ReferenceQueue.java:155)
+	at java.base@17.0.2/jdk.internal.ref.CleanerImpl.run(CleanerImpl.java:140)
+	at java.base@17.0.2/java.lang.Thread.run(Thread.java:833)
+	at java.base@17.0.2/jdk.internal.misc.InnocuousThread.run(InnocuousThread.java:162)
+
+Thread[main,5,main]
+	at app//com.code_intelligence.jazzer.driver.FuzzTargetRunner.dumpAllStackTraces(FuzzTargetRunner.java:534)
+
+Thread[Signal Dispatcher,9,system]
+
+Garbage collector stats:
+
+PS MarkSweep: 0 collections took 0ms
+PS Scavenge: 16 collections took 85ms
+
+SUMMARY: libFuzzer: timeout
+subprocess command returned a non-zero exit status: 70
+INFO:__main__:Running: docker run --privileged --shm-size=2g --platform linux/amd64 --rm -i -e HELPER=True -e ARCHITECTURE=x86_64 -v /home/qqor/crete/packages/python_oss_fuzz/.oss_fuzz/build/out/apache-commons-compress:/out -v /tmp/tmphr0mcvwk:/testcase -t ghcr.io/aixcc-finals/base-runner:v1.3.0 reproduce CompressTarFuzzer -runs=100.
+
+</crash_log>

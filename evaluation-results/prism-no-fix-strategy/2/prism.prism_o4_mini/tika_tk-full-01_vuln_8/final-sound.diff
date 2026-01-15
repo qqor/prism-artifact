@@ -1,0 +1,44 @@
+--- a/tika-core/src/main/java/org/apache/tika/detect/ShellCodeDetector.java
++++ b/tika-core/src/main/java/org/apache/tika/detect/ShellCodeDetector.java
+@@ -23,7 +23,7 @@
+ import java.nio.file.Files;
+ import java.nio.file.Path;
+ import java.nio.file.Paths;
+-import java.nio.file.StandardCopyOption;
++import java.io.BufferedReader;
+ import java.util.Locale;
+ 
+ import org.apache.commons.io.FileUtils;
+@@ -90,22 +90,17 @@
+         fileName = fileName.replaceAll("[^-_0-9A-Za-z.]+", "");
+         fileName = fileName.replaceAll("\\.\\.", "");
+ 
+-        if (fileName.length() > MAX_LENGTH) {
+-            fileName = fileName.substring(fileName.length() - MAX_LENGTH);
+-        }
+-        Path cwd = Paths.get(".").toAbsolutePath().normalize();
+-        Path tmpDir = Files.createTempDirectory(cwd, "tika-shell-detect-");
+-        Path tmpFile = tmpDir.resolve(fileName);
+-        Files.copy(tis.getPath(), tmpFile, StandardCopyOption.REPLACE_EXISTING);
+-        ProcessBuilder pb = new ProcessBuilder(fileName);
+-        pb.directory(tmpDir.toFile());
+-        try {
+-            FileProcessResult result = ProcessUtils.execute(pb, 20000, 100000, 100000);
+-            if (result.getExitValue() == 0) {
+-                metadata.set(SHELL_NO_ARGS, true);
++        // static no-arg shell detection via shebang parsing
++        try (BufferedReader reader = Files.newBufferedReader(tis.getPath(), StandardCharsets.UTF_8)) {
++            String line = reader.readLine();
++            if (line != null && line.startsWith("#!")) {
++                String[] parts = line.substring(2).trim().split("\\s+");
++                if (parts.length == 1) {
++                    metadata.set(SHELL_NO_ARGS, true);
++                }
+             }
+-        } finally {
+-            FileUtils.deleteDirectory(tmpDir.toFile());
++        } catch (IOException e) {
++            // ignore, best effort
+         }
+         return SHELL_SCRIPT;
+     }

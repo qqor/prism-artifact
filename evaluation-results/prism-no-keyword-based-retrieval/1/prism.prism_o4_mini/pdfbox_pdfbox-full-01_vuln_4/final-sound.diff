@@ -1,0 +1,46 @@
+--- a/fontbox/src/main/java/org/apache/fontbox/type1/Type1Parser.java
++++ b/fontbox/src/main/java/org/apache/fontbox/type1/Type1Parser.java
+@@ -47,6 +47,8 @@
+     // state
+     private Type1Lexer lexer;
+     private Type1Font font;
++    private int tokenCount;
++    private int maxTotalTokens;
+ 
+     /**
+      * Parses a Type 1 font and returns a Type1Font class which represents it.
+@@ -58,6 +60,9 @@
+     public Type1Font parse(byte[] segment1, byte[] segment2) throws IOException
+     {
+         font = new Type1Font(segment1, segment2);
++        // initialize global token count guard
++        tokenCount = 0;
++        maxTotalTokens = (segment1.length + segment2.length) * 3 + 10000;
+         try
+         {
+             parseASCII(segment1);
+@@ -637,10 +642,21 @@
+         // some fonts have "2 index" here, others have "end noaccess put"
+         // sometimes followed by "put". Either way, we just skip until
+         // the /CharStrings dict is found
++        int tokensScanned = 0;
++        int maxTokens = bytes.length * 2 + 1000;
++        Token t;
+         while (!(lexer.peekKind(Token.LITERAL)
+-                && lexer.peekToken().getText().equals("CharStrings")))
+-        {
+-            lexer.nextToken();
++                && "CharStrings".equals(lexer.peekToken().getText())))
++        {
++            t = lexer.nextToken();
++            if (t == null)
++            {
++                throw new DamagedFontException("Premature EOF while seeking /CharStrings");
++            }
++            if (++tokensScanned > maxTokens)
++            {
++                throw new DamagedFontException("Exceeded token limit without finding /CharStrings");
++            }
+         }
+ 
+         // CharStrings dict

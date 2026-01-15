@@ -1,0 +1,26 @@
+diff --git a/src/main/java/org/apache/commons/compress/compressors/z/ZCompressorInputStream.java b/src/main/java/org/apache/commons/compress/compressors/z/ZCompressorInputStream.java
+index 63ded15e1..f054a81a5 100644
+--- a/src/main/java/org/apache/commons/compress/compressors/z/ZCompressorInputStream.java
++++ b/src/main/java/org/apache/commons/compress/compressors/z/ZCompressorInputStream.java
+@@ -36,6 +36,8 @@ public class ZCompressorInputStream extends LZWInputStream {
+     private static final int MAGIC_2 = 0x9d;
+     private static final int BLOCK_MODE_MASK = 0x80;
+     private static final int MAX_CODE_SIZE_MASK = 0x1f;
++    /** Maximum code size allowed for .Z files (UNIX compress standard limit). */
++    private static final int MAX_CODE_SIZE_UPPER_BOUND = 16;
+ 
+     /**
+      * Checks if the signature matches what is expected for a Unix compress file.
+@@ -79,7 +81,11 @@ public ZCompressorInputStream(final InputStream inputStream, final int memoryLim
+             throw new IOException("Input is not in .Z format");
+         }
+         blockMode = (thirdByte & BLOCK_MODE_MASK) != 0;
+-        maxCodeSize = thirdByte & MAX_CODE_SIZE_MASK;
++        final int codeSize = thirdByte & MAX_CODE_SIZE_MASK;
++        if (codeSize < DEFAULT_CODE_SIZE || codeSize > MAX_CODE_SIZE_UPPER_BOUND) {
++            throw new IOException("Invalid .Z file: code size " + codeSize + " is out of valid range [" + DEFAULT_CODE_SIZE + ", " + MAX_CODE_SIZE_UPPER_BOUND + "]");
++        }
++        maxCodeSize = codeSize;
+         if (blockMode) {
+             setClearCode(DEFAULT_CODE_SIZE);
+         }

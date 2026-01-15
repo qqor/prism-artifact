@@ -1,0 +1,57 @@
+
+================================================================================
+Response 1
+================================================================================
+Looking at the crash log and the failed patch, I can see the issue. The crash occurs at line 47 in `TikaUntar.java`, but the patch was applied at lines 44-46 (after line 43). This means the check is happening AFTER the vulnerable operation, not before it.
+
+Let me first read the file to understand the code structure:
+
+================================================================================
+Response 2
+================================================================================
+Now I understand the problem! The crash happens at line 47 where `Files.write(target, ...)` is called. The fuzzer's security check triggers when the `target` path is used in `Files.write()`.
+
+**Why the previous patch failed:**
+
+The previous patch added the path traversal check AFTER calling `target.getParent()` at line 44 and even after `Files.createDirectories(target.getParent())` at line 45. By the time the check runs, the vulnerable path has already been used in file system operations. The crash at line 47 occurs because `target` was never properly validated BEFORE being used.
+
+The issue is that the check used `target.startsWith(extractDir.toAbsolutePath().normalize())`, but `target` was only normalized, not converted to absolute path. This causes a mismatch - you're comparing a potentially relative path with an absolute path.
+
+**New approach:**
+
+1. Convert both paths to absolute paths before comparison
+2. Perform the check IMMEDIATELY after resolving the target path, BEFORE any operations using it
+3. Use `toAbsolutePath()` on both paths to ensure proper comparison
+
+Here's the corrected patch:
+
+```diff
+diff --git a/tika-app/src/main/java/org/apache/tika/cli/TikaUntar.java b/tika-app/src/main/java/org/apache/tika/cli/TikaUntar.java
+index 0922124e6..5e3c8a7a8 100644
+--- a/tika-app/src/main/java/org/apache/tika/cli/TikaUntar.java
++++ b/tika-app/src/main/java/org/apache/tika/cli/TikaUntar.java
+@@ -41,7 +41,12 @@ public class TikaUntar {
+             while (tae != null) {
+                 if (tae.isFile()) {
+                     Path target = extractDir.resolve(tae.getName()).normalize();
+-                    if (!Files.isDirectory(target.getParent())) {
++                    // Prevent path traversal by validating the resolved path is within extractDir
++                    Path normalizedExtractDir = extractDir.toAbsolutePath().normalize();
++                    Path normalizedTarget = target.toAbsolutePath().normalize();
++                    if (!normalizedTarget.startsWith(normalizedExtractDir)) {
++                        throw new IOException("Entry is outside of the target directory: " + tae.getName());
++                    }
++                    if (!Files.isDirectory(normalizedTarget.getParent())) {
+                         Files.createDirectories(target.getParent());
+                     }
+                     Files.write(target, tais.readAllBytes());
+```
+
+**Key differences from the failed patch:**
+
+1. **Both paths are converted to absolute**: Using `toAbsolutePath()` on both `extractDir` and `target` ensures we're comparing apples to apples
+2. **Check happens BEFORE any file operations**: The validation occurs immediately after resolving the target path, before `target.getParent()` or any other operation
+3. **Uses the normalized absolute paths**: Store them in variables and use them consistently
+4. **The validation blocks the vulnerability before line 47**: This prevents the crash because the malicious path never reaches `Files.write()`
+
+The path traversal attack typically uses entries like `../../jazzer-traversal` or similar to escape the extraction directory. By converting both paths to absolute normalized paths and checking containment, we prevent any extracted file from being written outside the intended directory.

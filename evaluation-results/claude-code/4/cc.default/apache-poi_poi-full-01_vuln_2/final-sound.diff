@@ -1,0 +1,25 @@
+diff --git a/poi/src/main/java/org/apache/poi/poifs/dev/POIFSDump.java b/poi/src/main/java/org/apache/poi/poifs/dev/POIFSDump.java
+index 96cca3285..c5d4764f1 100644
+--- a/poi/src/main/java/org/apache/poi/poifs/dev/POIFSDump.java
++++ b/poi/src/main/java/org/apache/poi/poifs/dev/POIFSDump.java
+@@ -105,12 +105,19 @@ public final class POIFSDump {
+                 try (DocumentInputStream is = new DocumentInputStream(node)) {
+                    bytes = IOUtils.toByteArray(is);
+                 }
+-                try (OutputStream out = Files.newOutputStream(new File(parent, node.getName().trim()).toPath())) {
++                File outputFile = new File(parent, node.getName().trim());
++                if (!outputFile.getCanonicalPath().startsWith(parent.getCanonicalPath() + File.separator)) {
++                    throw new IOException("Path traversal attempt detected: " + node.getName());
++                }
++                try (OutputStream out = Files.newOutputStream(outputFile.toPath())) {
+                     out.write(bytes);
+                 }
+             } else if (entry instanceof DirectoryEntry){
+                 DirectoryEntry dir = (DirectoryEntry)entry;
+                 File file = new File(parent, entry.getName());
++                if (!file.getCanonicalPath().startsWith(parent.getCanonicalPath() + File.separator)) {
++                    throw new IOException("Path traversal attempt detected: " + entry.getName());
++                }
+                 if(!file.exists() && !file.mkdirs()) {
+                     throw new IOException("Could not create directory " + file);
+                 }

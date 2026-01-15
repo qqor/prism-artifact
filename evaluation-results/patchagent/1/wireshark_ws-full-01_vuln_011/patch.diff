@@ -1,0 +1,35 @@
+diff --git a/epan/dissectors/packet-aim.c b/epan/dissectors/packet-aim.c
+index ec79a79..db3e44a 100644
+--- a/epan/dissectors/packet-aim.c
++++ b/epan/dissectors/packet-aim.c
+@@ -581,16 +581,25 @@ static const aim_family
+ static int
+ aim_get_buddyname(wmem_allocator_t *pool, uint8_t **name, tvbuff_t *tvb, int offset)
+ {
+-	uint16_t buddyname_length;
++    uint16_t buddyname_length;
++    uint16_t copy_length;
+ 
+ 	*name = wmem_alloc(pool, 256);
+ 
+-	buddyname_length = tvb_get_ntohs(tvb, offset);
++    buddyname_length = tvb_get_ntohs(tvb, offset);
++    /* Clamp buddyname_length to buffer size - 1 for safety */
++    if (buddyname_length > 255)
++        copy_length = 255;
++    else
++        copy_length = buddyname_length;
+ 
+-	if (pool)
+-		memcpy(*name, tvb_get_ptr(tvb,offset,1), buddyname_length);
++    if (pool && copy_length > 0)
++        memcpy(*name, tvb_get_ptr(tvb, offset, 1), copy_length);
++    /* Null-terminate the buddy name */
++    (*name)[copy_length] = '\0';
+ 
+-	return buddyname_length;
++    /* Return the effective length */
++    return copy_length;
+ }
+ 
+ 

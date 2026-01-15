@@ -1,0 +1,29 @@
+
+================================================================================
+Response 1
+================================================================================
+I can see the issue. The `getDocument()` method at line 133-143 creates a `DocumentBuilderFactory` without properly securing it against XML External Entity (XXE) attacks. This allows SSRF because the XML parser can resolve external entities that point to arbitrary URLs.
+
+The fix is to disable external entity processing in the `DocumentBuilderFactory`. Let me create and apply the patch:
+
+================================================================================
+Response 2
+================================================================================
+The patch has been applied to fix the SSRF vulnerability. Here's a summary of the changes:
+
+## Fix Applied
+
+**File:** `pdfbox/src/main/java/org/apache/pdfbox/pdmodel/interactive/form/PDXFAResource.java`
+
+**Problem:** The `getDocument()` method was using a `DocumentBuilderFactory` without disabling external entity processing. This allowed XML External Entity (XXE) attacks, where malicious XML content could include external entity references that cause the parser to make HTTP requests to arbitrary URLs (SSRF).
+
+**Solution:** Added the following security configurations to the `DocumentBuilderFactory`:
+
+1. `disallow-doctype-decl` = true - Disallows DOCTYPE declarations entirely
+2. `external-general-entities` = false - Disables external general entities
+3. `external-parameter-entities` = false - Disables external parameter entities  
+4. `load-external-dtd` = false - Disables loading of external DTDs
+5. `setXIncludeAware(false)` - Disables XInclude processing
+6. `setExpandEntityReferences(false)` - Disables entity reference expansion
+
+These settings prevent the XML parser from resolving any external references, which eliminates the SSRF attack vector identified by the fuzzer.

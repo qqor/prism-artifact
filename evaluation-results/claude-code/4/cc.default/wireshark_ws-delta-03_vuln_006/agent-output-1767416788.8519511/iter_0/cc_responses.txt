@@ -1,0 +1,57 @@
+
+================================================================================
+Response 1
+================================================================================
+Let me search for the wireshark source directory:
+
+================================================================================
+Response 2
+================================================================================
+I can now see the bug. The crash is in the `dissect_irc_names` function at line 563. Looking at the crash log:
+
+1. A 51-byte buffer was allocated at line 537 (`channel_name = malloc(CHANNELLEN+1)` where CHANNELLEN is 50)
+2. But at line 563, `tvb_memcpy(tvb, channel_name, start_offset, length)` copies `length` bytes without checking if it exceeds `CHANNELLEN`
+
+The issue is on line 563 where the code copies `length` bytes without limiting it:
+```c
+tvb_memcpy(tvb, channel_name, start_offset, length);
+```
+
+This is in the `while` loop when a comma IS found (end_offset != -1). The code at line 555 correctly limits the length when no comma is found, but on line 563 (when a comma is found), it uses `length` directly instead of limiting it to `CHANNELLEN`.
+
+Looking at other similar functions like `dissect_irc_list` (line 613), the correct pattern is:
+```c
+tvb_memcpy(tvb, channel_name, start_offset, (end_offset-start_offset < CHANNELLEN) ? end_offset-start_offset : CHANNELLEN);
+```
+
+The fix should limit the copy size to the minimum of the actual channel name length (`end_offset - start_offset`) and `CHANNELLEN`.
+
+Let me apply the fix:
+
+================================================================================
+Response 3
+================================================================================
+Let me re-read the exact lines to get the precise content:
+
+================================================================================
+Response 4
+================================================================================
+Now I can see the exact content. The bug is at line 563 - `length` here represents the remaining length from `start_offset`, but when a comma is found at `end_offset`, the actual channel name length is `end_offset - start_offset`, not `length`. Similar to how `dissect_irc_list` does it at line 613.
+
+================================================================================
+Response 5
+================================================================================
+Now I can see the issue - line 562 has no leading spaces and lines 563-564 have 9 leading spaces. Let me try the edit again with the exact format:
+
+================================================================================
+Response 6
+================================================================================
+The patch has been applied. The fix limits the `tvb_memcpy` call to copy at most `CHANNELLEN` bytes (which is 50), matching the allocated buffer size of `CHANNELLEN+1` (51 bytes). This prevents the heap-buffer-overflow that occurred when the input contained a channel name longer than 50 characters followed by a comma.
+
+**Summary of the fix:**
+
+- **Bug**: In `dissect_irc_names()` at line 563, when parsing comma-separated channel names, the code used `length` (remaining buffer length) instead of `end_offset - start_offset` (actual channel name length), and didn't limit the copy to `CHANNELLEN`.
+
+- **Fix**: Changed `tvb_memcpy(tvb, channel_name, start_offset, length)` to `tvb_memcpy(tvb, channel_name, start_offset, (end_offset-start_offset < CHANNELLEN) ? end_offset-start_offset : CHANNELLEN)` - this limits the copy to the smaller of the actual channel name length or the buffer size.
+
+- **Root cause**: The fuzzer input was `NAMES #aaa...aaa,#hello\n` where the first channel name was 124 characters long. The code allocated a 51-byte buffer but tried to copy 132 bytes (`length`) into it, causing the heap-buffer-overflow.

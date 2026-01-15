@@ -1,0 +1,44 @@
+diff --git a/fontbox/src/main/java/org/apache/fontbox/type1/Type1Lexer.java b/fontbox/src/main/java/org/apache/fontbox/type1/Type1Lexer.java
+index 56aaf64ad..c75eccf73 100644
+--- a/fontbox/src/main/java/org/apache/fontbox/type1/Type1Lexer.java
++++ b/fontbox/src/main/java/org/apache/fontbox/type1/Type1Lexer.java
+@@ -116,9 +116,16 @@ class Type1Lexer
+      */
+     private Token readToken(Token prevToken) throws IOException
+     {
++        int maxIterations = 100000; // Prevent infinite loops
++        int iterations = 0;
++        int lastPosition = -1;
+         boolean skip;
+         do
+         {
++            if (++iterations > maxIterations)
++            {
++                throw new IOException("Maximum iterations exceeded while reading token - possible infinite loop at position " + buffer.position());
++            }
+             skip = false;
+             while (buffer.hasRemaining())
+             {
+@@ -196,10 +203,22 @@ class Type1Lexer
+                 }
+                 else if (Character.isWhitespace(c))
+                 {
++                    // Check if we're making progress
++                    if (buffer.position() == lastPosition)
++                    {
++                        throw new IOException("No progress made while parsing at position " + buffer.position());
++                    }
++                    lastPosition = buffer.position();
+                     skip = true;
+                 }
+                 else if (c == 0)
+                 {
++                    // Check if we're making progress
++                    if (buffer.position() == lastPosition)
++                    {
++                        throw new IOException("No progress made while parsing at position " + buffer.position());
++                    }
++                    lastPosition = buffer.position();
+                     LOG.warn("NULL byte in font, skipped");
+                     skip = true;
+                 }

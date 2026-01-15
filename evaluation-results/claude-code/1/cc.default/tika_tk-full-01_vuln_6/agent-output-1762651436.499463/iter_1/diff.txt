@@ -1,0 +1,23 @@
+diff --git a/tika-app/src/main/java/org/apache/tika/cli/TikaUntar.java b/tika-app/src/main/java/org/apache/tika/cli/TikaUntar.java
+index 0922124e6..c7d36b722 100644
+--- a/tika-app/src/main/java/org/apache/tika/cli/TikaUntar.java
++++ b/tika-app/src/main/java/org/apache/tika/cli/TikaUntar.java
+@@ -40,7 +40,17 @@ public class TikaUntar {
+ 
+             while (tae != null) {
+                 if (tae.isFile()) {
+-                    Path target = extractDir.resolve(tae.getName()).normalize();
++                    String entryName = tae.getName();
++                    // Validate entry name before any path operations to prevent path traversal
++                    if (entryName.contains("..") || entryName.startsWith("/") ||
++                        entryName.contains("\\..") || entryName.startsWith("\\")) {
++                        throw new IOException("Invalid tar entry name: " + entryName);
++                    }
++                    Path target = extractDir.resolve(entryName).normalize();
++                    // Double-check the resolved path stays within extract directory
++                    if (!target.normalize().startsWith(extractDir.normalize())) {
++                        throw new IOException("Path traversal attempt detected: " + entryName);
++                    }
+                     if (!Files.isDirectory(target.getParent())) {
+                         Files.createDirectories(target.getParent());
+                     }

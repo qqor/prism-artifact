@@ -1,0 +1,14 @@
+{
+  "project_name": "pdfbox",
+  "vulnerability_identifier": "pdfbox_pdfbox-full-01_vuln_7",
+  "source_directory": "/home/qqor/crete/.cache/official-afc-pdfbox",
+  "llm_usage": {
+    "total_cost": 2.2613843999999994,
+    "prompt_tokens": 1558028,
+    "completion_tokens": 124444
+  },
+  "variant": "sound",
+  "diff": "--- a/pdfbox/src/main/java/org/apache/pdfbox/pdmodel/PDPageTree.java\n+++ b/pdfbox/src/main/java/org/apache/pdfbox/pdmodel/PDPageTree.java\n@@ -180,6 +180,7 @@\n     private final class PageIterator implements Iterator<PDPage>\n     {\n         private final Queue<COSDictionary> queue = new ArrayDeque<>();\n+        private final java.util.Set<COSDictionary> visited = new java.util.HashSet<>();\n \n         private PageIterator(COSDictionary node)\n         {\n@@ -205,6 +206,12 @@\n          */\n         private List<COSDictionary> enqueueKids(COSDictionary node)\n         {\n+            // guard against cyclic page tree nodes\n+            if (node != null && visited.contains(node))\n+            {\n+                return Collections.emptyList();\n+            }\n+            visited.add(node);\n             if (isPageTreeNode(node))\n             {\n                 return getKids(node);\n\n--- a/pdfbox/src/main/java/org/apache/pdfbox/text/PDFTextStripper.java\n+++ b/pdfbox/src/main/java/org/apache/pdfbox/text/PDFTextStripper.java\n@@ -296,8 +296,17 @@\n             endBookmarkPageNumber = 0;\n         }\n \n+        // protect against excessive or cyclic page trees under fuzzing\n+        final int MAX_PAGES_TO_PROCESS = Integer.getInteger(\n+            \"org.apache.pdfbox.text.maxPagesToProcess\", 1000);\n+        int pagesProcessed = 0;\n         for (PDPage page : pages)\n         {\n+            if (++pagesProcessed > MAX_PAGES_TO_PROCESS)\n+            {\n+                throw new IOException(\n+                    \"Page processing limit of \" + MAX_PAGES_TO_PROCESS + \" exceeded\");\n+            }\n             if (page.hasContents())\n             {\n                 processPage(page);\n",
+  "stdout": "",
+  "stderr": ""
+}

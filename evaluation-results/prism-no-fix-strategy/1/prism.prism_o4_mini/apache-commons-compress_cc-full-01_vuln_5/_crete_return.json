@@ -1,0 +1,14 @@
+{
+  "project_name": "apache-commons-compress",
+  "vulnerability_identifier": "apache-commons-compress_cc-full-01_vuln_5",
+  "source_directory": "/home/qqor/aixcc/crete/.cache/official-afc-commons-compress",
+  "llm_usage": {
+    "total_cost": 0.8505552000000003,
+    "prompt_tokens": 634648,
+    "completion_tokens": 34646
+  },
+  "variant": "sound",
+  "diff": "--- a/src/main/java/org/apache/commons/compress/archivers/examples/Expander.java\n+++ b/src/main/java/org/apache/commons/compress/archivers/examples/Expander.java\n@@ -70,20 +70,27 @@\n         final Path targetDirPath = nullTarget ? null : targetDirectory.normalize();\n         T nextEntry = supplier.get();\n         while (nextEntry != null) {\n-            final Path targetPath = nullTarget ? null : nextEntry.resolveIn(targetDirPath);\n+            // Safely resolve the entry path to prevent directory traversal (zip slip)\n+            final Path targetEntryPath = nullTarget\n+                                        ? null\n+                                        : targetDirPath.resolve(nextEntry.getName()).normalize();\n+            if (!nullTarget && !targetEntryPath.startsWith(targetDirPath)) {\n+                throw new IOException(\"Zip slip detected: entry \" + nextEntry.getName()\n+                                      + \" resolves outside target: \" + targetEntryPath);\n+            }\n             if (nextEntry.isDirectory()) {\n-                if (!nullTarget && !Files.isDirectory(targetPath) && Files.createDirectories(targetPath) == null) {\n-                    throw new IOException(\"Failed to create directory \" + targetPath);\n+                if (!nullTarget && !Files.isDirectory(targetEntryPath)) {\n+                    Files.createDirectories(targetEntryPath);\n                 }\n             } else {\n-                final Path parent = nullTarget ? null : targetPath.getParent();\n-                if (!nullTarget && !Files.isDirectory(parent) && Files.createDirectories(parent) == null) {\n-                    throw new IOException(\"Failed to create directory \" + parent);\n+                final Path parent = nullTarget ? null : targetEntryPath.getParent();\n+                if (!nullTarget && !Files.isDirectory(parent)) {\n+                    Files.createDirectories(parent);\n                 }\n                 if (nullTarget) {\n                     writer.accept(nextEntry, NullOutputStream.INSTANCE);\n                 } else {\n-                    try (OutputStream outputStream = Files.newOutputStream(targetPath)) {\n+                    try (OutputStream outputStream = Files.newOutputStream(targetEntryPath)) {\n                         writer.accept(nextEntry, outputStream);\n                     }\n                 }\n",
+  "stdout": "",
+  "stderr": ""
+}

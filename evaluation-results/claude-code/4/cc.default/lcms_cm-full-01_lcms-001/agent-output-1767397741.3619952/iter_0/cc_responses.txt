@@ -1,0 +1,46 @@
+
+================================================================================
+Response 1
+================================================================================
+Let me search for the source directory structure:
+
+================================================================================
+Response 2
+================================================================================
+Now I can see the issue. At line 795 in `cmsps2.c`, `cmsStageType(mpe)` is called, but `mpe` could be NULL after line 792 (`mpe = mpe->Next`). The `cmsStageType` function at line 1230 in `cmslut.c` dereferences `mpe` directly without checking if it's NULL, causing the SEGV.
+
+Let me look at more context around the `EmitCIEBasedDEF` function to understand the full flow:
+
+================================================================================
+Response 3
+================================================================================
+Now I understand the issue clearly:
+
+1. At line 761, `mpe` is set to `Pipeline->Elements`
+2. At line 786, if the stage type is `cmsSigCurveSetElemType`, the code enters the if block
+3. At line 792, `mpe = mpe->Next` is executed, which could result in `mpe` being NULL if there's no next element
+4. At line 795, `cmsStageType(mpe)` is called without checking if `mpe` is NULL, causing the NULL pointer dereference
+
+The fix should add a NULL check before calling `cmsStageType(mpe)` at line 795. Let me apply the fix:
+
+================================================================================
+Response 4
+================================================================================
+The patch has been applied. Here's a summary of the fix:
+
+## Bug Analysis
+
+**Root Cause**: In the `EmitCIEBasedDEF` function in `/src/cmsps2.c`, after processing a `cmsSigCurveSetElemType` stage at line 786-793, the code advances to the next stage with `mpe = mpe->Next` (line 792). If there is no next element, `mpe` becomes NULL. Then at line 795, `cmsStageType(mpe)` is called without checking if `mpe` is NULL, causing a null pointer dereference when `cmsStageType` tries to access `mpe->Type`.
+
+**The Fix**: Added a NULL check (`mpe != NULL &&`) before calling `cmsStageType(mpe)` at line 795. This ensures that `cmsStageType` is only called when `mpe` is a valid pointer.
+
+**Change**:
+```c
+// Before:
+if (cmsStageType(mpe) == cmsSigCLutElemType) {
+
+// After:
+if (mpe != NULL && cmsStageType(mpe) == cmsSigCLutElemType) {
+```
+
+This fix prevents the AddressSanitizer SEGV error by safely handling the case where the pipeline has a curve set element but no subsequent CLUT element.

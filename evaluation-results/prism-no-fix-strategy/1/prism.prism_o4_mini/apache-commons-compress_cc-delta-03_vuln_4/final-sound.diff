@@ -1,0 +1,65 @@
+--- a/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java
++++ b/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java
+@@ -267,20 +267,52 @@
+     }
+ 
+     private static Instant parseInstantFromDecimalSeconds(final String value) throws IOException {
+-        // Validate field values to prevent denial of service attacks with BigDecimal values (see JDK-6560193)
++        // Validate field values to prevent denial of service attacks
+         if (!PAX_EXTENDED_HEADER_FILE_TIMES_PATTERN.matcher(value).matches()) {
+-            throw new IOException("Corrupted PAX header. Time field value is invalid '" + value + "'");
+-        }
+-
+-        final BigDecimal epochSeconds = new BigDecimal(value);
+-        final long seconds = epochSeconds.longValue();
+-        final long nanos = epochSeconds.remainder(BigDecimal.ONE).movePointRight(9).longValue();
++            throw new IOException("Corrupted PAX header. Time field value is invalid '"
++                                  + value + "'");
++        }
++        // Manual parse without BigDecimal to avoid expensive arbitrary-precision operations
++        String secondsStr;
++        String fracStr = "";
++        int dotIndex = value.indexOf('.');
++        if (dotIndex >= 0) {
++            secondsStr = value.substring(0, dotIndex);
++            fracStr = value.substring(dotIndex + 1);
++        } else {
++            secondsStr = value;
++        }
++        if (secondsStr.length() > 19) {
++            throw new IOException("Corrupted PAX header. Time field value is too long '"
++                                  + value + "'");
++        }
++        long seconds;
++        try {
++            seconds = Long.parseLong(secondsStr);
++        } catch (NumberFormatException e) {
++            throw new IOException("Corrupted PAX header. Time field value is invalid '"
++                                  + value + "'", e);
++        }
++        int nanos = 0;
++        if (!fracStr.isEmpty()) {
++            if (fracStr.length() > 9) {
++                fracStr = fracStr.substring(0, 9);
++            }
++            while (fracStr.length() < 9) {
++                fracStr += '0';
++            }
++            try {
++                nanos = Integer.parseInt(fracStr);
++            } catch (NumberFormatException e) {
++                throw new IOException("Corrupted PAX header. Time field value is invalid '"
++                                      + value + "'", e);
++            }
++        }
+         try {
+             return Instant.ofEpochSecond(seconds, nanos);
+         } catch (DateTimeException | ArithmeticException e) {
+-            // DateTimeException: Thrown if the instant exceeds the maximum or minimum instant.
+-            // ArithmeticException: Thrown if numeric overflow occurs.
+-            throw new IOException("Corrupted PAX header. Time field value is invalid '" + value + "'", e);
++            throw new IOException("Corrupted PAX header. Time field value is invalid '"
++                                  + value + "'", e);
+         }
+     }
+ 

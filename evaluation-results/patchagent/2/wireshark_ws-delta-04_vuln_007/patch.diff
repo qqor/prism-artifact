@@ -1,0 +1,66 @@
+diff --git a/epan/dissectors/packet-json.c b/epan/dissectors/packet-json.c
+index fbf7776..4f08ccf 100644
+--- a/epan/dissectors/packet-json.c
++++ b/epan/dissectors/packet-json.c
+@@ -350,32 +350,35 @@ json_string_unescape(wmem_allocator_t *scope, const char *string, size_t *length
+ 							}
+ 						}
+ 						
+-						else if (current_character == 'U') {
+-							uint16_t lead_surrogate = code_point;
+-							uint16_t trail_surrogate = 0;
+-	
+-							read_index++;
+-	
+-							for (int i = 0; i < 8; i++)
+-							{
+-								current_character = string[read_index];
+-								read_index++;
+-	
+-								int nibble = ws_xton(current_character);
+-	
+-								trail_surrogate <<= 4;
+-								trail_surrogate |= nibble;
+-							}
+-	
+-							if ((IS_TRAIL_SURROGATE(trail_surrogate)))
+-							{	
+-								code_point = SURROGATE_VALUE(lead_surrogate, trail_surrogate);
+-							}
+-							else
+-							{
+-								is_valid_unicode_character = false;
+-							}
+-						}
++                        else if (current_character == 'U') {
++                            /* Handle 8-digit Unicode escape for surrogate pair */
++                            uint16_t lead_surrogate = code_point;
++                            uint16_t trail_surrogate = 0;
++
++                            read_index++;
++                            /* Read 8 hex digits, ensure no overflow and valid nibble */
++                            for (int i = 0; i < 8; i++) {
++                                if (!(read_index < string_length)) {
++                                    is_valid_unicode_character = false;
++                                    break;
++                                }
++                                current_character = string[read_index++];
++                                int nibble = ws_xton(current_character);
++                                if (nibble < 0) {
++                                    is_valid_unicode_character = false;
++                                    break;
++                                }
++                                trail_surrogate = (trail_surrogate << 4) | nibble;
++                            }
++                            /* Only assign code_point if fully valid and valid trail surrogate */
++                            if (is_valid_unicode_character) {
++                                if (IS_TRAIL_SURROGATE(trail_surrogate)) {
++                                    code_point = SURROGATE_VALUE(lead_surrogate, trail_surrogate);
++                                } else {
++                                    is_valid_unicode_character = false;
++                                }
++                            }
++                        }
+ 						else
+ 						{
+ 							read_index++;

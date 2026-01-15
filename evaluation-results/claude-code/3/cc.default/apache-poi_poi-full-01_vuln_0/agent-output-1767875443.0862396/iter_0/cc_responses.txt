@@ -1,0 +1,96 @@
+
+================================================================================
+Response 1
+================================================================================
+Now let me look at the HMEF-related attributes and understand the timeout issue better. The timeout appears to be related to parsing/decompressing. Let me look at the TNEFAttribute class and MAPIRtfAttribute since they're involved in the fuzzer:
+
+================================================================================
+Response 2
+================================================================================
+Now I understand the issue. Looking at the code, I can see that the timeout bug is likely caused by the `LZWDecompresser.decompress()` method in the HMEF/RTF decompression. The issue is that in the decompression loop, there's no limit on the number of iterations - a malicious or malformed input could cause an infinite or very long-running loop.
+
+Looking at the `decompress` method in `LZWDecompresser.java`, I can see:
+1. The `while ((flag = src.read()) != -1)` loop could run indefinitely with crafted input
+2. There's no limit on the output size or iteration count
+
+Let me check if there's a source directory specific constraint and look for any existing limits in place:
+
+================================================================================
+Response 3
+================================================================================
+Now let me look at similar patterns in other POI code to understand how they handle decompression limits:
+
+================================================================================
+Response 4
+================================================================================
+Now I have a clear understanding of the issue. The `LZWDecompresser.decompress()` method can run indefinitely because:
+
+1. The while loop `while ((flag = src.read()) != -1)` has no bounds on how many iterations it can perform
+2. The output size is not limited against any expected size
+3. Malicious input can cause the decompression to run for a very long time
+
+Looking at the `CompressedRTF` class, I can see that it reads a `decompressedSize` header value but doesn't use it to limit the decompression. The fix should be to add a limit on the output bytes written, based on the expected decompressed size.
+
+Let me create a patch for the `CompressedRTF.java` file in the source directory:
+
+================================================================================
+Response 5
+================================================================================
+Now I need to understand the problem more clearly. The issue is that the LZW decompression in `CompressedRTF` doesn't limit output based on the `decompressedSize`. The fix should add a limit to the decompression loop.
+
+Looking at the code flow:
+1. `CompressedRTF.decompress()` reads `decompressedSize` from the header
+2. It calls `super.decompress(src, res)` (LZWDecompresser.decompress)
+3. The `LZWDecompresser.decompress()` has no limit on output
+
+The best fix is to override the decompression to respect the decompressedSize limit. Let me create a proper fix:
+
+================================================================================
+Response 6
+================================================================================
+Now I need to modify the `decompress` method to add validation for the decompressed size and use a wrapper output stream to limit the output:
+
+================================================================================
+Response 7
+================================================================================
+Now let me verify the file looks correct and check the complete file:
+
+================================================================================
+Response 8
+================================================================================
+The file looks good. Now let me create the patch file. First, let me generate the diff:
+
+================================================================================
+Response 9
+================================================================================
+The patch has been applied. Let me write the patch to a file for documentation purposes:
+
+================================================================================
+Response 10
+================================================================================
+The patch has been created and applied. Let me provide a summary of the fix:
+
+## Summary
+
+I've created and applied a patch to fix the **timeout after 26 seconds bug** in the `POIHMEFFuzzer` related to HMEF (Transport Neutral Encapsulation Format) message parsing.
+
+### Root Cause
+The bug was in `/poi-scratchpad/src/main/java/org/apache/poi/hmef/CompressedRTF.java`. The LZW decompression routine had no bounds checking, allowing malicious or malformed input to cause:
+1. Infinite or very long-running decompression loops
+2. Unbounded output size leading to memory exhaustion
+3. Timeout due to excessive processing time
+
+### Fix Applied
+The patch adds three layers of protection:
+
+1. **Size Validation**: Validates the declared `decompressedSize` from the RTF header against a maximum limit of 100MB (`MAX_DECOMPRESSED_SIZE = 100_000_000`)
+
+2. **Limited Output Stream**: A new inner class `LimitedOutputStream` wraps the output stream and throws a `RecordFormatException` if the decompression produces more bytes than expected (with a small allowance for LZW padding)
+
+3. **Bounded Uncompressed Copy**: For uncompressed RTF data, the copy is now limited to the declared size using `IOUtils.copy(src, res, decompressedSize)` instead of unbounded copying
+
+### Files Modified
+- `poi-scratchpad/src/main/java/org/apache/poi/hmef/CompressedRTF.java`
+
+### Patch Location
+The patch file has been saved to: `/home/qqor/crete/.cache/official-afc-poi/fix-hmef-timeout.patch`

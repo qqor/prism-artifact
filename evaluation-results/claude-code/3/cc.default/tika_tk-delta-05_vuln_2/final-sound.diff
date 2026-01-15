@@ -1,0 +1,37 @@
+diff --git a/tika-app/src/main/java/org/apache/tika/cli/TikaCLI.java b/tika-app/src/main/java/org/apache/tika/cli/TikaCLI.java
+index 703e21c48..2151b6a45 100644
+--- a/tika-app/src/main/java/org/apache/tika/cli/TikaCLI.java
++++ b/tika-app/src/main/java/org/apache/tika/cli/TikaCLI.java
+@@ -1158,6 +1158,32 @@ public class TikaCLI {
+                 LOG.warn("couldn't url decode name {}", normalizedName);
+             }
+             File outputFile = new File(extractDir, normalizedName);
++
++            // Validate that the output file is within the extraction directory to prevent path traversal
++            try {
++                String canonicalExtractDir = extractDir.getCanonicalPath();
++                String canonicalOutputPath = outputFile.getCanonicalPath();
++
++                if (!canonicalOutputPath.startsWith(canonicalExtractDir + File.separator) &&
++                    !canonicalOutputPath.equals(canonicalExtractDir)) {
++                    LOG.warn("Attempted path traversal detected: {} is outside extraction directory {}. Using safe filename instead.",
++                             canonicalOutputPath, canonicalExtractDir);
++                    // Use just the filename without any path components
++                    String safeFileName = FilenameUtils.getName(normalizedName);
++                    if (safeFileName == null || safeFileName.isEmpty()) {
++                        safeFileName = "file" + count++ + ext;
++                    }
++                    outputFile = new File(extractDir, safeFileName);
++                }
++            } catch (IOException e) {
++                LOG.warn("Unable to validate output path, using safe filename: {}", e.getMessage());
++                String safeFileName = FilenameUtils.getName(normalizedName);
++                if (safeFileName == null || safeFileName.isEmpty()) {
++                    safeFileName = "file" + count++ + ext;
++                }
++                outputFile = new File(extractDir, safeFileName);
++            }
++
+             //if file already exists, prepend uuid
+             if (outputFile.exists()) {
+                 String fileName = FilenameUtils.getName(normalizedName);

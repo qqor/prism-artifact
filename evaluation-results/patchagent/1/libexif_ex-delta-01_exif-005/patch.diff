@@ -1,0 +1,45 @@
+diff --git a/libexif/apple/exif-mnote-data-apple.c b/libexif/apple/exif-mnote-data-apple.c
+index 83a9cb1..08b1851 100644
+--- a/libexif/apple/exif-mnote-data-apple.c
++++ b/libexif/apple/exif-mnote-data-apple.c
+@@ -85,7 +85,7 @@ exif_mnote_data_apple_load(ExifMnoteData *md, const unsigned char *buf, unsigned
+     tcount = (unsigned int) exif_get_short(buf + ofs + 14, d->order);
+ 
+     /* Sanity check the offset */
+-    if (buf_size < 6 + 16 + tcount * 6 + 4) {
++    if (buf_size < 6 + 16 + tcount * 12 + 4) {
+         exif_log(md->log, EXIF_LOG_CODE_CORRUPT_DATA,
+                  "ExifMnoteDataApple", "Short MakerNote");
+         /*printf("%s(%d)\n", __FUNCTION__, __LINE__);*/
+@@ -103,10 +103,18 @@ exif_mnote_data_apple_load(ExifMnoteData *md, const unsigned char *buf, unsigned
+     if (!d->entries) {
+         EXIF_LOG_NO_MEMORY(md->log, "ExifMnoteApple", sizeof(MnoteAppleEntry) * tcount);
+         /*printf("%s(%d)\n", __FUNCTION__, __LINE__);*/
++        /*printf("%s(%d)\n", __FUNCTION__, __LINE__);*/
+         return;
+     }
+ 
++    /* Iterate entries */
+     for (i = 0; i < tcount; i++) {
++        /* ensure entry header fits in buffer */
++        if (ofs + 12 > buf_size) {
++            exif_log(md->log, EXIF_LOG_CODE_CORRUPT_DATA,
++                     "ExifMnoteDataApple", "Entry header overflow (%u > %u)", ofs + 12, buf_size);
++            break;
++        }
+         d->entries[i].tag = exif_get_short(buf + ofs, d->order);
+         d->entries[i].format = exif_get_short(buf + ofs + 2, d->order);
+         d->entries[i].components = exif_get_long(buf + ofs + 4, d->order);
+@@ -117,9 +125,10 @@ exif_mnote_data_apple_load(ExifMnoteData *md, const unsigned char *buf, unsigned
+         } else {
+             dofs = ofs + 8;
+         }
+-	if (dofs > buf_size) {
++        /* bounds-check data offset and length */
++        if (dofs > buf_size || (unsigned long)dofs + dsize > buf_size) {
+ 		exif_log (md->log, EXIF_LOG_CODE_CORRUPT_DATA,
+-                                  "ExifMnoteApplet", "Tag size overflow detected (%u vs size %u)", dofs, buf_size);
++                      "ExifMnoteDataApple", "Tag data overflow (%u + %u > %u)", dofs, dsize, buf_size);
+ 		continue;
+ 	}
+         ofs += 12;

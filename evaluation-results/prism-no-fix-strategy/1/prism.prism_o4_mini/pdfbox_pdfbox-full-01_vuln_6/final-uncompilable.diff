@@ -1,0 +1,31 @@
+--- a/fontbox/src/main/java/org/apache/fontbox/pfb/PfbParser.java
++++ b/fontbox/src/main/java/org/apache/fontbox/pfb/PfbParser.java
+@@ -153,16 +153,19 @@
+                 throw new IOException("Incorrect record type: " + recordType);
+             }
+ 
+-            int size = in.read();
+-            size += in.read() << 8;
+-            size += in.read() << 16;
+-            size += in.read() << 24;
+-            LOG.debug("record type: {}, segment size: {}", recordType, size);
+-            long newTotal = total + size;
++            long rawSize = ((long)in.read() & 0xFF)
++                | (((long)in.read() & 0xFF) << 8)
++                | (((long)in.read() & 0xFF) << 16)
++                | (((long)in.read() & 0xFF) << 24);
++            if (rawSize < 0 || rawSize > MAX_LENGTH) {
++                throw new IOException("PFB segment size too large: " + rawSize);
++            }
++            long newTotal = total + rawSize;
+             if (newTotal > MAX_LENGTH) {
+-                throw new IOException("record size would be too large: " + newTotal);
+-            }
+-
++                throw new IOException("cumulative PFB data too large: " + newTotal);
++            }
++            total = newTotal;
++            int size = (int) rawSize;
+             byte[] ar = new byte[size];
+             int got = in.read(ar);
+             if (got != size)

@@ -1,0 +1,17 @@
+diff --git a/src/net_builtin.c b/src/net_builtin.c
+index 793874f4..be8bd667 100644
+--- a/src/net_builtin.c
++++ b/src/net_builtin.c
+@@ -381,7 +381,11 @@ static void rx_arp(struct mg_tcpip_if *ifp, struct pkt *pkt) {
+ 
+ static void rx_icmp(struct mg_tcpip_if *ifp, struct pkt *pkt) {
+   // MG_DEBUG(("ICMP %d", (int) len));
+-  if (pkt->icmp->type == 8 && pkt->ip != NULL && pkt->ip->dst == ifp->ip) {
++  if (pkt->ip == NULL) return;
++  // Validate icmp pointer is within raw buffer bounds before accessing
++  if ((char *) pkt->icmp < pkt->raw.buf ||
++      (char *) pkt->icmp + sizeof(*pkt->icmp) > pkt->raw.buf + pkt->raw.len) return;
++  if (pkt->icmp->type == 8 && pkt->ip->dst == ifp->ip) {
+     size_t hlen = sizeof(struct eth) + sizeof(struct ip) + sizeof(struct icmp);
+     size_t space = ifp->tx.len - hlen, plen = pkt->pay.len;
+     if (plen > space) plen = space;

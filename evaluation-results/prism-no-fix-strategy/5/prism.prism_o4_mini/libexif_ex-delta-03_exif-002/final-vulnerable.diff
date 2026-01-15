@@ -1,0 +1,29 @@
+--- a/libexif/exif-data.c
++++ b/libexif/exif-data.c
+@@ -528,11 +528,21 @@
+                                           "Could not allocate memory");
+ 				  return;
+ 			}
+-			if (exif_data_load_data_entry (data, entry, d, ds,
+-						   offset + 12 * i))
+-				exif_content_add_entry (data->ifd[ifd], entry);
+-			exif_entry_unref (entry);
+-			break;
++			{
++				/* Bound-check entry data: compute base and size */
++				unsigned int entry_base = offset + 12U * i;
++				if (entry_base > ds || ds - entry_base < 12) {
++					exif_entry_unref (entry);
++					break;
++				}
++				unsigned int entry_size = ds - entry_base;
++				if (exif_data_load_data_entry (data, entry,
++				                              d + entry_base,
++				                              entry_size, 0))
++					exif_content_add_entry (data->ifd[ifd], entry);
++				exif_entry_unref (entry);
++				break;
++			}
+ 		}
+ 	}
+ }

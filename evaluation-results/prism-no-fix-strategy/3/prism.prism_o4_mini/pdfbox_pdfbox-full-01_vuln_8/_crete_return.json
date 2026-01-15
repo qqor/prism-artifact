@@ -1,0 +1,14 @@
+{
+  "project_name": "pdfbox",
+  "vulnerability_identifier": "pdfbox_pdfbox-full-01_vuln_8",
+  "source_directory": "/home/qqor/aixcc/crete/.cache/official-afc-pdfbox",
+  "llm_usage": {
+    "total_cost": 0.5758203000000001,
+    "prompt_tokens": 474361,
+    "completion_tokens": 12278
+  },
+  "variant": "sound",
+  "diff": "--- a/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/BaseParser.java\n+++ b/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/BaseParser.java\n@@ -285,8 +285,13 @@\n         skipSpaces();\n         COSDictionary obj = new COSDictionary();\n         obj.setDirect(isDirect);\n+        int entryCount = 0;\n         while (true)\n         {\n+            if (++entryCount > 10000)\n+            {\n+                throw new IOException(\"Too many dictionary entries, possible infinite loop\");\n+            }\n             skipSpaces();\n             char c = (char) source.peek();\n             if (c == '>')\n@@ -295,8 +300,6 @@\n             }\n             else if (c == '/')\n             {\n-                // something went wrong, most likely the dictionary is corrupted\n-                // stop immediately and return everything read so far\n                 if (!parseCOSDictionaryNameValuePair(obj))\n                 {\n                     return obj;\n@@ -304,12 +307,11 @@\n             }\n             else\n             {\n-                // invalid dictionary, we were expecting a /Name, read until the end or until we can recover\n-                LOG.warn(\"Invalid dictionary, found: '{}' but expected: '/' at offset {}\", c,\n-                        source.getPosition());\n+                LOG.warn(\"Invalid dictionary, found: '{}' but expected: '/' at offset {}\",\n+                         c,\n+                         source.getPosition());\n                 if (readUntilEndOfCOSDictionary())\n                 {\n-                    // we couldn't recover\n                     return obj;\n                 }\n             }\n\n--- a/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/XrefParser.java\n+++ b/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/XrefParser.java\n@@ -102,12 +102,16 @@\n         long lastPrev = -1;\n         // ---- parse whole chain of xref tables/object streams using PREV reference\n         COSDictionary trailer = null;\n+        int xrefSectionCount = 0;\n         while (prev > 0 && prev != lastPrev)\n         {\n+            if (++xrefSectionCount > 100)\n+            {\n+                throw new IOException(\"Too many xref sections, possible infinite loop\");\n+            }\n             lastPrev = prev;\n             // seek to xref table\n             source.seek(prev);\n-            // skip white spaces\n             parser.skipSpaces();\n             // -- parse xref\n             if (source.peek() == X)\n",
+  "stdout": "",
+  "stderr": ""
+}

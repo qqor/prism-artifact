@@ -1,0 +1,35 @@
+diff --git a/libfreerdp/codec/rfx.c b/libfreerdp/codec/rfx.c
+index 3b9168a..426a2ce 100644
+--- a/libfreerdp/codec/rfx.c
++++ b/libfreerdp/codec/rfx.c
+@@ -671,12 +671,13 @@ static INLINE BOOL rfx_process_message_frame_begin(RFX_CONTEXT* WINPR_RESTRICT c
+ 	Stream_Read_UINT32(
+ 	    s, frameIdx); /* frameIdx (4 bytes), if codec is in video mode, must be ignored */
+ 	Stream_Read_UINT16(s, numRegions); /* numRegions (2 bytes) */
+-	if (Stream_GetRemainingLength(s) >= 8)
++	/* Skip metadata offset/data: consume but do not apply to avoid invalid pointers */
++	if (Stream_GetRemainingLength(s) >= 16)
+ 	{
+-	        UINT64 blockOffset = 0;
+-	        Stream_Read_UINT64(s, blockOffset);
+-	        Stream_Read_UINT64(s, metadataData);
+-	        metadataBlock += blockOffset;
++		UINT64 skipOffset = 0;
++		UINT64 skipData = 0;
++		Stream_Read_UINT64(s, skipOffset);
++		Stream_Read_UINT64(s, skipData);
+ 	}
+ 	WLog_Print(context->priv->log, WLOG_DEBUG,
+ 	           "RFX_FRAME_BEGIN: frameIdx: %" PRIu32 " numRegions: %" PRIu16 "", frameIdx,
+@@ -731,7 +732,10 @@ static INLINE BOOL rfx_process_message_metadata(RFX_CONTEXT* WINPR_RESTRICT cont
+ 		WLog_Print(context->priv->log, WLOG_ERROR, "invalid magic number 0x%08" PRIX32 "", magic);
+ 		return FALSE;
+ 	}
+-	*(UINT64*)metadataBlock = metadataData;
++	/* Skip metadata write to prevent invalid memory access */
++	/* *(UINT64*)metadataBlock = metadataData; */
++	(void)metadataBlock;
++	(void)metadataData;
+ 	return TRUE;
+ }
+ 

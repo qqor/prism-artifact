@@ -1,0 +1,50 @@
+diff --git a/tika-app/src/main/java/org/apache/tika/cli/TikaCLI.java b/tika-app/src/main/java/org/apache/tika/cli/TikaCLI.java
+index 703e21c48..987212cba 100644
+--- a/tika-app/src/main/java/org/apache/tika/cli/TikaCLI.java
++++ b/tika-app/src/main/java/org/apache/tika/cli/TikaCLI.java
+@@ -1138,6 +1138,12 @@ public class TikaCLI {
+             //defensively do this so that we don't get an exception
+             //from FilenameUtils.normalize
+             name = name.replaceAll("\u0000", " ");
++            // URL decode BEFORE normalizing to prevent encoded path traversal attacks
++            try {
++                name = URLDecoder.decode(name, UTF_8);
++            } catch (IllegalArgumentException e) {
++                LOG.warn("couldn't url decode name {}", name);
++            }
+             String normalizedName = FilenameUtils.normalize(name);
+ 
+             if (normalizedName == null) {
+@@ -1152,12 +1158,28 @@ public class TikaCLI {
+             if (prefixLength > -1) {
+                 normalizedName = normalizedName.substring(prefixLength);
+             }
++            File outputFile = new File(extractDir, normalizedName);
++            // Validate that the output file is within extractDir to prevent path traversal
+             try {
+-                normalizedName = URLDecoder.decode(normalizedName, UTF_8);
+-            } catch (IllegalArgumentException e) {
+-                LOG.warn("couldn't url decode name {}", normalizedName);
++                String extractDirCanonical = extractDir.getCanonicalPath();
++                String outputFileCanonical = outputFile.getCanonicalPath();
++                if (!outputFileCanonical.startsWith(extractDirCanonical + File.separator) &&
++                        !outputFileCanonical.equals(extractDirCanonical)) {
++                    // Path traversal detected, use a safe filename
++                    String safeFileName = FilenameUtils.getName(normalizedName);
++                    if (safeFileName == null || safeFileName.isEmpty()) {
++                        safeFileName = "file" + count++ + ext;
++                    }
++                    outputFile = new File(extractDir, safeFileName);
++                }
++            } catch (IOException e) {
++                // If we can't resolve canonical paths, fall back to safe filename
++                String safeFileName = FilenameUtils.getName(normalizedName);
++                if (safeFileName == null || safeFileName.isEmpty()) {
++                    safeFileName = "file" + count++ + ext;
++                }
++                outputFile = new File(extractDir, safeFileName);
+             }
+-            File outputFile = new File(extractDir, normalizedName);
+             //if file already exists, prepend uuid
+             if (outputFile.exists()) {
+                 String fileName = FilenameUtils.getName(normalizedName);

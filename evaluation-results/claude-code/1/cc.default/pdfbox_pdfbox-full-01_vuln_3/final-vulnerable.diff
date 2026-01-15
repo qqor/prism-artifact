@@ -1,0 +1,33 @@
+diff --git a/fontbox/src/main/java/org/apache/fontbox/type1/Type1Lexer.java b/fontbox/src/main/java/org/apache/fontbox/type1/Type1Lexer.java
+index 56aaf64ad..4f1b4aec2 100644
+--- a/fontbox/src/main/java/org/apache/fontbox/type1/Type1Lexer.java
++++ b/fontbox/src/main/java/org/apache/fontbox/type1/Type1Lexer.java
+@@ -44,6 +44,12 @@ import org.apache.logging.log4j.LogManager;
+  */
+ class Type1Lexer
+ {
++    /**
++     * Maximum number of iterations to prevent infinite loops in malformed fonts.
++     * This allows processing large fonts while preventing hangs on malicious input.
++     */
++    private static final int MAX_ITERATIONS = 1000000;
++
+     /**
+      * Log instance.
+      */
+@@ -117,9 +123,15 @@ class Type1Lexer
+     private Token readToken(Token prevToken) throws IOException
+     {
+         boolean skip;
++        int iterationCount = 0;
+         do
+         {
+             skip = false;
++            if (++iterationCount > MAX_ITERATIONS)
++            {
++                throw new IOException("Maximum iteration limit exceeded while reading token at position " +
++                                     buffer.position() + ". Possible infinite loop in malformed font data.");
++            }
+             while (buffer.hasRemaining())
+             {
+                 char c = getChar();

@@ -1,0 +1,40 @@
+--- a/poi/src/main/java/org/apache/poi/util/StringUtil.java
++++ b/poi/src/main/java/org/apache/poi/util/StringUtil.java
+@@ -30,8 +30,8 @@
+  */
+ @Internal
+ public final class StringUtil {
+-    //arbitrarily selected; may need to increase
+-    private static final int DEFAULT_MAX_RECORD_LENGTH = 10000000;
++    // maximum UnicodeLE string length to prevent OOM; adjust as needed
++    private static final int DEFAULT_MAX_RECORD_LENGTH = 500_000;
+     private static int MAX_RECORD_LENGTH = DEFAULT_MAX_RECORD_LENGTH;
+ 
+     public static final Charset UTF16LE = StandardCharsets.UTF_16LE;
+@@ -81,18 +81,23 @@
+             final int offset,
+             final int len)
+             throws ArrayIndexOutOfBoundsException, IllegalArgumentException {
++        // Prevent excessive allocation from malformed or malicious data
++        if (len > MAX_RECORD_LENGTH) {
++            throw new IllegalArgumentException("UnicodeLE string length " +
++                    len + " exceeds maximum of " + MAX_RECORD_LENGTH);
++        }
+         if (len == 0) {
+             return "";
+         }
+         if ((offset < 0) || (offset >= string.length)) {
+-            throw new ArrayIndexOutOfBoundsException("Illegal offset " + offset + " (String data is of length " + string.length + ")");
++            throw new ArrayIndexOutOfBoundsException("Illegal offset " + offset +
++                    " (String data is of length " + string.length + ")");
+         }
+         if ((len < 0) || (((string.length - offset) / 2) < len)) {
+             throw new IllegalArgumentException("Illegal length " + len);
+         }
+-
+         return new String(string, offset, len * 2, UTF16LE);
+-    }
++   }
+ 
+     /**
+      * Given a byte array of 16-bit unicode characters in little endian

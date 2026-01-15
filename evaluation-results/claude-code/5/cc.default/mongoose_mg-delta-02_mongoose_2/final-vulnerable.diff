@@ -1,0 +1,19 @@
+diff --git a/src/net_builtin.c b/src/net_builtin.c
+index 793874f4..83af5c00 100644
+--- a/src/net_builtin.c
++++ b/src/net_builtin.c
+@@ -888,10 +888,10 @@ void mg_tcpip_rx(struct mg_tcpip_if *ifp, void *buf, size_t len) {
+     }
+     if (pkt.raw.len < sizeof(*pkt.eth) + sizeof(*pkt.ip)) return;  // Truncated
+     if ((pkt.ip->ver >> 4) != 4) return;                           // Not IP
+-    if ((pkt.ip->ver & 0xF) > 5)                                   // Handle IPv4 options
+-        mkpay(&pkt, (char *)(pkt.ip) + ((pkt.ip->ver & 0xF)*4));
+-    else
+-        mkpay(&pkt, pkt.ip + 1);
++    size_t ip_hlen = (size_t) (pkt.ip->ver & 0xF) * 4;
++    if (ip_hlen < sizeof(*pkt.ip)) return;                         // Invalid IHL
++    if (pkt.raw.len < sizeof(*pkt.eth) + ip_hlen) return;          // Truncated IP header
++    mkpay(&pkt, (char *)(pkt.ip) + ip_hlen);
+ 
+     rx_ip(ifp, &pkt);
+   } else {

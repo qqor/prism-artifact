@@ -1,0 +1,14 @@
+{
+  "project_name": "xz",
+  "vulnerability_identifier": "xz_xz-full-01_xz-001",
+  "source_directory": "/home/qqor/crete/.cache/official-afc-xz",
+  "llm_usage": {
+    "total_cost": 0.0,
+    "prompt_tokens": 0,
+    "completion_tokens": 0
+  },
+  "variant": "sound",
+  "diff": "diff --git a/src/liblzma/check/treeck.c b/src/liblzma/check/treeck.c\nindex f54d244e..9794721a 100644\n--- a/src/liblzma/check/treeck.c\n+++ b/src/liblzma/check/treeck.c\n@@ -62,6 +62,25 @@ static TreeNode* create_tree(const uint8_t *data, size_t len, size_t depth, size\n   return node;\n }\n \n+// Free the tree structure after checksum computation\n+static void free_tree(TreeNode *node)\n+{\n+  if (!node || node->state != STATE_HASHED) {\n+    return;\n+  }\n+\n+  // Mark as freed to avoid double-free\n+  node->state = STATE_CLEAR;\n+\n+  // Free children first\n+  for (size_t i = 0; i < node->edge_count; ++i) {\n+    free_tree(node->edges[i]);\n+  }\n+\n+  free(node->edges);\n+  free(node);\n+}\n+\n // Walk the tree to calculate the e37vk checksum\n static uint32_t compute_tree_checksum(TreeNode *node, unsigned int depth)\n {\n@@ -85,10 +104,6 @@ static uint32_t compute_tree_checksum(TreeNode *node, unsigned int depth)\n     node->state = STATE_HASHED;\n   }\n \n-  // Free the node and edges\n-  free(node->edges);\n-  free(node);\n-\n   return sum;\n }\n \n@@ -98,6 +113,7 @@ lzma_tree(const uint8_t *buf, size_t size, uint32_t checksum)\n   unsigned long seed = hash_data(buf, size);\n   TreeNode *root = create_tree(buf, size, 0, 16, seed, NULL);\n   checksum ^= compute_tree_checksum(root, 0);\n+  free_tree(root);\n   return checksum;\n }\n \n",
+  "stdout": "",
+  "stderr": ""
+}

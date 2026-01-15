@@ -1,0 +1,35 @@
+--- a/pdfbox/src/main/java/org/apache/pdfbox/ocr/OCRStreamEngine.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/ocr/OCRStreamEngine.java
+@@ -155,15 +155,23 @@
+     }
+ 
+     private String runTesseract(Path image) throws IOException {
+-        String actualTessPath = pdDocument.getDocumentInformation()
+-                .getCustomMetadataValue(TESSERACT_PATH_KEY);
+-        if (actualTessPath == null || actualTessPath.isEmpty()) {
+-            actualTessPath = tesseractPath;
+-        }
+-
+-        Path txt = Paths.get(image.toAbsolutePath().toString());
+-        doOCR(actualTessPath, image, txt);
+-        return extractContent(txt);
++    String actualTessPath = pdDocument.getDocumentInformation()
++        .getCustomMetadataValue(TESSERACT_PATH_KEY);
++    if (actualTessPath == null || actualTessPath.isEmpty()) {
++        actualTessPath = tesseractPath;
++    }
++    // Validate the tesseract path to prevent OS command injection
++    Path tessPath = Paths.get(actualTessPath);
++    if (!tessPath.isAbsolute()) {
++        tessPath = tessPath.toAbsolutePath();
++    }
++    if (!Files.exists(tessPath) || !Files.isExecutable(tessPath)) {
++        throw new IOException("Invalid Tesseract path: " + actualTessPath);
++    }
++    String validatedTessPath = tessPath.toString();
++    Path txt = Paths.get(image.toAbsolutePath().toString());
++    doOCR(validatedTessPath, image, txt);
++    return extractContent(txt);
+     }
+ 
+     private String extractContent(Path base) throws IOException {

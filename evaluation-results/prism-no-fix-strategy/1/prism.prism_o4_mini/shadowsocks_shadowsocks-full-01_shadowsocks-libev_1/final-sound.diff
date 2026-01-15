@@ -1,0 +1,121 @@
+--- a/src/json.c
++++ b/src/json.c
+@@ -301,59 +301,65 @@
+                   case 'n':  string_add ('\n');  break;
+                   case 'r':  string_add ('\r');  break;
+                   case 't':  string_add ('\t');  break;
+-                  case 'u':
+-
+-                    if (end - state.ptr < 4 || 
+-                        (uc_b1 = hex_value (*++ state.ptr)) == 0xFF ||
+-                        (uc_b2 = hex_value (*++ state.ptr)) == 0xFF ||
+-                        (uc_b3 = hex_value (*++ state.ptr)) == 0xFF ||
+-                        (uc_b4 = hex_value (*++ state.ptr)) == 0xFF)
+-                    {
+-                        sprintf (error, "Invalid character value `%c` (at %d:%d)", b, line_and_col);
+-                        goto e_failed;
+-                    }
+-
+-                    uc_b1 = (uc_b1 << 4) | uc_b2;
+-                    uc_b2 = (uc_b3 << 4) | uc_b4;
+-                    uchar = (uc_b1 << 8) | uc_b2;
+-
+-                    if ((uchar & 0xF800) == 0xD800) {
+-                        json_uchar uchar2;
+-                        
+-                        if (end - state.ptr < 6 || (*++ state.ptr) != '\\' || (*++ state.ptr) != 'u' ||
+-                            (uc_b1 = hex_value (*++ state.ptr)) == 0xFF ||
+-                            (uc_b2 = hex_value (*++ state.ptr)) == 0xFF ||
+-                            (uc_b3 = hex_value (*++ state.ptr)) == 0xFF ||
+-                            (uc_b4 = hex_value (*++ state.ptr)) == 0xFF)
+-                        {
+-                            sprintf (error, "Invalid character value `%c` (at %d:%d)", b, line_and_col);
+-                            goto e_failed;
+-                        }
+-
+-                        uc_b1 = (uc_b1 << 4) | uc_b2;
+-                        uc_b2 = (uc_b3 << 4) | uc_b4;
+-                        uchar2 = (uc_b1 << 8) | uc_b2;
+-                        
+-                        uchar = 0x010000 | ((uchar & 0x3FF) << 10) | (uchar2 & 0x3FF);
+-                    }
+-
+-                    if (sizeof (json_char) >= sizeof (json_uchar) || (uchar <= 0x7F))
+-                    {
+-                       string_add ((json_char) uchar);
+-                       break;
+-                    }
+-
+-                    if (uchar <= 0x7FF)
+-                    {
+-                        if (state.first_pass)
+-                           string_length += 2;
+-                        else
+-                        {  string [string_length ++] = 0xC0 | (uchar >> 6);
+-                           string [string_length ++] = 0x80 | (uchar & 0x3F);
+-                        }
+-
+-                        break;
+-                    }
++                        case 'u':
++                            /* Parse a "\\uXXXX" escape sequence */
++                            if (end - state.ptr < 5)
++                            {
++                                sprintf(error, "Unterminated \\u escape (at %d:%d)", line_and_col);
++                                goto e_failed;
++                            }
++                            /* Validate prefix and read four hex digits */
++                            if (state.ptr[1] != 'u' ||
++                                (uc_b1 = hex_value(state.ptr[2])) == 0xFF ||
++                                (uc_b2 = hex_value(state.ptr[3])) == 0xFF ||
++                                (uc_b3 = hex_value(state.ptr[4])) == 0xFF ||
++                                (uc_b4 = hex_value(state.ptr[5])) == 0xFF)
++                            {
++                                sprintf(error, "Invalid \\u escape sequence (at %d:%d)", line_and_col);
++                                goto e_failed;
++                            }
++                            /* Advance past "\\uXXXX" */
++                            state.ptr += 5;
++                            /* Compose the code unit */
++                            uc_b1 = (uc_b1 << 4) | uc_b2;
++                            uc_b2 = (uc_b3 << 4) | uc_b4;
++                            uchar = (uc_b1 << 8) | uc_b2;
++
++            if ((uchar & 0xF800) == 0xD800)
++            {
++                json_uchar uchar2;
++
++                /* High surrogate, parse low surrogate of form \\uXXXX */
++                if (end - state.ptr < 7)
++                {
++                    sprintf(error, "Unpaired high surrogate or truncated low surrogate (at %d:%d)", line_and_col);
++                    goto e_failed;
++                }
++                /* Check prefix characters */
++                if (state.ptr[1] != '\\' || state.ptr[2] != 'u')
++                {
++                    sprintf(error, "Invalid low surrogate escape sequence (at %d:%d)", line_and_col);
++                    goto e_failed;
++                }
++                /* Read the four hex digits without advancing state.ptr */
++                uc_b1 = hex_value(state.ptr[3]);
++                uc_b2 = hex_value(state.ptr[4]);
++                uc_b3 = hex_value(state.ptr[5]);
++                uc_b4 = hex_value(state.ptr[6]);
++                if (uc_b1 == 0xFF || uc_b2 == 0xFF || uc_b3 == 0xFF || uc_b4 == 0xFF)
++                {
++                    sprintf(error, "Invalid hex in low surrogate (at %d:%d)", line_and_col);
++                    goto e_failed;
++                }
++                /* Consume the "\\uXXXX" sequence */
++                state.ptr += 6;
++                /* Compose the low surrogate code unit */
++                uc_b1 = (uc_b1 << 4) | uc_b2;
++                uc_b2 = (uc_b3 << 4) | uc_b4;
++                uchar2 = (uc_b1 << 8) | uc_b2;
++                /* Construct the full supplementary code point */
++                uchar = 0x010000 | ((uchar & 0x3FF) << 10) | (uchar2 & 0x3FF);
++            }
+ 
+                     if (uchar <= 0xFFFF) {
+                         if (state.first_pass)

@@ -1,0 +1,73 @@
+Create a patch to fix a AddressSanitizer: heap-buffer-overflow bug given below and apply it to the code.
+NEVER fix files outside the source directory.
+NEVER do any git operations in or outside the source directory.
+
+Below is the crash log:
+
+<crash_log>
+==ERROR: AddressSanitizer: heap-buffer-overflow on address 0x515000000785 at pc 0x55c7842d7c6f bp 0x7ffd43eda000 sp 0x7ffd43ed9ff8
+READ of size 1 at 0x515000000785 thread T0
+SCARINESS: 12 (1-byte-read-heap-buffer-overflow)
+    #0 0x55c7842d7c6e in exif_get_sshort /src/libexif/libexif/exif-utils.c:94:40
+    #1 0x55c7842d7a70 in exif_get_short /src/libexif/libexif/exif-utils.c:104:10
+    #2 0x55c7842da082 in exif_mnote_data_apple_load /src/libexif/libexif/apple/exif-mnote-data-apple.c:110:29
+    #3 0x55c7842d4618 in exif_mnote_data_load /src/libexif/libexif/exif-mnote-data.c:84:2
+    #4 0x55c7842adfab in interpret_maker_note /src/libexif/libexif/exif-data.c:835:3
+    #5 0x55c7842ab4a6 in exif_data_load_data /src/libexif/libexif/exif-data.c:1010:2
+    #6 0x55c7842a9d3d in exif_data_new_from_data /src/libexif/libexif/exif-data.c:159:2
+    #7 0x55c7842a58f6 in LLVMFuzzerTestOneInput /src/exif_from_data_fuzzer.cc:51:16
+    #8 0x55c78415a330 in fuzzer::Fuzzer::ExecuteCallback(unsigned char const*, unsigned long) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:614:13
+    #9 0x55c7841455a5 in fuzzer::RunOneTest(fuzzer::Fuzzer*, char const*, unsigned long) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerDriver.cpp:327:6
+    #10 0x55c78414b03f in fuzzer::FuzzerDriver(int*, char***, int (*)(unsigned char const*, unsigned long)) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerDriver.cpp:862:9
+    #11 0x55c7841762e2 in main /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerMain.cpp:20:10
+    #12 0x7f67550c9082 in __libc_start_main (/lib/x86_64-linux-gnu/libc.so.6+0x24082) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #13 0x55c78413d78d in _start (/out/exif_from_data_fuzzer+0x8078d)
+
+DEDUP_TOKEN: exif_get_sshort--exif_get_short--exif_mnote_data_apple_load
+0x515000000785 is located 5 bytes after 512-byte region [0x515000000580,0x515000000780)
+allocated by thread T0 here:
+    #0 0x55c7842660ff in malloc /src/llvm-project/compiler-rt/lib/asan/asan_malloc_linux.cpp:68:3
+    #1 0x55c78430f2c3 in operator new(unsigned long) cxa_noexception.cpp
+    #2 0x55c7841455a5 in fuzzer::RunOneTest(fuzzer::Fuzzer*, char const*, unsigned long) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerDriver.cpp:327:6
+    #3 0x55c78414b03f in fuzzer::FuzzerDriver(int*, char***, int (*)(unsigned char const*, unsigned long)) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerDriver.cpp:862:9
+    #4 0x55c7841762e2 in main /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerMain.cpp:20:10
+    #5 0x7f67550c9082 in __libc_start_main (/lib/x86_64-linux-gnu/libc.so.6+0x24082) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+
+DEDUP_TOKEN: __interceptor_malloc--operator new(unsigned long)--fuzzer::RunOneTest(fuzzer::Fuzzer*, char const*, unsigned long)
+SUMMARY: AddressSanitizer: heap-buffer-overflow /src/libexif/libexif/exif-utils.c:94:40 in exif_get_sshort
+Shadow bytes around the buggy address:
+  0x515000000500: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa
+  0x515000000580: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+  0x515000000600: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+  0x515000000680: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+  0x515000000700: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+=>0x515000000780:[fa]fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa
+  0x515000000800: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa
+  0x515000000880: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa
+  0x515000000900: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa
+  0x515000000980: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa
+  0x515000000a00: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa
+Shadow byte legend (one shadow byte represents 8 application bytes):
+  Addressable:           00
+  Partially addressable: 01 02 03 04 05 06 07 
+  Heap left redzone:       fa
+  Freed heap region:       fd
+  Stack left redzone:      f1
+  Stack mid redzone:       f2
+  Stack right redzone:     f3
+  Stack after return:      f5
+  Stack use after scope:   f8
+  Global redzone:          f9
+  Global init order:       f6
+  Poisoned by user:        f7
+  Container overflow:      fc
+  Array cookie:            ac
+  Intra object redzone:    bb
+  ASan internal:           fe
+  Left alloca redzone:     ca
+  Right alloca redzone:    cb
+==14==ABORTING
+subprocess command returned a non-zero exit status: 1
+INFO:__main__:Running: docker run --privileged --shm-size=2g --platform linux/amd64 --rm -i -e HELPER=True -e ARCHITECTURE=x86_64 -v /home/qqor/aixcc/crete/packages/python_oss_fuzz/.oss_fuzz/build/out/libexif:/out -v /tmp/tmpb46zjk4m:/testcase -t ghcr.io/aixcc-finals/base-runner:v1.3.0 reproduce exif_from_data_fuzzer -runs=100.
+
+</crash_log>

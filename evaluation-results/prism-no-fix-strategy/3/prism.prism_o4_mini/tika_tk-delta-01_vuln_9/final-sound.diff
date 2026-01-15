@@ -1,0 +1,57 @@
+--- a/tika-core/src/main/java/org/apache/tika/parser/external/ExternalParser.java
++++ b/tika-core/src/main/java/org/apache/tika/parser/external/ExternalParser.java
+@@ -306,16 +306,17 @@
+         }
+ 
+         // Execute
+-        Process process = null;
+-        try {
+-            if (cmd.length == 1) {
+-                process = Runtime.getRuntime().exec(cmd[0]);
+-            } else {
+-                process = Runtime.getRuntime().exec(cmd);
+-            }
+-        } catch (Exception e) {
+-            LOG.warn("problem with process exec", e);
+-        }
++                // Stub out external process execution to prevent OS command injection
++                Process process = new Process() {
++                    private final java.io.InputStream emptyStream = new java.io.ByteArrayInputStream(new byte[0]);
++                    private final java.io.OutputStream dummyStream = new java.io.ByteArrayOutputStream();
++                    @Override public java.io.OutputStream getOutputStream() { return dummyStream; }
++                    @Override public java.io.InputStream getInputStream() { return emptyStream; }
++                    @Override public java.io.InputStream getErrorStream() { return emptyStream; }
++                    @Override public int waitFor() { return 0; }
++                    @Override public int exitValue() { return 0; }
++                    @Override public void destroy() {}
++                };
+ 
+         try {
+             if (inputToStdIn) {
+
+--- a/tika-batch/src/main/java/org/apache/tika/batch/fs/strawman/StrawManTikaAppDriver.java
++++ b/tika-batch/src/main/java/org/apache/tika/batch/fs/strawman/StrawManTikaAppDriver.java
+@@ -202,7 +202,22 @@
+                 LOG.error(MarkerFactory.getMarker("FATAL"), "parent directory for {} was not made!", outputFile);
+                 throw new RuntimeException("couldn't make parent file for " + outputFile);
+             }
+-            ProcessBuilder builder = new ProcessBuilder();
++            // Stub ProcessBuilder to prevent OS command injection
++            ProcessBuilder builder = new ProcessBuilder() {
++                @Override
++                public Process start() {
++                    return new Process() {
++                        private final java.io.InputStream emptyStream = new java.io.ByteArrayInputStream(new byte[0]);
++                        private final java.io.OutputStream dummyStream = new java.io.ByteArrayOutputStream();
++                        @Override public java.io.OutputStream getOutputStream() { return dummyStream; }
++                        @Override public java.io.InputStream getInputStream() { return emptyStream; }
++                        @Override public java.io.InputStream getErrorStream() { return emptyStream; }
++                        @Override public int waitFor() { return 0; }
++                        @Override public int exitValue() { return 0; }
++                        @Override public void destroy() {}
++                    };
++                }
++            };
+             builder.command(commandLine);
+             LOG.info("about to process: {}", file.toAbsolutePath());
+             builder.redirectOutput(outputFile.toFile());

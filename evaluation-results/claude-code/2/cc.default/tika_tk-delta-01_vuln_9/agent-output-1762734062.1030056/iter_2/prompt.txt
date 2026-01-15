@@ -1,0 +1,177 @@
+I tried to fix a com.code_intelligence.jazzer.api.FuzzerSecurityIssueCritical: OS Command Injection vulnerability causing the crash log in the <crash_log> below.
+I failed to fix the vulnerability with the following patches:
+
+```diff
+diff --git a/tika-core/src/main/java/org/apache/tika/parser/external/ExternalParser.java b/tika-core/src/main/java/org/apache/tika/parser/external/ExternalParser.java
+index 429258e46..d9b4f2d72 100644
+--- a/tika-core/src/main/java/org/apache/tika/parser/external/ExternalParser.java
++++ b/tika-core/src/main/java/org/apache/tika/parser/external/ExternalParser.java
+@@ -277,6 +277,25 @@ public class ExternalParser implements Parser {
+         }
+     }
+ 
++    /**
++     * Checks if a string contains shell metacharacters that could be used for command injection
++     * @param str the string to check
++     * @return true if the string contains shell metacharacters
++     */
++    private boolean containsShellMetacharacters(String str) {
++        if (str == null) {
++            return false;
++        }
++        // Check for common shell metacharacters and command injection patterns
++        // This includes: semicolon, pipe, ampersand, backticks, dollar signs (for variables),
++        // parentheses (for subshells), redirects, newlines, etc.
++        return str.contains(";") || str.contains("|") || str.contains("&") ||
++               str.contains("`") || str.contains("$") || str.contains("(") ||
++               str.contains(")") || str.contains("<") || str.contains(">") ||
++               str.contains("\n") || str.contains("\r") || str.contains("'") ||
++               str.contains("\"") || str.contains("\\");
++    }
++
+     private void parse(TikaInputStream stream, XHTMLContentHandler xhtml, Metadata metadata,
+                        TemporaryResources tmp) throws IOException, SAXException, TikaException {
+         boolean inputToStdIn = true;
+@@ -288,31 +307,51 @@ public class ExternalParser implements Parser {
+         // Build our command
+         String[] cmd;
+         if (command.length == 1) {
+-            cmd = command[0].split(" ");
++            // SECURITY FIX: Do not split by space as it can lead to command injection
++            // Instead, use the command as-is in an array
++            cmd = new String[]{command[0]};
+         } else {
+             cmd = new String[command.length];
+             System.arraycopy(command, 0, cmd, 0, command.length);
+         }
++
++        // Validate file paths to prevent command injection
++        File inputFile = stream.getFile();
++        if (inputFile != null) {
++            String inputPath = inputFile.getPath();
++            // Validate that the path doesn't contain shell metacharacters
++            if (containsShellMetacharacters(inputPath)) {
++                throw new TikaException("Input file path contains invalid characters: " + inputPath);
++            }
++        }
++
+         for (int i = 0; i < cmd.length; i++) {
+             if (cmd[i].contains(INPUT_FILE_TOKEN)) {
+-                cmd[i] = cmd[i].replace(INPUT_FILE_TOKEN, stream.getFile().getPath());
++                String inputPath = stream.getFile().getPath();
++                // Validate the input path before substitution
++                if (containsShellMetacharacters(inputPath)) {
++                    throw new TikaException("Input file path contains shell metacharacters");
++                }
++                cmd[i] = cmd[i].replace(INPUT_FILE_TOKEN, inputPath);
+                 inputToStdIn = false;
+             }
+             if (cmd[i].contains(OUTPUT_FILE_TOKEN)) {
+                 output = tmp.createTemporaryFile();
+                 outputFromStdOut = false;
+-                cmd[i] = cmd[i].replace(OUTPUT_FILE_TOKEN, output.getPath());
++                String outputPath = output.getPath();
++                // Validate the output path before substitution
++                if (containsShellMetacharacters(outputPath)) {
++                    throw new TikaException("Output file path contains shell metacharacters");
++                }
++                cmd[i] = cmd[i].replace(OUTPUT_FILE_TOKEN, outputPath);
+             }
+         }
+ 
+         // Execute
+         Process process = null;
+         try {
+-            if (cmd.length == 1) {
+-                process = Runtime.getRuntime().exec(cmd[0]);
+-            } else {
+-                process = Runtime.getRuntime().exec(cmd);
+-            }
++            // Always use the array form to avoid shell interpretation
++            process = Runtime.getRuntime().exec(cmd);
+         } catch (Exception e) {
+             LOG.warn("problem with process exec", e);
+         }
+
+``````diff
+diff --git a/tika-core/src/main/java/org/apache/tika/parser/external/ExternalParser.java b/tika-core/src/main/java/org/apache/tika/parser/external/ExternalParser.java
+index 429258e46..24ab00f6a 100644
+--- a/tika-core/src/main/java/org/apache/tika/parser/external/ExternalParser.java
++++ b/tika-core/src/main/java/org/apache/tika/parser/external/ExternalParser.java
+@@ -158,7 +158,9 @@ public class ExternalParser implements Parser {
+ 
+         Process process = null;
+         try {
+-            process = Runtime.getRuntime().exec(checkCmd);
++            // Use ProcessBuilder instead of Runtime.exec() to prevent shell invocation
++            ProcessBuilder pb = new ProcessBuilder(checkCmd);
++            process = pb.start();
+             Thread stdErrSuckerThread = ignoreStream(process.getErrorStream(), false);
+             Thread stdOutSuckerThread = ignoreStream(process.getInputStream(), false);
+             stdErrSuckerThread.join();
+@@ -305,14 +307,13 @@ public class ExternalParser implements Parser {
+             }
+         }
+ 
+-        // Execute
++        // Execute using ProcessBuilder to avoid shell interpretation
+         Process process = null;
+         try {
+-            if (cmd.length == 1) {
+-                process = Runtime.getRuntime().exec(cmd[0]);
+-            } else {
+-                process = Runtime.getRuntime().exec(cmd);
+-            }
++            // Use ProcessBuilder instead of Runtime.exec() to prevent shell invocation
++            // ProcessBuilder executes commands directly without shell interpretation
++            ProcessBuilder pb = new ProcessBuilder(cmd);
++            process = pb.start();
+         } catch (Exception e) {
+             LOG.warn("problem with process exec", e);
+         }
+
+```
+
+Explain why the patches failed and provide a new patch to fix the vulnerability.
+Do not repeat the same mistakes in the new patch.
+Try a completely different approach to fix the vulnerability.
+NEVER fix files outside the source directory.
+NEVER do any git operations in or outside the source directory.
+
+Below is the crash log:
+
+<crash_log>
+== Java Exception: com.code_intelligence.jazzer.api.FuzzerSecurityIssueCritical: OS Command Injection
+Executing OS commands with attacker-controlled data can lead to remote code execution.
+	at com.code_intelligence.jazzer.sanitizers.OsCommandInjection.processImplStartHook(OsCommandInjection.java:63)
+	at java.base/java.lang.ProcessBuilder.start(ProcessBuilder.java:1110)
+	at java.base/java.lang.ProcessBuilder.start(ProcessBuilder.java:1073)
+	at java.base/java.lang.Runtime.exec(Runtime.java:594)
+	at java.base/java.lang.Runtime.exec(Runtime.java:453)
+	at org.apache.tika.parser.external.ExternalParser.parse(ExternalParser.java:314)
+	at org.apache.tika.parser.external.ExternalParser.parse(ExternalParser.java:274)
+	at org.apache.tika.parser.ParserDecorator.parse(ParserDecorator.java:153)
+	at org.apache.tika.parser.CompositeParser.parse(CompositeParser.java:298)
+	at org.apache.tika.parser.CompositeParser.parse(CompositeParser.java:298)
+	at org.apache.tika.parser.AutoDetectParser.parse(AutoDetectParser.java:204)
+	at org.apache.tika.parser.DelegatingParser.parse(DelegatingParser.java:71)
+	at org.apache.tika.extractor.ParsingEmbeddedDocumentExtractor.parseEmbedded(ParsingEmbeddedDocumentExtractor.java:101)
+	at org.apache.tika.parser.html.HtmlHandler.handleDataURIScheme(HtmlHandler.java:377)
+	at org.apache.tika.parser.html.HtmlHandler.startElement(HtmlHandler.java:175)
+	at org.apache.tika.sax.ContentHandlerDecorator.startElement(ContentHandlerDecorator.java:125)
+	at org.apache.tika.parser.html.XHTMLDowngradeHandler.startElement(XHTMLDowngradeHandler.java:59)
+	at org.apache.tika.parser.html.JSoupParser$TikaNodeFilter.head(JSoupParser.java:211)
+	at org.jsoup.select.NodeTraversor.filter(NodeTraversor.java:92)
+	at org.apache.tika.parser.html.JSoupParser.parse(JSoupParser.java:137)
+	at org.apache.tika.parser.CompositeParser.parse(CompositeParser.java:298)
+	at org.apache.tika.parser.AutoDetectParser.parse(AutoDetectParser.java:204)
+	at com.example.HtmlParserFuzzer.parseOne(HtmlParserFuzzer.java:69)
+	at com.example.HtmlParserFuzzer.fuzzerTestOneInput(HtmlParserFuzzer.java:40)
+DEDUP_TOKEN: 3c99eeb1380e104c
+== libFuzzer crashing input ==
+reproducer_path='.'; Java reproducer written to ./Crash_2d2c3704f3d4b60708a06dd5cbddd3cb026c8502.java
+
+subprocess command returned a non-zero exit status: 77
+INFO:__main__:Running: docker run --privileged --shm-size=2g --platform linux/amd64 --rm -i -e HELPER=True -e ARCHITECTURE=x86_64 -v /home/qqor/crete/packages/python_oss_fuzz/.oss_fuzz/build/out/tika:/out -v /tmp/tmp9u843r5r:/testcase -t ghcr.io/aixcc-finals/base-runner:v1.3.0 reproduce HtmlParserFuzzer -runs=100.
+
+</crash_log>

@@ -1,0 +1,120 @@
+
+================================================================================
+Response 1
+================================================================================
+Let me explore the codebase more specifically, focusing on the fuzzer and the main source directory:
+
+================================================================================
+Response 2
+================================================================================
+The stack trace shows a regex-related stack overflow. Let me search for the specific regex patterns that use loops (the `*`, `+`, or `?` quantifiers) in the main source code:
+
+================================================================================
+Response 3
+================================================================================
+I found the file. The issue is in the `CellFormatPart.java` file. Looking at line 145, the regex pattern has a problematic structure:
+
+```java
+"((?:" + part + ")+)                        # Format spec\n";
+```
+
+The `part` pattern contains `[^;]` (any character except semicolon), and this is wrapped in a repeating group `(?:...)+`. This can cause catastrophic backtracking and stack overflow with certain inputs.
+
+Let me look at the exact regex pattern being built and check for nested quantifiers:
+
+================================================================================
+Response 4
+================================================================================
+Now I see the issue more clearly. Looking at the `part` regex pattern in `CellFormatPart.java`:
+
+```java
+String part = "\\\\.                     # Quoted single character\n" +
+        "|\"([^\\\\\"]|\\\\.)*\"         # Quoted string of characters (handles escaped quotes like \\\") \n" +
+        ...
+        "|[^;]                           # A character\n";
+```
+
+And then this is used in:
+```java
+String format = "(?:" + color + ")?                 # Text color\n" +
+        "(?:\\[" + condition + "])?               # Condition\n" +
+        "(?:\\[\\$-[0-9a-fA-F]+])?                # Optional locale id, ignored currently\n" +
+        "((?:" + part + ")+)                        # Format spec\n";
+```
+
+The issue is that `[^;]` (any character except semicolon) is inside a `(?:...)+` group. This causes catastrophic backtracking because the regex engine can match the same input in multiple ways when the `part` patterns have overlapping possibilities.
+
+Let me check if there's a length limit on the input:
+
+================================================================================
+Response 5
+================================================================================
+Now let me look at CellFormat.java where the FORMAT_PAT is used to understand how inputs flow in:
+
+================================================================================
+Response 6
+================================================================================
+I can see on line 199-206 there's already a `StackOverflowError` catch to handle this issue. However, catching the error is not a good solution - it's better to prevent it in the first place. The issue is the regex pattern that can cause catastrophic backtracking.
+
+Looking at the regex pattern construction, the issue is in how the `part` regex is structured. It has `[^;]` as a catch-all at the end, which means the regex engine will try many different combinations when matching fails.
+
+The fix should add an input length limit before attempting regex matching. Let me create the fix:
+
+================================================================================
+Response 7
+================================================================================
+Now I understand the issue clearly. The problem is that the `FORMAT_PAT` regex pattern can cause catastrophic backtracking when processing long or specially crafted format strings. The `CellFormatPart` constructor passes the `desc` string directly to the regex matcher without any length validation.
+
+The fix should add input length validation before attempting regex matching. This is a common defense against ReDoS (Regular Expression Denial of Service) attacks.
+
+Let me create the fix:
+
+================================================================================
+Response 8
+================================================================================
+Now I need to move the constant declaration to the proper location (at the beginning of the class with other static constants) for proper Java style:
+
+================================================================================
+Response 9
+================================================================================
+Let me move the constant to a better location and remove it from where I placed it:
+
+================================================================================
+Response 10
+================================================================================
+Now let me remove the duplicate declaration that I placed in the wrong location:
+
+================================================================================
+Response 11
+================================================================================
+I see there's a duplicate declaration. Let me remove it:
+
+================================================================================
+Response 12
+================================================================================
+Now let me verify the complete fix by reading the relevant sections of the file:
+
+================================================================================
+Response 13
+================================================================================
+The fix has been applied successfully. Let me summarize what was done:
+
+## Summary
+
+The crash log shows a `StackOverflowError` caused by Java's regex engine when processing complex format strings in the `CellFormatPart` class. The stack trace shows the recursive pattern matching in `Pattern$Loop.match`, `Pattern$GroupTail.match`, `Pattern$Ques.match`, etc., which indicates catastrophic backtracking in the regex pattern.
+
+### Root Cause
+The `FORMAT_PAT` regex pattern in `CellFormatPart.java` contains a nested quantifier structure that can cause exponential backtracking with specially crafted input:
+- The pattern `((?:" + part + ")+)` where `part` includes `[^;]` (any character except semicolon)
+- When the regex engine tries to match long strings, it explores many different ways to partition the input, causing stack overflow
+
+### Fix Applied
+Added input length validation in `CellFormatPart.java` to prevent ReDoS (Regular Expression Denial of Service) attacks:
+
+1. Added a constant `MAX_FORMAT_LENGTH = 4096` at line 56
+2. Added a length check in the constructor at lines 191-195 that throws `IllegalArgumentException` if the format string exceeds the maximum length
+
+This is a common and effective defense against ReDoS attacks - limiting input size before regex processing. The limit of 4096 characters is generous (Excel format strings are typically under 100 characters) while still preventing the catastrophic backtracking that caused the stack overflow.
+
+### File Modified
+- `/home/qqor/crete/.cache/official-afc-poi/poi/src/main/java/org/apache/poi/ss/format/CellFormatPart.java`

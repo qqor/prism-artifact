@@ -1,0 +1,47 @@
+diff --git a/pdfbox/src/main/java/org/apache/pdfbox/filter/CCITTFaxDecoderStream.java b/pdfbox/src/main/java/org/apache/pdfbox/filter/CCITTFaxDecoderStream.java
+index 5f01e4ce8..d0f7750bb 100644
+--- a/pdfbox/src/main/java/org/apache/pdfbox/filter/CCITTFaxDecoderStream.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/filter/CCITTFaxDecoderStream.java
+@@ -67,6 +67,17 @@ final class CCITTFaxDecoderStream extends FilterInputStream {
+     private int decodedLength;
+     private int decodedPos;
+ 
++    // Maximum number of bytes to read to prevent infinite loops with malformed streams
++    // A4 at 600dpi is ~7000x5000 pixels = 35M pixels / 8 = 4.4MB uncompressed
++    // We set a generous limit of 50MB for compressed stream reads
++    private static final int MAX_BYTES_READ = 50_000_000;
++    private int totalBytesRead = 0;
++
++    // Track total bit reads to catch infinite loops that don't read new bytes
++    // A4 at 600dpi = ~35M pixels. With decoding overhead, 100M operations is generous.
++    private static final long MAX_BIT_READS = 100_000_000L;
++    private long totalBitReads = 0;
++
+     private int[] changesReferenceRow;
+     private int[] changesCurrentRow;
+     private int changesReferenceRowCount;
+@@ -407,6 +418,12 @@ final class CCITTFaxDecoderStream extends FilterInputStream {
+     int bufferPos = -1;
+ 
+     private boolean readBit() throws IOException {
++        // Check total bit reads to prevent infinite loops
++        totalBitReads++;
++        if (totalBitReads > MAX_BIT_READS) {
++            throw new IOException("CCITT decode exceeded maximum bit operations, possible malformed data");
++        }
++
+         if (bufferPos < 0 || bufferPos > 7) {
+             buffer = in.read();
+ 
+@@ -414,6 +431,11 @@ final class CCITTFaxDecoderStream extends FilterInputStream {
+                 throw new EOFException("Unexpected end of Huffman RLE stream");
+             }
+ 
++            totalBytesRead++;
++            if (totalBytesRead > MAX_BYTES_READ) {
++                throw new IOException("CCITT stream exceeded maximum allowed size, possible malformed data");
++            }
++
+             bufferPos = 0;
+         }
+ 

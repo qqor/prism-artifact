@@ -1,0 +1,66 @@
+
+================================================================================
+Response 1
+================================================================================
+I'll analyze the crash log and create a patch to fix the OS Command Injection vulnerability in the PDFBox OCR code.
+
+Let me start by exploring the codebase to understand the structure and locate the vulnerable file.
+
+================================================================================
+Response 2
+================================================================================
+Now I can see the vulnerability. The issue is in the `runTesseract` method (line 157-167) where the `actualTessPath` is retrieved from the PDF document's custom metadata without any validation. This allows an attacker to inject arbitrary OS commands through the document metadata.
+
+The vulnerable code path is:
+1. Line 158-162: Gets `actualTessPath` from PDF document metadata or uses default
+2. Line 165: Passes this unvalidated path to `doOCR`
+3. Line 181-183: Constructs command with the attacker-controlled path
+4. Line 190: Executes the command via `ProcessBuilder.start()`
+
+Let me create a patch that validates the tesseract path to prevent command injection:
+
+================================================================================
+Response 3
+================================================================================
+Perfect! Now let me verify the fix has been applied correctly by reading the updated section:
+
+================================================================================
+Response 4
+================================================================================
+Excellent! The patch has been successfully applied. Let me create a summary of the fix:
+
+## Summary
+
+I've successfully created and applied a patch to fix the **OS Command Injection vulnerability** (CVE: `com.code_intelligence.jazzer.api.FuzzerSecurityIssueCritical`) in the Apache PDFBox OCR code.
+
+### Vulnerability Analysis
+
+The vulnerability was in `OCRStreamEngine.java` at line 158-165, where the code:
+1. Retrieved the tesseract path from PDF document metadata without validation
+2. Directly passed this attacker-controlled value to `ProcessBuilder`
+3. Executed the command, allowing arbitrary OS command injection
+
+### The Fix
+
+I added a comprehensive input validation method `validateTesseractPath()` that:
+
+1. **Blocks shell metacharacters**: Rejects paths containing `;`, `|`, `&`, `<`, `>`, `$`, `` ` ``, `*`, `?`, `[`, `]`, quotes, newlines, and null bytes
+2. **Prevents directory traversal**: Blocks `..` patterns that could be used to escape directories
+3. **Whitelist approach**: Only allows safe characters typically found in executable paths:
+   - Alphanumeric characters (a-z, A-Z, 0-9)
+   - Path separators (`/` for Unix, `\` for Windows)
+   - Common path characters (`-`, `_`, `.`, `:`, `,`)
+
+### Protection Mechanism
+
+The validation is applied at line 165 before the path is used in command execution:
+```java
+actualTessPath = validateTesseractPath(actualTessPath);
+```
+
+This ensures that any malicious path injected through PDF metadata will be rejected with an `IOException` before it can be executed, effectively preventing the command injection attack.
+
+The fix maintains compatibility with legitimate tesseract paths like:
+- `/usr/bin/tesseract` (Unix)
+- `C:\Program Files\Tesseract\tesseract.exe` (Windows)
+- `tesseract` (default)

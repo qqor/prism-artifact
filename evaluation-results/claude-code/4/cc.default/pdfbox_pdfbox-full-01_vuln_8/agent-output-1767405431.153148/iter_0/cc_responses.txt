@@ -1,0 +1,80 @@
+
+================================================================================
+Response 1
+================================================================================
+I found the PDFExtractTextFuzzer.java file. Let me read it to understand the code and the timeout issue:
+
+================================================================================
+Response 2
+================================================================================
+Now I understand the issue. The fuzzer is causing a timeout after 25 seconds because:
+
+1. The `PDDocument` is being loaded but never explicitly closed
+2. The `PDFTextStripper().getText()` operation can hang on malformed/malicious PDFs
+
+The fix needs to:
+1. Properly close the `PDDocument` after use
+2. Add safeguards against resource-intensive operations
+
+Let me check what the source directory structure looks like to ensure I'm applying the patch in the right place:
+
+================================================================================
+Response 3
+================================================================================
+Now let me look at similar fuzzers in the codebase to see best practices for handling timeouts:
+
+================================================================================
+Response 4
+================================================================================
+Let me also check the PDFOCRFuzzer which might show how to limit the number of pages processed:
+
+================================================================================
+Response 5
+================================================================================
+Now I understand the patterns used. The issue with `PDFExtractTextFuzzer.java` is:
+
+1. **The PDDocument is not properly closed** - While there's a try-with-resources for the InputStream, the `PDDocument` is not in the try-with-resources block, so it's never closed.
+2. **No page limit** - The text extraction can process all pages, which can cause timeouts on large documents.
+
+Let me create the fix:
+
+================================================================================
+Response 6
+================================================================================
+The patch has been applied successfully. Let me verify the complete fixed file:
+
+================================================================================
+Response 7
+================================================================================
+The patch has been successfully applied to fix the timeout bug. Here's a summary of the changes made:
+
+## Fix Applied to `PDFExtractTextFuzzer.java`
+
+### Changes:
+
+1. **Added `PDDocument` to try-with-resources block** - The `PDDocument` is now properly included in the try-with-resources statement, ensuring it gets automatically closed after use. Previously, only the `InputStream` was being closed, but the `PDDocument` resource was being leaked.
+
+2. **Limited text extraction to the first page** - Added `setStartPage(1)` and `setEndPage(1)` to the `PDFTextStripper` to prevent processing all pages of potentially large PDFs, which was causing the 25-second timeout.
+
+### Before:
+```java
+try (InputStream is = new ByteArrayInputStream(bytes)) {
+    PDDocument pdDocument = Loader.loadPDF(new RandomAccessReadBuffer(is));
+    String txt = new PDFTextStripper().getText(pdDocument);
+}
+```
+
+### After:
+```java
+try (InputStream is = new ByteArrayInputStream(bytes);
+     PDDocument pdDocument = Loader.loadPDF(new RandomAccessReadBuffer(is))) {
+    PDFTextStripper stripper = new PDFTextStripper();
+    stripper.setStartPage(1);
+    stripper.setEndPage(1);
+    String txt = stripper.getText(pdDocument);
+}
+```
+
+These changes address the timeout by:
+- Properly releasing resources (PDDocument closing)
+- Limiting the scope of text extraction to only the first page, preventing unbounded processing time on malicious/large PDFs

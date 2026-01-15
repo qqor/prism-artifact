@@ -1,0 +1,34 @@
+--- a/tika-core/src/main/java/org/apache/tika/detect/ShellCodeDetector.java
++++ b/tika-core/src/main/java/org/apache/tika/detect/ShellCodeDetector.java
+@@ -94,20 +94,17 @@
+             fileName = fileName.substring(fileName.length() - MAX_LENGTH);
+         }
+         Path cwd = Paths.get(".").toAbsolutePath().normalize();
+-        Path tmpDir = Files.createTempDirectory(cwd, "tika-shell-detect-");
+-        Path tmpFile = tmpDir.resolve(fileName);
+-        Files.copy(tis.getPath(), tmpFile, StandardCopyOption.REPLACE_EXISTING);
+-        ProcessBuilder pb = new ProcessBuilder(fileName);
+-        pb.directory(tmpDir.toFile());
+-        try {
+-            FileProcessResult result = ProcessUtils.execute(pb, 20000, 100000, 100000);
+-            if (result.getExitValue() == 0) {
+-                metadata.set(SHELL_NO_ARGS, true);
+-            }
+-        } finally {
+-            FileUtils.deleteDirectory(tmpDir.toFile());
+-        }
+-        return SHELL_SCRIPT;
++        // simple shebang detection without external process
++        tis.mark(2);
++        int first = tis.read();
++        int second = tis.read();
++       tis.reset();
++       if (first == '#' && second == '!') {
++           metadata.set(SHELL_NO_ARGS, true);
++           return SHELL_SCRIPT;
++       } else {
++           return MediaType.OCTET_STREAM;
++       }
+     }
+ 
+     private MediaType isShell(boolean isShell) {

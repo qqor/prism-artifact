@@ -1,0 +1,41 @@
+--- a/libexif/exif-loader.c
++++ b/libexif/exif-loader.c
+@@ -105,7 +105,8 @@
+ 	if (!l || !i) 
+ 		return NULL;
+ 
+-	d = exif_mem_alloc (l->mem, i);
++    /* allocate extra byte to avoid off-by-one overflow */
++    d = exif_mem_alloc (l->mem, i + 1);
+ 	if (d) 
+ 		return d;
+ 
+
+--- a/libexif/apple/exif-mnote-data-apple.c
++++ b/libexif/apple/exif-mnote-data-apple.c
+@@ -123,12 +123,22 @@
+ 		continue;
+ 	}
+         ofs += 12;
+-        d->entries[i].data = exif_mem_alloc(md->mem, dsize);
++        /* guard against reading beyond the maker-note buffer */
++        if (dofs > buf_size || dofs + dsize > buf_size) {
++            exif_log (md->log, EXIF_LOG_CODE_CORRUPT_DATA,
++                      "ExifMnoteDataApple",
++                      "MakerNote entry overflow (offset %u + size %u > buf %u)",
++                      dofs, dsize, buf_size);
++            continue;
++        }
++        d->entries[i].data = exif_mem_alloc (md->mem, dsize);
+         if (!d->entries[i].data) {
+-            EXIF_LOG_NO_MEMORY(md->log, "ExifMnoteApple", dsize);
++            EXIF_LOG_NO_MEMORY (md->log,
++                               "ExifMnoteDataApple",
++                               dsize);
+             continue;
+         }
+-        memcpy(d->entries[i].data, buf + dofs, dsize);
++        memcpy (d->entries[i].data, buf + dofs, dsize);
+         d->entries[i].size = dsize;
+     }
+     d->count = tcount;

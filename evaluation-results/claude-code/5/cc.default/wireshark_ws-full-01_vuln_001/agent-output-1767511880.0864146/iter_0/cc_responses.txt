@@ -1,0 +1,62 @@
+
+================================================================================
+Response 1
+================================================================================
+Let me search for the source file in the current directory structure:
+
+================================================================================
+Response 2
+================================================================================
+Now I can clearly see the issue. Looking at the crash log and the code:
+
+1. The crash occurs at line 312 in `dissect_openvpn_msg_common()`:
+   ```c
+   tvb_memcpy(tvb, buf, offset, data_len);
+   ```
+
+2. The buffer `buf` is declared at line 185:
+   ```c
+   uint8_t buf[8] = { 0 };
+   ```
+
+3. According to the crash log:
+   - The buffer `buf` is at offset [32, 40) in the stack frame (8 bytes)
+   - A WRITE of size 11 occurred at offset 40, which overflows the 8-byte buffer
+   
+4. The problem is that `data_len` is calculated as:
+   ```c
+   data_len = msg_length_remaining - wkc_len;
+   ```
+   
+   But there's no check to ensure `data_len` doesn't exceed the size of `buf` (8 bytes) before calling `tvb_memcpy`.
+
+The fix should ensure that `data_len` doesn't exceed 8 bytes when copying into `buf`. Since the code is checking for "OpenVPN" string (which is 7 characters + null terminator = 8 bytes), we should only copy up to 8 bytes.
+
+Let me create the patch:
+
+================================================================================
+Response 3
+================================================================================
+The patch has been applied. Here's a summary of the fix:
+
+## Bug Summary
+
+**Issue**: Stack buffer overflow in `dissect_openvpn_msg_common()` at line 312.
+
+**Root Cause**: The code was copying `data_len` bytes into an 8-byte stack buffer `buf` without checking if `data_len` exceeded the buffer size. When processing a malformed packet where `data_len` was larger than 8 bytes (in the crash case, 11 bytes), the `tvb_memcpy()` would write past the end of the buffer, causing a stack buffer overflow.
+
+**Location**: `/home/qqor/crete/.cache/official-afc-wireshark/epan/dissectors/packet-openvpn.c`, line 312
+
+**Fix Applied**: Added a bounds check to ensure `data_len` is positive and does not exceed the size of `buf` (8 bytes) before calling `tvb_memcpy()`:
+
+```c
+// Before (vulnerable):
+tvb_memcpy(tvb, buf, offset, data_len);
+
+// After (fixed):
+if (data_len > 0 && (unsigned)data_len <= sizeof(buf)) {
+  tvb_memcpy(tvb, buf, offset, data_len);
+}
+```
+
+This ensures that the subsequent `strcmp()` check for "OpenVPN" string only happens when there's valid data that fits within the buffer, preventing the overflow vulnerability.

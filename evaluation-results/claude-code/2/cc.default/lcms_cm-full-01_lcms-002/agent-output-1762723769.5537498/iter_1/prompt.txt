@@ -1,0 +1,94 @@
+I tried to fix a AddressSanitizer: stack-buffer-overflow vulnerability causing the crash log in the <crash_log> below.
+I failed to fix the vulnerability with the following patches:
+
+```diff
+diff --git a/src/cmsvirt.c b/src/cmsvirt.c
+index 4439ff7..1be3ada 100644
+--- a/src/cmsvirt.c
++++ b/src/cmsvirt.c
+@@ -1100,7 +1100,10 @@ cmsHPROFILE CreateNamedColorDevicelink(cmsHTRANSFORM xform)
+ 
+     // Apply the transfor to colorants.
+     for (i=0; i < nColors; i++) {
+-        cmsDoTransform(xform, &i, nc2 ->List[i].DeviceColorant, 1);
++        cmsUInt16Number index[cmsMAXCHANNELS];
++        memset(index, 0, sizeof(index));
++        index[0] = (cmsUInt16Number)i;
++        cmsDoTransform(xform, index, nc2 ->List[i].DeviceColorant, 1);
+     }
+ 
+     if (!cmsWriteTag(hICC, cmsSigNamedColor2Tag, (void*) nc2)) goto Error;
+
+```
+
+Explain why the patches failed and provide a new patch to fix the vulnerability.
+Do not repeat the same mistakes in the new patch.
+Try a completely different approach to fix the vulnerability.
+NEVER fix files outside the source directory.
+NEVER do any git operations in or outside the source directory.
+
+Below is the crash log:
+
+<crash_log>
+==ERROR: AddressSanitizer: stack-buffer-overflow on address 0x7f76329be764 at pc 0x55fb5db7c118 bp 0x7fffbc95a6e0 sp 0x7fffbc95a6d8
+READ of size 1 at 0x7f76329be764 thread T0
+SCARINESS: 27 (1-byte-read-stack-buffer-overflow)
+    #0 0x55fb5db7c117 in UnrollChunkyBytes /src/lcms/src/cmspack.c:130:13
+    #1 0x55fb5dbaaee4 in CachedXFORM /src/lcms/src/cmsxform.c:537:21
+    #2 0x55fb5dba0804 in cmsDoTransform /src/lcms/src/cmsxform.c:206:5
+    #3 0x55fb5dbbd281 in CreateNamedColorDevicelink /src/lcms/src/cmsvirt.c:1103:9
+    #4 0x55fb5dbbbb14 in cmsTransform2DeviceLink /src/lcms/src/cmsvirt.c:1210:20
+    #5 0x55fb5db1ed5d in LLVMFuzzerTestOneInput /src/cms_virtual_profile_fuzzer.c:60:35
+    #6 0x55fb5d9d33a0 in fuzzer::Fuzzer::ExecuteCallback(unsigned char const*, unsigned long) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:614:13
+    #7 0x55fb5d9be615 in fuzzer::RunOneTest(fuzzer::Fuzzer*, char const*, unsigned long) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerDriver.cpp:327:6
+    #8 0x55fb5d9c40af in fuzzer::FuzzerDriver(int*, char***, int (*)(unsigned char const*, unsigned long)) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerDriver.cpp:862:9
+    #9 0x55fb5d9ef352 in main /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerMain.cpp:20:10
+    #10 0x7f7632bbf082 in __libc_start_main (/lib/x86_64-linux-gnu/libc.so.6+0x24082) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #11 0x55fb5d9b67fd in _start (/out/cms_virtual_profile_fuzzer+0x6e7fd)
+
+DEDUP_TOKEN: UnrollChunkyBytes--CachedXFORM--cmsDoTransform
+Address 0x7f76329be764 is located in stack of thread T0 at offset 36 in frame
+    #0 0x55fb5dbbcd6f in CreateNamedColorDevicelink /src/lcms/src/cmsvirt.c:1068
+
+DEDUP_TOKEN: CreateNamedColorDevicelink
+  This frame has 1 object(s):
+    [32, 36) 'i' (line 1071) <== Memory access at offset 36 overflows this variable
+HINT: this may be a false positive if your program uses some custom stack unwind mechanism, swapcontext or vfork
+      (longjmp and C++ exceptions *are* supported)
+SUMMARY: AddressSanitizer: stack-buffer-overflow /src/lcms/src/cmspack.c:130:13 in UnrollChunkyBytes
+Shadow bytes around the buggy address:
+  0x7f76329be480: f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5
+  0x7f76329be500: f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5
+  0x7f76329be580: f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5
+  0x7f76329be600: f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5
+  0x7f76329be680: f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5
+=>0x7f76329be700: f5 f5 f5 f5 f5 f5 f5 f5 f1 f1 f1 f1[04]f3 f3 f3
+  0x7f76329be780: f1 f1 f1 f1 00 00 f3 f3 f5 f5 f5 f5 f5 f5 f5 f5
+  0x7f76329be800: f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5
+  0x7f76329be880: f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5
+  0x7f76329be900: f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5
+  0x7f76329be980: f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5
+Shadow byte legend (one shadow byte represents 8 application bytes):
+  Addressable:           00
+  Partially addressable: 01 02 03 04 05 06 07 
+  Heap left redzone:       fa
+  Freed heap region:       fd
+  Stack left redzone:      f1
+  Stack mid redzone:       f2
+  Stack right redzone:     f3
+  Stack after return:      f5
+  Stack use after scope:   f8
+  Global redzone:          f9
+  Global init order:       f6
+  Poisoned by user:        f7
+  Container overflow:      fc
+  Array cookie:            ac
+  Intra object redzone:    bb
+  ASan internal:           fe
+  Left alloca redzone:     ca
+  Right alloca redzone:    cb
+==18==ABORTING
+subprocess command returned a non-zero exit status: 1
+INFO:__main__:Running: docker run --privileged --shm-size=2g --platform linux/amd64 --rm -i -e HELPER=True -e ARCHITECTURE=x86_64 -v /home/qqor/crete/packages/python_oss_fuzz/.oss_fuzz/build/out/lcms:/out -v /tmp/tmpqu5ismnk:/testcase -t ghcr.io/aixcc-finals/base-runner:v1.3.0 reproduce cms_virtual_profile_fuzzer -runs=100.
+
+</crash_log>

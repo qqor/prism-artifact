@@ -1,0 +1,101 @@
+I tried to fix a com.code_intelligence.jazzer.api.FuzzerSecurityIssueCritical: File path traversal vulnerability causing the crash log in the <crash_log> below.
+I failed to fix the vulnerability with the following patches:
+
+```diff
+diff --git a/tika-pipes/tika-emitters/tika-emitter-fs/src/main/java/org/apache/tika/pipes/emitter/fs/FileSystemEmitter.java b/tika-pipes/tika-emitters/tika-emitter-fs/src/main/java/org/apache/tika/pipes/emitter/fs/FileSystemEmitter.java
+index 9142c9b7b..0e6a09351 100644
+--- a/tika-pipes/tika-emitters/tika-emitter-fs/src/main/java/org/apache/tika/pipes/emitter/fs/FileSystemEmitter.java
++++ b/tika-pipes/tika-emitters/tika-emitter-fs/src/main/java/org/apache/tika/pipes/emitter/fs/FileSystemEmitter.java
+@@ -73,6 +73,28 @@ public class FileSystemEmitter extends AbstractEmitter implements StreamEmitter
+ 
+     private boolean prettyPrint = false;
+ 
++    /**
++     * Validates that the resolved path is within the base path to prevent path traversal attacks.
++     *
++     * @param resolvedPath the path after resolution
++     * @param basePath the base directory path
++     * @throws TikaEmitterException if path traversal is detected
++     */
++    private void validatePath(Path resolvedPath, Path basePath) throws TikaEmitterException {
++        try {
++            Path normalizedResolved = resolvedPath.normalize().toAbsolutePath();
++            Path normalizedBase = basePath.normalize().toAbsolutePath();
++
++            if (!normalizedResolved.startsWith(normalizedBase)) {
++                throw new TikaEmitterException(
++                    "Path traversal detected: resolved path is outside base directory. " +
++                    "Base: " + normalizedBase + ", Resolved: " + normalizedResolved);
++            }
++        } catch (IOException e) {
++            throw new TikaEmitterException("Error validating path", e);
++        }
++    }
++
+     @Override
+     public void emit(String emitKey, List<Metadata> metadataList, ParseContext parseContext) throws IOException, TikaEmitterException {
+         Path output;
+@@ -89,6 +111,9 @@ public class FileSystemEmitter extends AbstractEmitter implements StreamEmitter
+             output = Paths.get(emitKey);
+         }
+ 
++        // Validate path to prevent path traversal
++        validatePath(output, basePath != null ? basePath : Paths.get(".").toAbsolutePath());
++
+         if (!Files.isDirectory(output.getParent())) {
+             Files.createDirectories(output.getParent());
+         }
+@@ -146,6 +171,9 @@ public class FileSystemEmitter extends AbstractEmitter implements StreamEmitter
+     public void emit(String path, InputStream inputStream, Metadata userMetadata, ParseContext parseContext) throws IOException, TikaEmitterException {
+         Path target = basePath.resolve(path);
+ 
++        // Validate path to prevent path traversal
++        validatePath(target, basePath);
++
+         if (!Files.isDirectory(target.getParent())) {
+             Files.createDirectories(target.getParent());
+         }
+
+```
+
+Explain why the patches failed and provide a new patch to fix the vulnerability.
+Do not repeat the same mistakes in the new patch.
+Try a completely different approach to fix the vulnerability.
+NEVER fix files outside the source directory.
+NEVER do any git operations in or outside the source directory.
+
+Below is the crash log:
+
+<crash_log>
+== Java Exception: com.code_intelligence.jazzer.api.FuzzerSecurityIssueCritical: File path traversal: /tmp/expander-tmp3033935581044433822/output/q/r/s/t/./input.bin/../../../jazzer-traversal
+	at com.code_intelligence.jazzer.sanitizers.FilePathTraversal.check(FilePathTraversal.java:346)
+	at com.code_intelligence.jazzer.sanitizers.FilePathTraversal.checkPath(FilePathTraversal.java:293)
+	at com.code_intelligence.jazzer.sanitizers.FilePathTraversal.copyMismatchMvHook(FilePathTraversal.java:211)
+	at org.apache.tika.pipes.emitter.fs.FileSystemEmitter.emit(FileSystemEmitter.java:155)
+	at org.apache.tika.pipes.extractor.EmittingEmbeddedDocumentBytesHandler.add(EmittingEmbeddedDocumentBytesHandler.java:66)
+	at org.apache.tika.extractor.RUnpackExtractor.storeEmbeddedBytes(RUnpackExtractor.java:153)
+	at org.apache.tika.extractor.RUnpackExtractor.parseWithBytes(RUnpackExtractor.java:122)
+	at org.apache.tika.extractor.RUnpackExtractor.parseEmbedded(RUnpackExtractor.java:91)
+	at org.apache.tika.parser.pkg.PackageParser.parseEntry(PackageParser.java:481)
+	at org.apache.tika.parser.pkg.PackageParser.parseEntries(PackageParser.java:386)
+	at org.apache.tika.parser.pkg.PackageParser._parse(PackageParser.java:336)
+	at org.apache.tika.parser.pkg.PackageParser.parse(PackageParser.java:259)
+	at org.apache.tika.parser.CompositeParser.parse(CompositeParser.java:298)
+	at org.apache.tika.parser.CompositeParser.parse(CompositeParser.java:298)
+	at org.apache.tika.parser.AutoDetectParser.parse(AutoDetectParser.java:204)
+	at org.apache.tika.parser.RecursiveParserWrapper.parse(RecursiveParserWrapper.java:168)
+	at org.apache.tika.pipes.PipesServer.parseRecursive(PipesServer.java:660)
+	at org.apache.tika.pipes.PipesServer.parseWithStream(PipesServer.java:546)
+	at org.apache.tika.pipes.PipesServer.parseFromTuple(PipesServer.java:487)
+	at org.apache.tika.cli.RecursivelyExtract.main(RecursivelyExtract.java:96)
+	at org.apache.tika.cli.TikaCLI.main(TikaCLI.java:234)
+	at com.example.TikaAppRUnpackerFuzzer.parseOne(TikaAppRUnpackerFuzzer.java:74)
+	at com.example.TikaAppRUnpackerFuzzer.fuzzerTestOneInput(TikaAppRUnpackerFuzzer.java:54)
+DEDUP_TOKEN: e329145bbb375a14
+== libFuzzer crashing input ==
+reproducer_path='.'; Java reproducer written to ./Crash_dd0cc32edaf7cc2c861dc64611c4eb0ce2dfde81.java
+
+subprocess command returned a non-zero exit status: 77
+INFO:__main__:Running: docker run --privileged --shm-size=2g --platform linux/amd64 --rm -i -e HELPER=True -e ARCHITECTURE=x86_64 -v /home/qqor/aixcc/crete/packages/python_oss_fuzz/.oss_fuzz/build/out/tika:/out -v /tmp/tmpbp_rhu63:/testcase -t ghcr.io/aixcc-finals/base-runner:v1.3.0 reproduce TikaAppRUnpackerFuzzer -runs=100.
+
+</crash_log>

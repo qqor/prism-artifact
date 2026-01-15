@@ -1,0 +1,60 @@
+--- a/poi/src/main/java/org/apache/poi/poifs/dev/POIFSDump.java
++++ b/poi/src/main/java/org/apache/poi/poifs/dev/POIFSDump.java
+@@ -22,6 +22,7 @@
+ import java.io.OutputStream;
+ import java.nio.ByteBuffer;
+ import java.nio.file.Files;
++import java.nio.file.Path;
+ import java.nio.file.Paths;
+ import java.util.Iterator;
+ 
+@@ -99,23 +100,32 @@
+     public static void dump(DirectoryEntry root, File parent) throws IOException {
+         for(Iterator<Entry> it = root.getEntries(); it.hasNext();){
+             Entry entry = it.next();
+-            if(entry instanceof DocumentNode){
+-                final DocumentNode node = (DocumentNode) entry;
+-                final byte[] bytes;
+-                try (DocumentInputStream is = new DocumentInputStream(node)) {
+-                   bytes = IOUtils.toByteArray(is);
+-                }
+-                try (OutputStream out = Files.newOutputStream(new File(parent, node.getName().trim()).toPath())) {
+-                    out.write(bytes);
+-                }
+-            } else if (entry instanceof DirectoryEntry){
+-                DirectoryEntry dir = (DirectoryEntry)entry;
+-                File file = new File(parent, entry.getName());
+-                if(!file.exists() && !file.mkdirs()) {
+-                    throw new IOException("Could not create directory " + file);
+-                }
+-                dump(dir, file);
+-            } else {
++        if (entry instanceof DocumentNode) {
++            DocumentNode node = (DocumentNode) entry;
++            byte[] bytes;
++            try (DocumentInputStream is = new DocumentInputStream(node)) {
++                bytes = IOUtils.toByteArray(is);
++            }
++            Path parentPath = parent.toPath();
++            String entryName = node.getName().trim();
++            Path target = parentPath.resolve(entryName).normalize();
++            if (!target.startsWith(parentPath)) {
++                throw new IOException("Invalid POIFS entry name: " + entryName);
++            }
++            Files.createDirectories(target.getParent());
++            try (OutputStream out = Files.newOutputStream(target)) {
++                out.write(bytes);
++            }
++        } else if (entry instanceof DirectoryEntry) {
++            DirectoryEntry dir = (DirectoryEntry) entry;
++            Path parentPath = parent.toPath();
++            String entryName = dir.getName().trim();
++            Path target = parentPath.resolve(entryName).normalize();
++            if (!target.startsWith(parentPath)) {
++                throw new IOException("Invalid POIFS directory name: " + entryName);
++            }
++            Files.createDirectories(target);
++            dump(dir, target.toFile());
+                 System.err.println("Skipping unsupported POIFS entry: " + entry);
+             }
+         }

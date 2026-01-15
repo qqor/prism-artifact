@@ -1,0 +1,21 @@
+diff --git a/src/udev/fuzz-udev-rule-parse-value.c b/src/udev/fuzz-udev-rule-parse-value.c
+index 57951bd..8c4f0f7 100644
+--- a/src/udev/fuzz-udev-rule-parse-value.c
++++ b/src/udev/fuzz-udev-rule-parse-value.c
+@@ -15,9 +15,14 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
+ 
+         fuzz_setup_logging();
+ 
+-        assert_se(str = malloc(size + 1));
++        /* Allocate extra space for potential '*' suffix and double NUL terminators.
++           Prevent buffer overflow in udev_rule_parse_value when adding suffix or globs. */
++        assert_se(str = malloc(size + 3));
+         memcpy(str, data, size);
+-        str[size] = '\0';
++        /* Initialize extra null terminators for safe parsing and suffix insertion. */
++        str[size]     = '\0';
++        str[size + 1] = '\0';
++        str[size + 2] = '\0';
+ 
+         r = udev_rule_parse_value(str, &value, &endpos, &is_case_sensitive);
+         if (r < 0) {

@@ -1,0 +1,19 @@
+diff --git a/tika-pipes/tika-emitters/tika-emitter-fs/src/main/java/org/apache/tika/pipes/emitter/fs/FileSystemEmitter.java b/tika-pipes/tika-emitters/tika-emitter-fs/src/main/java/org/apache/tika/pipes/emitter/fs/FileSystemEmitter.java
+index 9142c9b..d10a0ec 100644
+--- a/tika-pipes/tika-emitters/tika-emitter-fs/src/main/java/org/apache/tika/pipes/emitter/fs/FileSystemEmitter.java
++++ b/tika-pipes/tika-emitters/tika-emitter-fs/src/main/java/org/apache/tika/pipes/emitter/fs/FileSystemEmitter.java
+@@ -144,7 +144,13 @@ public class FileSystemEmitter extends AbstractEmitter implements StreamEmitter
+ 
+     @Override
+     public void emit(String path, InputStream inputStream, Metadata userMetadata, ParseContext parseContext) throws IOException, TikaEmitterException {
+-        Path target = basePath.resolve(path);
++        // prevent path traversal: normalize base and target paths
++        Path normalizedBase = basePath.toAbsolutePath().normalize();
++        Path target = normalizedBase.resolve(path).toAbsolutePath().normalize();
++        // ensure the target path is within the base directory
++        if (!target.startsWith(normalizedBase)) {
++            throw new TikaEmitterException("Invalid emit path: " + path);
++        }
+ 
+         if (!Files.isDirectory(target.getParent())) {
+             Files.createDirectories(target.getParent());

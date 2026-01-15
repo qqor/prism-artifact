@@ -1,0 +1,149 @@
+--- a/src/shared/condition.c
++++ b/src/shared/condition.c
+@@ -1264,52 +1264,100 @@
+ }
+ 
+ bool condition_test_list(
+-                Condition *first,
+-                char **env,
+-                condition_to_string_t to_string,
+-                condition_test_logger_t logger,
+-                void *userdata) {
+-
+-        int triggered = -1;
+-
+-        /* If the condition list is empty, then it is true */
+-        if (!first)
+-                return true;
+-
+-        /* Otherwise, if all of the non-trigger conditions apply and
+-         * if any of the trigger conditions apply (unless there are
+-         * none) we return true */
+-        LIST_FOREACH(conditions, c, first) {
+-                int r;
+-
+-                r = condition_test(c, env);
+-
+-                if (logger) {
+-                        if (r < 0)
+-                                logger(userdata, LOG_WARNING, r, PROJECT_FILE, __LINE__, __func__,
+-                                       "Couldn't determine result for %s=%s%s%s, assuming failed: %m",
+-                                       to_string(c->type),
+-                                       c->trigger ? "|" : "",
+-                                       c->negate ? "!" : "",
+-                                       c->parameter);
+-                        else
+-                                logger(userdata, LOG_DEBUG, 0, PROJECT_FILE, __LINE__, __func__,
+-                                       "%s=%s%s%s %s.",
+-                                       to_string(c->type),
+-                                       c->trigger ? "|" : "",
+-                                       c->negate ? "!" : "",
+-                                       c->parameter,
+-                                       condition_result_to_string(c->result));
+-                }
+-
+-                if (!c->trigger && r <= 0)
+-                        return false;
+-
+-                if (c->trigger && triggered <= 0)
+-                        triggered = r > 0;
+-        }
+-
+-        return triggered != 0;
++    Condition *first,
++    char **env,
++    condition_to_string_t to_string,
++    condition_test_logger_t logger,
++    void *userdata)
++{
++    int triggered = -1;
++
++    /* If the condition list is empty, then it is true */
++    if (!first)
++        return true;
++
++    /* Deep-clone each condition to prevent frees from invalidating the test list */
++    size_t count = 0;
++    LIST_FOREACH(conditions, c, first)
++        count++;
++
++    Condition **clones = malloc(sizeof(Condition*) * count);
++    if (!clones)
++        return false;
++
++    size_t idx = 0;
++    LIST_FOREACH(conditions, c, first) {
++        Condition *d = malloc(sizeof(*d));
++        if (!d) {
++            /* cleanup partially built clones */
++            for (size_t j = 0; j < idx; j++) {
++                free(clones[j]->parameter);
++                free(clones[j]);
++            }
++            free(clones);
++            return false;
++        }
++        /* copy fields */
++        d->type = c->type;
++        d->trigger = c->trigger;
++        d->negate = c->negate;
++        d->result = c->result;
++        /* duplicate parameter string */
++        d->parameter = strdup(c->parameter);
++        if (!d->parameter) {
++            free(d);
++            for (size_t j = 0; j < idx; j++) {
++                free(clones[j]->parameter);
++                free(clones[j]);
++            }
++            free(clones);
++            return false;
++        }
++        /* detach clone from any list links */
++        d->conditions_next = NULL;
++        d->conditions_prev = NULL;
++        clones[idx++] = d;
++    }
++
++    bool ret = false;
++    for (size_t i = 0; i < count; i++) {
++        Condition *c2 = clones[i];
++        int r = condition_test(c2, env);
++
++        if (logger) {
++            if (r < 0)
++                logger(userdata, LOG_WARNING, r, PROJECT_FILE, __LINE__, __func__,
++                       "Couldn't determine result for %s=%s%s%s, assuming failed: %m",
++                       to_string(c2->type),
++                       c2->trigger ? "|" : "",
++                       c2->negate ? "!" : "",
++                       c2->parameter);
++            else
++                logger(userdata, LOG_DEBUG, 0, PROJECT_FILE, __LINE__, __func__,
++                       "%s=%s%s%s %s.",
++                       to_string(c2->type),
++                       c2->trigger ? "|" : "",
++                       c2->negate ? "!" : "",
++                       c2->parameter,
++                       condition_result_to_string(c2->result));
++        }
++
++        if (!c2->trigger && r <= 0) {
++            ret = false;
++            goto cleanup;
++        }
++        if (c2->trigger && triggered <= 0)
++            triggered = r > 0;
++    }
++    ret = (triggered != 0);
++
++cleanup:
++    for (size_t i = 0; i < count; i++) {
++        free(clones[i]->parameter);
++        free(clones[i]);
++    }
++    free(clones);
++    return ret;
+ }
+ 
+ void condition_dump(Condition *c, FILE *f, const char *prefix, condition_to_string_t to_string) {

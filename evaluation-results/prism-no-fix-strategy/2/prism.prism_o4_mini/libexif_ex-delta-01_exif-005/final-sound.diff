@@ -1,0 +1,113 @@
+--- a/libexif/apple/exif-mnote-data-apple.c
++++ b/libexif/apple/exif-mnote-data-apple.c
+@@ -58,18 +58,28 @@
+     ExifMnoteDataApple *d = (ExifMnoteDataApple *) md;
+     unsigned int tcount, i;
+     unsigned int dsize;
+-    unsigned int ofs, dofs;
+-
+-    /*printf("%s\n", __FUNCTION__);*/
+-
+-    if (!d || !buf || (buf_size < 6 + 16)) {
+-        exif_log(md->log, EXIF_LOG_CODE_CORRUPT_DATA,
+-                 "ExifMnoteDataApple", "Short MakerNote");
+-        return;
+-    }
+-
+-    /* Start of interesting data */
+-    ofs = d->offset + 6;
++    size_t ofs, dofs;
++    int scount;
++
++    /*printf("%s\n", __FUNCTION__);*/
++
++    if (!d || !buf)
++    {
++        exif_log(md->log, EXIF_LOG_CODE_CORRUPT_DATA,
++                 "ExifMnoteDataApple", "MakerNote data missing");
++        return;
++    }
++
++    /* Compute start of MakerNote and ensure header + count fit */
++    {
++        size_t start = (size_t)d->offset + 6;
++        if (start + 16 > buf_size) {
++            exif_log(md->log, EXIF_LOG_CODE_CORRUPT_DATA,
++                     "ExifMnoteDataApple", "MakerNote header too short");
++            return;
++        }
++        ofs = start;
++    }
+ 
+     if ((buf[ofs + 12] == 'M') && (buf[ofs + 13] == 'M')) {
+         d->order = EXIF_BYTE_ORDER_MOTOROLA;
+@@ -82,15 +92,26 @@
+         return;
+     }
+ 
+-    tcount = (unsigned int) exif_get_short(buf + ofs + 14, d->order);
+-
+-    /* Sanity check the offset */
+-    if (buf_size < 6 + 16 + tcount * 6 + 4) {
+-        exif_log(md->log, EXIF_LOG_CODE_CORRUPT_DATA,
+-                 "ExifMnoteDataApple", "Short MakerNote");
+-        /*printf("%s(%d)\n", __FUNCTION__, __LINE__);*/
+-        return;
+-    }
++    /* Ensure count field fits before reading two bytes */
++    if (ofs + 16 > buf_size) {
++        exif_log(md->log, EXIF_LOG_CODE_CORRUPT_DATA,
++                 "ExifMnoteDataApple", "MakerNote count beyond buffer");
++        return;
++    }
++    scount = exif_get_sshort(buf + ofs + 14, d->order);
++    if (scount < 0) {
++        exif_log(md->log, EXIF_LOG_CODE_CORRUPT_DATA,
++                 "ExifMnoteDataApple", "Negative MakerNote count");
++        return;
++    }
++    tcount = (unsigned int)scount;
++    /* Ensure entry headers (12 bytes each) fit in buffer */
++    if (ofs + 16 + (size_t)tcount * 12 > buf_size) {
++       exif_log(md->log, EXIF_LOG_CODE_CORRUPT_DATA,
++                "ExifMnoteDataApple", "MakerNote entry headers overflow");
++       return;
++   }
++    ofs += 16;
+ 
+     /* printf("%s(%d): total %d tags\n", __FUNCTION__, __LINE__, tcount); */
+ 
+@@ -107,7 +128,12 @@
+     }
+ 
+     for (i = 0; i < tcount; i++) {
+-        d->entries[i].tag = exif_get_short(buf + ofs, d->order);
++        /* Ensure entry header (12 bytes) fits */
++        if (ofs + 12 > buf_size) {
++            exif_log(md->log, EXIF_LOG_CODE_CORRUPT_DATA,
++                     "ExifMnoteDataApple", "MakerNote entry header overflow");
++            break;
++        }
+         d->entries[i].format = exif_get_short(buf + ofs + 2, d->order);
+         d->entries[i].components = exif_get_long(buf + ofs + 4, d->order);
+         d->entries[i].order = d->order;
+@@ -117,15 +143,10 @@
+         } else {
+             dofs = ofs + 8;
+         }
+-	if (dofs > buf_size) {
+-		exif_log (md->log, EXIF_LOG_CODE_CORRUPT_DATA,
+-                                  "ExifMnoteApplet", "Tag size overflow detected (%u vs size %u)", dofs, buf_size);
+-		continue;
+-	}
+-        ofs += 12;
+-        d->entries[i].data = exif_mem_alloc(md->mem, dsize);
+-        if (!d->entries[i].data) {
+-            EXIF_LOG_NO_MEMORY(md->log, "ExifMnoteApple", dsize);
++        /* Ensure data block fits */
++        if (dofs + dsize > buf_size) {
++            exif_log(md->log, EXIF_LOG_CODE_CORRUPT_DATA,
++                     "ExifMnoteDataApple", "MakerNote data overflow");
+             continue;
+         }
+         memcpy(d->entries[i].data, buf + dofs, dsize);

@@ -1,0 +1,35 @@
+diff --git a/core/src/main/java/org/apache/logging/log4j/core/lookup/JndiLookup.java b/core/src/main/java/org/apache/logging/log4j/core/lookup/JndiLookup.java
+index 90e082a..0b8018c 100644
+--- a/core/src/main/java/org/apache/logging/log4j/core/lookup/JndiLookup.java
++++ b/core/src/main/java/org/apache/logging/log4j/core/lookup/JndiLookup.java
+@@ -28,7 +28,8 @@ import org.apache.logging.log4j.core.config.plugins.Plugin;
+ @Plugin(name = "jndi", category = "Lookup")
+ public class JndiLookup implements StrLookup {
+ 
+-    private static boolean ENABLE_JNDI = true;
++    private static final String ENABLE_JNDI_PROP_NAME = "log4j2.enableJndi";
++    private static boolean ENABLE_JNDI = Boolean.parseBoolean(System.getProperty(ENABLE_JNDI_PROP_NAME, "false"));
+ 
+     /** JNDI resourcce path prefix used in a J2EE container */
+     static final String CONTAINER_JNDI_RESOURCE_PATH_PREFIX = "java:comp/env/";
+@@ -51,13 +52,17 @@ public class JndiLookup implements StrLookup {
+      */
+     @Override
+     public String lookup(final LogEvent event, final String key) {
+-        if (key == null || ! ENABLE_JNDI) {
++        if (key == null || !ENABLE_JNDI) {
++            return null;
++        }
++        final String name = convertJndiName(key);
++        // only allow lookups in the local java:comp/env namespace to prevent remote JNDI
++        if (!name.startsWith(CONTAINER_JNDI_RESOURCE_PATH_PREFIX)) {
+             return null;
+         }
+-
+         try {
+             InitialContext ctx = new InitialContext();
+-            return (String) ctx.lookup(convertJndiName(key));
++            return (String) ctx.lookup(name);
+         } catch (NamingException e) {
+             return null;
+         }

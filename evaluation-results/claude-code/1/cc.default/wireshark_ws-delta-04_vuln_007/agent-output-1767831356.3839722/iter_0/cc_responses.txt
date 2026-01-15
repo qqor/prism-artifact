@@ -1,0 +1,89 @@
+
+================================================================================
+Response 1
+================================================================================
+Let me search for the file in the current filesystem:
+
+================================================================================
+Response 2
+================================================================================
+Now I can see the bug. Looking at the crash log:
+- The crash happens at line 361 in `json_string_unescape`
+- The error is "READ of size 1" which happens when reading beyond the allocated buffer
+- The crash happens with the input: `{\012  \"surrogates\": \"\\U0000d83d\\U0000\"\012}\012\012`
+
+Looking at the code around line 361 (now actually around line 353-368 after examining the code structure), I can see the issue in the handling of `\U` escape sequences (8-digit unicode escapes) when processing surrogate pairs.
+
+The bug is in the section starting at line 353 where we handle `\U` for trail surrogate after a lead surrogate. The loop at lines 359-368:
+
+```c
+for (int i = 0; i < 8; i++)
+{
+    current_character = string[read_index];
+    read_index++;
+    ...
+}
+```
+
+This loop does NOT check bounds before accessing `string[read_index]`, unlike the other similar loops in the code which have `if (!(read_index < string_length))` checks.
+
+The input `\U0000d83d\U0000` provides:
+1. `\U0000d83d` - a lead surrogate (0xD83D)
+2. `\U0000` followed by only 4 hex digits, when the code expects 8
+
+Since the string ends with only 4 hex characters after `\U0000`, the loop tries to read beyond the string boundary.
+
+Let me create the fix:
+
+================================================================================
+Response 3
+================================================================================
+The fix has been applied. Let me verify the change was correctly made by reading the relevant section again to ensure it's complete:
+
+================================================================================
+Response 4
+================================================================================
+The fix has been successfully applied. 
+
+## Summary of the Bug and Fix
+
+### The Bug
+The heap-buffer-overflow occurred in the `json_string_unescape` function at line 361 (originally). The bug was in the handling of `\U` (8-digit Unicode) escape sequences when processing surrogate pairs.
+
+**Root cause:** When a lead surrogate (like `\U0000d83d`) was followed by another `\U` escape sequence for the trail surrogate, the inner loop at lines 359-368 (originally) that reads the 8 hex digits did NOT check for buffer boundaries before accessing the string. This is unlike all other similar loops in the function which properly check `if (!(read_index < string_length))`.
+
+**The crashing input:** `{\n  "surrogates": "\U0000d83d\U0000"\n}\n\n`
+- `\U0000d83d` is parsed as a lead surrogate (0xD83D)
+- `\U0000` is incomplete - it only has 4 hex digits instead of 8
+- The loop tried to read 8 characters but the string ended after only 4, causing a read beyond the allocated buffer
+
+### The Fix
+Added bounds checking and invalid nibble checking inside the loop that processes the 8-digit trail surrogate for `\U` escape sequences (lines 359-381 after the fix):
+
+```c
+for (int i = 0; i < 8; i++)
+{
+    // Do not overflow input string
+    if (!(read_index < string_length))
+    {
+        is_valid_unicode_character = false;
+        break;
+    }
+
+    current_character = string[read_index];
+    read_index++;
+
+    int nibble = ws_xton(current_character);
+
+    if (nibble < 0)
+    {
+        is_valid_unicode_character = false;
+        break;
+    }
+
+    trail_surrogate <<= 4;
+    trail_surrogate |= nibble;
+}
+```
+
+This is consistent with how all other similar loops in the function handle bounds checking and invalid input.

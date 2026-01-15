@@ -1,0 +1,58 @@
+
+================================================================================
+Response 1
+================================================================================
+Now I understand the issue. The path traversal vulnerability is on line 73 where `nextEntry.resolveIn(targetDirPath)` is called. Looking at the crash log, it shows the vulnerability at line 86 where `Files.newOutputStream(targetPath)` is called.
+
+Let me check the `resolveIn` method to understand how it works:
+
+================================================================================
+Response 2
+================================================================================
+The `resolveIn` method in `ArchiveEntry.java` already has path traversal protection - it normalizes the path and checks if it starts with the parent path. However, there's a subtle bug here. Let me check if `ZipArchiveEntry` overrides this method:
+
+================================================================================
+Response 3
+================================================================================
+I found the bug! In `ZipArchiveEntry.resolveIn()` on line 1491, there's a critical flaw:
+
+1. The check on line 1488 validates `outputFile` (which is properly normalized)
+2. BUT then line 1491 returns a **different** path created from the Unicode normalized name - this path is NOT validated against the parent path!
+
+This means an attacker can use Unicode normalization tricks to bypass the path traversal check. The fix should ensure the returned path is also validated.
+
+Let me create the patch for `ZipArchiveEntry.java`:
+
+================================================================================
+Response 4
+================================================================================
+Now I'll fix the bug. The issue is that the method checks one path (`outputFile`) but returns a different path (created from the Unicode normalized name) without validating that second path. The fix should validate the actual returned path:
+
+================================================================================
+Response 5
+================================================================================
+The patch has been applied. Here's a summary of the fix:
+
+## Bug Analysis
+
+**Vulnerability:** File path traversal (Zip Slip) in `ZipArchiveEntry.resolveIn()`
+
+**Root Cause:** In the original code at `src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveEntry.java`, the `resolveIn()` method:
+1. Validated `outputFile` (line 1487-1489) created from the raw entry name
+2. But then returned a **different** path created from the Unicode-normalized name (line 1491) **without validating it**
+
+This allowed an attacker to craft a malicious archive entry name that passes the initial validation but, after Unicode normalization (NFKD), resolves to a path outside the target directory.
+
+## Fix Applied
+
+The fix adds validation for the Unicode-normalized path before returning it:
+
+```java
+final Path normalizedOutputFile = parentPath.resolve(Normalizer.normalize(name, Normalizer.Form.NFKD)).normalize();
+if (!normalizedOutputFile.startsWith(parentPath)) {
+    throw new IOException(String.format("Zip slip '%s' + '%s' -> '%s'", parentPath, name, normalizedOutputFile));
+}
+return normalizedOutputFile;
+```
+
+This ensures that the **actual returned path** is verified to be within the target directory, preventing the path traversal attack regardless of how Unicode normalization transforms the entry name.

@@ -1,0 +1,70 @@
+I tried to fix a com.code_intelligence.jazzer.api.FuzzerSecurityIssueCritical: File path traversal vulnerability causing the crash log in the <crash_log> below.
+I failed to fix the vulnerability with the following patches:
+
+```diff
+diff --git a/src/main/java/org/apache/commons/compress/archivers/ArchiveEntry.java b/src/main/java/org/apache/commons/compress/archivers/ArchiveEntry.java
+index f9a566d5b..fd25c3246 100644
+--- a/src/main/java/org/apache/commons/compress/archivers/ArchiveEntry.java
++++ b/src/main/java/org/apache/commons/compress/archivers/ArchiveEntry.java
+@@ -74,8 +74,9 @@ public interface ArchiveEntry {
+      */
+     default Path resolveIn(final Path parentPath) throws IOException {
+         final String name = getName();
+-        final Path outputFile = parentPath.resolve(name).normalize();
+-        if (!outputFile.startsWith(parentPath)) {
++        final Path normalizedParent = parentPath.normalize();
++        final Path outputFile = normalizedParent.resolve(name).normalize();
++        if (!outputFile.startsWith(normalizedParent)) {
+             throw new IOException(String.format("Zip slip '%s' + '%s' -> '%s'", parentPath, name, outputFile));
+         }
+         return outputFile;
+diff --git a/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveEntry.java b/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveEntry.java
+index 38f0b9d5e..ed1ea2400 100644
+--- a/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveEntry.java
++++ b/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveEntry.java
+@@ -1484,11 +1484,12 @@ protected void setStreamContiguous(final boolean isStreamContiguous) {
+     @Override
+     public Path resolveIn(final Path parentPath) throws IOException {
+         final String name = getName();
+-        final Path outputFile = parentPath.resolve(name).normalize();
+-        if (!outputFile.startsWith(parentPath)) {
++        final Path normalizedParent = parentPath.normalize();
++        final Path outputFile = normalizedParent.resolve(name).normalize();
++        if (!outputFile.startsWith(normalizedParent)) {
+             throw new IOException(String.format("Zip slip '%s' + '%s' -> '%s'", parentPath, name, outputFile));
+         }
+-        return parentPath.resolve(Normalizer.normalize(name, Normalizer.Form.NFKD)).normalize();
++        return normalizedParent.resolve(Normalizer.normalize(name, Normalizer.Form.NFKD)).normalize();
+     }
+ 
+     /**
+
+```
+
+Explain why the patches failed and provide a new patch to fix the vulnerability.
+Do not repeat the same mistakes in the new patch.
+Try a completely different approach to fix the vulnerability.
+NEVER fix files outside the source directory.
+NEVER do any git operations in or outside the source directory.
+
+Below is the crash log:
+
+<crash_log>
+== Java Exception: com.code_intelligence.jazzer.api.FuzzerSecurityIssueCritical: File path traversal: /tmp/expander-tmp2839794566451461562/output/q/r/jazzer-traversal
+	at com.code_intelligence.jazzer.sanitizers.FilePathTraversal.check(FilePathTraversal.java:346)
+	at com.code_intelligence.jazzer.sanitizers.FilePathTraversal.checkPath(FilePathTraversal.java:293)
+	at com.code_intelligence.jazzer.sanitizers.FilePathTraversal.pathFirstArgHook(FilePathTraversal.java:177)
+	at org.apache.commons.compress.archivers.examples.Expander.expand(Expander.java:86)
+	at org.apache.commons.compress.archivers.examples.Expander.expand(Expander.java:460)
+	at org.apache.commons.compress.archivers.examples.Expander.expand(Expander.java:400)
+	at org.apache.commons.compress.archivers.examples.Expander.expand(Expander.java:324)
+	at org.apache.commons.compress.archivers.examples.Expander.expand(Expander.java:204)
+	at ExpanderFuzzer.fuzzerTestOneInput(ExpanderFuzzer.java:52)
+DEDUP_TOKEN: a87e9aa6b0374484
+== libFuzzer crashing input ==
+reproducer_path='.'; Java reproducer written to ./Crash_a67f847fb3030a5a78c8782a7c2da4b667cdb6cb.java
+
+subprocess command returned a non-zero exit status: 77
+INFO:__main__:Running: docker run --privileged --shm-size=2g --platform linux/amd64 --rm -i -e HELPER=True -e ARCHITECTURE=x86_64 -v /home/qqor/crete/packages/python_oss_fuzz/.oss_fuzz/build/out/apache-commons-compress:/out -v /tmp/tmphjf_m4_k:/testcase -t ghcr.io/aixcc-finals/base-runner:v1.3.0 reproduce ExpanderFuzzer -runs=100.
+
+</crash_log>

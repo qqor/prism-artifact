@@ -1,0 +1,34 @@
+--- a/libfreerdp/core/freerdp.c
++++ b/libfreerdp/core/freerdp.c
+@@ -1452,6 +1452,13 @@
+ 	WINPR_ASSERT(data || (size == 0));
+ 	WINPR_ASSERT(s);
+ 
++	/* Validate and consume TPKT header */
++	{
++		UINT16 tpktLength = 0;
++		if (!tpkt_read_header(s, &tpktLength) || (tpktLength < 4) || (tpktLength > size))
++			return FALSE;
++	}
++
+ 	rdpMcs* mcs = test_mcs_new();
+ 	WINPR_ASSERT(mcs);
+ 
+
+--- a/libfreerdp/core/mcs.c
++++ b/libfreerdp/core/mcs.c
+@@ -905,6 +905,14 @@
+ 	if (!mcs || !s)
+ 		return FALSE;
+ 
++	/* Ensure transport and context are valid */
++	if (!mcs->transport)
++		return FALSE;
++
++	rdpContext* context = transport_get_context(mcs->transport);
++	if (!context)
++		return FALSE;
++
+ 	if (!tpkt_read_header(s, &tlength))
+ 		return FALSE;
+ 

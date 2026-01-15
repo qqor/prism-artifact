@@ -1,0 +1,43 @@
+--- a/epan/dissectors/packet-ber.c
++++ b/epan/dissectors/packet-ber.c
+@@ -3174,25 +3174,21 @@
+ dissect_ber_GeneralString(asn1_ctx_t *actx, proto_tree *tree, tvbuff_t *tvb, int offset, int hf_id, char *name_string, unsigned name_len)
+ {
+     tvbuff_t *out_tvb = NULL;
+-    int8_t  tvb_len;
+-
+-    offset = dissect_ber_restricted_string(false, BER_UNI_TAG_GeneralString, actx, tree, tvb, offset, hf_id, (name_string) ? &out_tvb : NULL);
+-
+-    if (name_string) {
+-        /*
+-         * XXX - do we want to just get what's left in the tvbuff
+-         * if the full length isn't available in the tvbuff, or
+-         * do we want to throw an exception?
+-         */
+-        if (out_tvb) {
+-            tvb_len = tvb_get_uint8(tvb, offset);
+-            if ((unsigned)tvb_len >= name_len) {
+-                tvb_memcpy(out_tvb, (uint8_t*)name_string, 0, name_len-1);
+-            } else {
+-                tvb_memcpy(out_tvb, (uint8_t*)name_string, 0, tvb_len);
+-            }
+-            name_string[tvb_len] = '\0';
+-        }
++    guint8 tvb_len;
++
++    offset = dissect_ber_restricted_string(false, BER_UNI_TAG_GeneralString,
++                                           actx, tree, tvb, offset,
++                                           hf_id,
++                                           (name_string) ? &out_tvb : NULL);
++
++    if (name_string && out_tvb) {
++        /* Get length byte and clamp to maximum buffer size minus 1 for NUL. */
++        tvb_len = tvb_get_uint8(tvb, offset);
++        if (tvb_len >= name_len) {
++            tvb_len = name_len - 1;
++        }
++        tvb_memcpy(out_tvb, name_string, 0, tvb_len);
++        name_string[tvb_len] = '\0';
+     }
+ 
+     return offset;

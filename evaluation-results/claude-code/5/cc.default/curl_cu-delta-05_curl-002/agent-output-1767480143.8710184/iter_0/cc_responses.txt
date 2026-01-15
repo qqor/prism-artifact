@@ -1,0 +1,63 @@
+
+================================================================================
+Response 1
+================================================================================
+Let me find the source directory:
+
+================================================================================
+Response 2
+================================================================================
+Now I understand the bug. The `Curl_seconds` array has 60 elements (indices 0-59), but `tm->tm_sec` can have values from 0 to 60 (including 60 for leap seconds). When `tm->tm_sec` is 60, accessing `Curl_seconds[60]` causes a buffer overflow.
+
+Let me verify the array size:
+
+================================================================================
+Response 3
+================================================================================
+Let me count the actual elements more accurately:
+
+================================================================================
+Response 4
+================================================================================
+The `Curl_seconds` array has exactly 60 elements (indices 0-59). The bug is that `tm->tm_sec` can be 60 for leap seconds, which causes an out-of-bounds access.
+
+Now I need to fix this in `ftp.c` at line 2107. The fix should add a bounds check before accessing `Curl_seconds[tm->tm_sec]`. Let me read more context to craft the proper fix:
+
+================================================================================
+Response 5
+================================================================================
+Now I understand the issue fully. The fix should ensure that `tm->tm_sec` is within the valid range (0-59) before accessing `Curl_seconds`. I'll add a bounds check by clamping the value to 59 if it exceeds 59 (handling leap seconds).
+
+Let me create the patch:
+
+================================================================================
+Response 6
+================================================================================
+The patch has been applied. Let me verify the fix is in place by reading the modified section:
+
+================================================================================
+Response 7
+================================================================================
+The patch has been successfully applied. Here's a summary of the fix:
+
+## Bug Analysis
+
+**Issue:** AddressSanitizer detected a global-buffer-overflow in `ftp_state_mdtm_resp()` at `/src/curl/lib/ftp.c:2107`.
+
+**Root Cause:** The `Curl_seconds` array (defined in `parsedate.c:113`) contains 60 elements with indices 0-59. However, `tm->tm_sec` from `struct tm` can have values from 0 to 60 (inclusive), where 60 represents a leap second. When `tm->tm_sec` equals 60, accessing `Curl_seconds[60]` causes an out-of-bounds read.
+
+## Fix Applied
+
+The fix adds a bounds check before accessing the `Curl_seconds` array:
+
+```c
+/* Clamp tm_sec to 59 to handle leap seconds (tm_sec can be 60) */
+int sec_idx = tm->tm_sec;
+if(sec_idx < 0 || sec_idx > 59)
+  sec_idx = 59;
+```
+
+Then use `sec_idx` instead of `tm->tm_sec` when indexing into `Curl_seconds`. This ensures:
+1. Values > 59 (like leap second 60) are clamped to 59 ("fifty-nine")
+2. Any unexpected negative values are also clamped to 59
+3. The array access is always within bounds (0-59)

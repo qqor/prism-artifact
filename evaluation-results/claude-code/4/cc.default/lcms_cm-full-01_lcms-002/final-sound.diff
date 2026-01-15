@@ -1,0 +1,32 @@
+diff --git a/src/cmsvirt.c b/src/cmsvirt.c
+index 4439ff7..dd81fe1 100644
+--- a/src/cmsvirt.c
++++ b/src/cmsvirt.c
+@@ -1070,6 +1070,7 @@ cmsHPROFILE CreateNamedColorDevicelink(cmsHTRANSFORM xform)
+     cmsHPROFILE hICC = NULL;
+     cmsUInt32Number i, nColors;
+     cmsNAMEDCOLORLIST *nc2 = NULL, *Original = NULL;
++    cmsUInt16Number In[1];
+ 
+     // Create an empty placeholder
+     hICC = cmsCreateProfilePlaceholder(v->ContextID);
+@@ -1093,14 +1094,12 @@ cmsHPROFILE CreateNamedColorDevicelink(cmsHTRANSFORM xform)
+     // Colorant count now depends on the output space
+     nc2 ->ColorantCount = cmsPipelineOutputChannels(v ->Lut);
+ 
+-    // Make sure we have proper formatters
+-    cmsChangeBuffersFormat(xform, TYPE_NAMED_COLOR_INDEX,
+-        FLOAT_SH(0) | COLORSPACE_SH(_cmsLCMScolorSpace(v ->ExitColorSpace))
+-        | BYTES_SH(2) | CHANNELS_SH(cmsChannelsOfColorSpace(v ->ExitColorSpace)));
+-
+-    // Apply the transfor to colorants.
++    // Apply the transform to colorants using cmsPipelineEval16 directly.
++    // This avoids formatter issues with cmsDoTransform when the input
++    // format may not match what the transform expects.
+     for (i=0; i < nColors; i++) {
+-        cmsDoTransform(xform, &i, nc2 ->List[i].DeviceColorant, 1);
++        In[0] = (cmsUInt16Number) i;
++        cmsPipelineEval16(In, nc2 ->List[i].DeviceColorant, v ->Lut);
+     }
+ 
+     if (!cmsWriteTag(hICC, cmsSigNamedColor2Tag, (void*) nc2)) goto Error;

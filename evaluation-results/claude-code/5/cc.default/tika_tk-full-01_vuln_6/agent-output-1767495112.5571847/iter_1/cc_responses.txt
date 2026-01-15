@@ -1,0 +1,48 @@
+
+================================================================================
+Response 1
+================================================================================
+Now I understand the issue. Let me analyze why the previous patch failed and provide a correct fix.
+
+## Why the Previous Patch Failed
+
+The failed patch has a subtle bug:
+```java
+Path target = extractDir.resolve(tae.getName()).normalize();
+if (!target.startsWith(extractDir.toAbsolutePath().normalize())) {
+```
+
+The problem is that `target` is computed from `extractDir.resolve(...)` which may be a **relative path**, while the comparison uses `extractDir.toAbsolutePath().normalize()` which is an **absolute path**. 
+
+For example:
+- `extractDir` = `./output` (relative)
+- `target` = `./output/file.txt` (relative, after resolve and normalize)
+- `extractDir.toAbsolutePath().normalize()` = `/tmp/output` (absolute)
+
+The `startsWith` comparison between a relative path and an absolute path will fail because they don't share the same root, so `target.startsWith(absolutePath)` returns `false` for legitimate paths AND `true` for attack paths in some edge cases.
+
+## The Fix
+
+Both paths need to be normalized to absolute paths before comparison:
+
+================================================================================
+Response 2
+================================================================================
+## Summary
+
+**Why the previous patch failed:**
+
+The previous patch compared `target` (resolved from a potentially relative `extractDir`) with `extractDir.toAbsolutePath().normalize()`. The issue is that:
+1. `extractDir.resolve(tae.getName()).normalize()` keeps the path relative if `extractDir` is relative
+2. `extractDir.toAbsolutePath().normalize()` produces an absolute path
+3. `Path.startsWith()` comparing a relative path against an absolute path doesn't work correctly - a relative path can never "start with" an absolute path since they have different roots
+
+**The new fix (completely different approach):**
+
+Instead of normalizing only for the comparison, I normalize `extractDir` to an absolute path **first**, then resolve the entry name against that normalized base. This ensures both paths are absolute and properly comparable:
+
+1. `normalizedExtractDir = extractDir.toAbsolutePath().normalize()` - converts to absolute path first
+2. `target = normalizedExtractDir.resolve(tae.getName()).normalize()` - resolve against the absolute base
+3. Now `target.startsWith(normalizedExtractDir)` correctly compares two absolute paths
+
+This approach ensures that any path traversal attempt (e.g., `../../../etc/passwd`) will be detected because after normalization, the target path will escape outside the `normalizedExtractDir`.

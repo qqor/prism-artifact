@@ -1,0 +1,91 @@
+--- a/tika-core/src/main/java/org/apache/tika/parser/external/ExternalParser.java
++++ b/tika-core/src/main/java/org/apache/tika/parser/external/ExternalParser.java
+@@ -278,85 +278,9 @@
+     }
+ 
+     private void parse(TikaInputStream stream, XHTMLContentHandler xhtml, Metadata metadata,
+-                       TemporaryResources tmp) throws IOException, SAXException, TikaException {
+-        boolean inputToStdIn = true;
+-        boolean outputFromStdOut = true;
+-        boolean hasPatterns = (metadataPatterns != null && !metadataPatterns.isEmpty());
+-
+-        File output = null;
+-
+-        // Build our command
+-        String[] cmd;
+-        if (command.length == 1) {
+-            cmd = command[0].split(" ");
+-        } else {
+-            cmd = new String[command.length];
+-            System.arraycopy(command, 0, cmd, 0, command.length);
+-        }
+-        for (int i = 0; i < cmd.length; i++) {
+-            if (cmd[i].contains(INPUT_FILE_TOKEN)) {
+-                cmd[i] = cmd[i].replace(INPUT_FILE_TOKEN, stream.getFile().getPath());
+-                inputToStdIn = false;
+-            }
+-            if (cmd[i].contains(OUTPUT_FILE_TOKEN)) {
+-                output = tmp.createTemporaryFile();
+-                outputFromStdOut = false;
+-                cmd[i] = cmd[i].replace(OUTPUT_FILE_TOKEN, output.getPath());
+-            }
+-        }
+-
+-        // Execute
+-        Process process = null;
+-        try {
+-            if (cmd.length == 1) {
+-                process = Runtime.getRuntime().exec(cmd[0]);
+-            } else {
+-                process = Runtime.getRuntime().exec(cmd);
+-            }
+-        } catch (Exception e) {
+-            LOG.warn("problem with process exec", e);
+-        }
+-
+-        try {
+-            if (inputToStdIn) {
+-                sendInput(process, stream);
+-            } else {
+-                process.getOutputStream().close();
+-            }
+-
+-            InputStream out = process.getInputStream();
+-            InputStream err = process.getErrorStream();
+-
+-            if (hasPatterns) {
+-                extractMetadata(err, metadata);
+-
+-                if (outputFromStdOut) {
+-                    extractOutput(out, xhtml);
+-                } else {
+-                    extractMetadata(out, metadata);
+-                }
+-            } else {
+-                ignoreStream(err);
+-
+-                if (outputFromStdOut) {
+-                    extractOutput(out, xhtml);
+-                } else {
+-                    ignoreStream(out);
+-                }
+-            }
+-        } finally {
+-            try {
+-                process.waitFor();
+-            } catch (InterruptedException ignore) {
+-            }
+-        }
+-
+-        // Grab the output if we haven't already
+-        if (!outputFromStdOut) {
+-            try (FileInputStream fileInputStream = new FileInputStream(output)) {
+-                extractOutput(fileInputStream, xhtml);
+-            }
+-        }
++            TemporaryResources tmp) throws IOException, SAXException, TikaException {
++        // External parser execution disabled to prevent OS command injection
++        LOG.warn("External parser invocation skipped for security");
+     }
+ 
+     /**

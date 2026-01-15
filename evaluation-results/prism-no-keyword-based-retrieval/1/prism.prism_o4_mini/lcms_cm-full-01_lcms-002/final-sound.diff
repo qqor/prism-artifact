@@ -1,0 +1,38 @@
+--- a/src/cmsvirt.c
++++ b/src/cmsvirt.c
+@@ -1098,9 +1098,32 @@
+         FLOAT_SH(0) | COLORSPACE_SH(_cmsLCMScolorSpace(v ->ExitColorSpace))
+         | BYTES_SH(2) | CHANNELS_SH(cmsChannelsOfColorSpace(v ->ExitColorSpace)));
+ 
+-    // Apply the transfor to colorants.
+-    for (i=0; i < nColors; i++) {
+-        cmsDoTransform(xform, &i, nc2 ->List[i].DeviceColorant, 1);
++    // Prepare input buffer parameters for named color index
++    {
++        cmsUInt32Number InputFmt = v->InputFormat;
++        cmsUInt32Number nChan    = T_CHANNELS(InputFmt);
++        cmsUInt32Number BPC      = T_BYTES(InputFmt);
++        cmsUInt32Number Stride   = nChan * BPC;
++
++        // Apply the transform to colorants.
++        for (i = 0; i < nColors; i++) {
++            cmsUInt8Number inBuf[Stride];
++            memset(inBuf, 0, Stride);
++            switch (BPC) {
++                case 1:
++                    inBuf[0] = (cmsUInt8Number) i;
++                    break;
++                case 2:
++                    ((cmsUInt16Number*)inBuf)[0] = (cmsUInt16Number) i;
++                    break;
++                case 4:
++                    ((cmsUInt32Number*)inBuf)[0] = (cmsUInt32Number) i;
++                    break;
++                default:
++                    memcpy(inBuf, &i, (Stride < sizeof(i)) ? Stride : sizeof(i));
++            }
++            cmsDoTransform(xform, inBuf, nc2->List[i].DeviceColorant, 1);
++        }
+     }
+ 
+     if (!cmsWriteTag(hICC, cmsSigNamedColor2Tag, (void*) nc2)) goto Error;

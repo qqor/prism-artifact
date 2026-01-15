@@ -1,0 +1,37 @@
+--- a/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/BaseParser.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/BaseParser.java
+@@ -57,7 +57,8 @@
+      * Log instance.
+      */
+     private static final Logger LOG = LogManager.getLogger(BaseParser.class);
+-
++    private static final int MAX_SKIP_SPACE_LENGTH = 1000;
++    private int skipSpaceBudget = MAX_SKIP_SPACE_LENGTH;
+     private static final long OBJECT_NUMBER_THRESHOLD = 10000000000L;
+ 
+     private static final long GENERATION_NUMBER_THRESHOLD = 65535;
+@@ -1319,14 +1320,19 @@
+     protected void skipSpaces() throws IOException
+     {
+         int c = source.read();
+-        // 37 is the % character, a comment
+-        while( isWhitespace(c) || c == 37)
+-        {
+-            if ( c == 37 )
++        // skip up to MAX_SKIP_SPACE_LENGTH spaces/comments across all calls
++        while (isWhitespace(c) || c == 37)
++        {
++            if (--skipSpaceBudget < 0)
++            {
++                source.rewind(1);
++                return;
++            }
++            if (c == 37)
+             {
+                 // skip past the comment section
+                 c = source.read();
+-                while(!isEOL(c) && c != -1)
++                while (!isEOL(c) && c != -1)
+                 {
+                     c = source.read();
+                 }

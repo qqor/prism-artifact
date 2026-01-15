@@ -1,0 +1,27 @@
+diff --git a/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-text-module/src/main/java/org/apache/tika/parser/csv/CSVSniffer.java b/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-text-module/src/main/java/org/apache/tika/parser/csv/CSVSniffer.java
+index 9075a74db..9234031c3 100644
+--- a/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-text-module/src/main/java/org/apache/tika/parser/csv/CSVSniffer.java
++++ b/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-text-module/src/main/java/org/apache/tika/parser/csv/CSVSniffer.java
+@@ -255,8 +255,22 @@ class CSVSniffer {
+             //'the " quick' -> "the "" quick"
+             //we can make this more interesting later with other
+             //escaping options
++
++            // Limit iterations to prevent DoS on malformed quoted fields
++            // Save the starting charsRead count to track how many chars we read in this quoted field
++            int startCharsRead = charsRead;
++            int maxQuotedFieldChars = Math.min(markLimit / 4, 2500);
++
+             int c = read(reader);
+             while (c != -1) {
++                // Check if we've read too many characters in this quoted field
++                int quotedFieldLength = charsRead - startCharsRead;
++                if (quotedFieldLength > maxQuotedFieldChars) {
++                    // Malformed: quoted field is unreasonably long without closing quote
++                    parseException = true;
++                    return false;
++                }
++
+                 if (c == quoteCharacter) {
+                     int nextC = read(reader);
+                     if (nextC == EOF) {

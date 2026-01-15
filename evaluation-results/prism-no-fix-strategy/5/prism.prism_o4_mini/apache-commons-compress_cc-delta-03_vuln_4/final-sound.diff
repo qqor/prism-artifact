@@ -1,0 +1,70 @@
+--- a/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java
++++ b/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java
+@@ -1075,7 +1075,9 @@
+      */
+     private int readFromInflater(final byte[] buffer, final int offset, final int length) throws IOException {
+         int read = 0;
+-        do {
++        final int MAX_INFLATE_ATTEMPTS = 5;
++        int attempts = 0;
++        while (true) {
+             if (inf.needsInput()) {
+                 final int l = fill();
+                 if (l > 0) {
+@@ -1091,7 +1093,15 @@
+             } catch (final DataFormatException e) {
+                 throw (IOException) new ZipException(e.getMessage()).initCause(e);
+             }
+-        } while (read == 0 && inf.needsInput());
++            if (read != 0 || inf.finished() || inf.needsInput()) {
++                break;
++            }
++            if (++attempts > MAX_INFLATE_ATTEMPTS) {
++                throw new IOException("Exceeded max inflate attempts ("
++                                      + MAX_INFLATE_ATTEMPTS
++                                      + "), aborting to prevent hang");
++            }
++        }
+         return read;
+     }
+ 
+
+--- a/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java
++++ b/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java
+@@ -271,15 +271,30 @@
+         if (!PAX_EXTENDED_HEADER_FILE_TIMES_PATTERN.matcher(value).matches()) {
+             throw new IOException("Corrupted PAX header. Time field value is invalid '" + value + "'");
+         }
+-
+-        final BigDecimal epochSeconds = new BigDecimal(value);
+-        final long seconds = epochSeconds.longValue();
+-        final long nanos = epochSeconds.remainder(BigDecimal.ONE).movePointRight(9).longValue();
++        int dotIndex = value.indexOf('.');
++        String secondsPart = (dotIndex < 0) ? value : value.substring(0, dotIndex);
++        String nanosPart = (dotIndex < 0) ? "" : value.substring(dotIndex + 1);
++        long seconds;
++        try {
++            seconds = Long.parseLong(secondsPart);
++        } catch (NumberFormatException e) {
++            throw new IOException("Corrupted PAX header. Time field value is invalid '" + value + "'", e);
++        }
++        int nanos = 0;
++        if (!nanosPart.isEmpty()) {
++            String frac = nanosPart.length() > 9 ? nanosPart.substring(0, 9) : nanosPart;
++            while (frac.length() < 9) {
++                frac += '0';
++            }
++            try {
++                nanos = Integer.parseInt(frac);
++            } catch (NumberFormatException e) {
++                throw new IOException("Corrupted PAX header. Time field value is invalid '" + value + "'", e);
++            }
++        }
+         try {
+             return Instant.ofEpochSecond(seconds, nanos);
+         } catch (DateTimeException | ArithmeticException e) {
+-            // DateTimeException: Thrown if the instant exceeds the maximum or minimum instant.
+-            // ArithmeticException: Thrown if numeric overflow occurs.
+             throw new IOException("Corrupted PAX header. Time field value is invalid '" + value + "'", e);
+         }
+     }

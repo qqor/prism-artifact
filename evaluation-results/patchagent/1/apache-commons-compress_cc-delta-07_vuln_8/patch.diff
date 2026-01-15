@@ -1,0 +1,30 @@
+diff --git a/src/main/java/org/apache/commons/compress/archivers/examples/Expander.java b/src/main/java/org/apache/commons/compress/archivers/examples/Expander.java
+index 30649f5..ce912a7 100644
+--- a/src/main/java/org/apache/commons/compress/archivers/examples/Expander.java
++++ b/src/main/java/org/apache/commons/compress/archivers/examples/Expander.java
+@@ -506,16 +506,19 @@ public void expand(final ZipFile archive, final Path targetDirectory) throws IOE
+     }
+ 
+     private static Path createParentDirectory(Path root, Path target) throws IOException {
+-        Path relative =
+-                root.relativize(target.getParent());
+-        Path current = root.toAbsolutePath();
+-
++        Path normalizedRoot = root.toAbsolutePath().normalize();
++        Path targetParent = target.getParent().toAbsolutePath().normalize();
++        if (!targetParent.startsWith(normalizedRoot)) {
++            throw new IOException("Invalid destination (path traversal): " + targetParent);
++        }
++        Path relative = normalizedRoot.relativize(targetParent);
++        Path current = normalizedRoot;
+         for (Path p : relative) {
+             current = current.resolve(p);
+             if (Files.isSymbolicLink(current)) {
+-                current = Files.readSymbolicLink(current);
++                throw new IOException("Symlink in extraction path: " + current);
+             }
+-            if (! Files.isDirectory(current)) {
++            if (!Files.isDirectory(current)) {
+                 Files.createDirectory(current);
+             }
+         }

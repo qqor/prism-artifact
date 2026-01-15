@@ -1,0 +1,14 @@
+{
+  "project_name": "wireshark",
+  "vulnerability_identifier": "wireshark_ws-delta-02_vuln_004",
+  "source_directory": "/home/qqor/aixcc/crete/.cache/official-afc-wireshark",
+  "llm_usage": {
+    "total_cost": 0.46217600000000003,
+    "prompt_tokens": 370084,
+    "completion_tokens": 12519
+  },
+  "variant": "sound",
+  "diff": "--- a/epan/dissectors/packet-icmp.c\n+++ b/epan/dissectors/packet-icmp.c\n@@ -922,16 +922,29 @@\n \toffset += 4;\n \n \tswitch(c_type) {\n-\t\tcase ICMP_EXT_ECHO_IDENT_NAME:\n-\t\t\t/* Identification Name must be printable*/\n-\t\t\ttvb_memcpy(tvb, ident_name, offset, obj_length - 4);\n-\n-\t\t\tfor (unsigned i = 0; i < obj_length - 4; i++)\n-\t\t\t\tif (!g_ascii_isprint(ident_name[i]))\n-\t\t\t\t\tbreak;\n-\n-\t\t\tproto_tree_add_item(ext_object_tree, hf_icmp_int_ident_name_string, tvb, offset, obj_length - 4, ENC_ASCII);\n-\t\t\tbreak;\n+        case ICMP_EXT_ECHO_IDENT_NAME:\n+            /*\n+             * Identification Name must be printable, clamp to buffer\n+             */\n+            {\n+                int name_len = obj_length > 4 ? obj_length - 4 : 0;\n+                int copy_len = name_len > (ICMP_MAX_IDENT_NAME_LENGTH - 1)\n+                                    ? (ICMP_MAX_IDENT_NAME_LENGTH - 1)\n+                                    : name_len;\n+                tvb_memcpy(tvb, ident_name, offset, copy_len);\n+                /* Ensure NUL termination within buffer */\n+                ident_name[copy_len] = '\\0';\n+                /* Truncate at first non-printable character */\n+                for (int i = 0; i < copy_len; i++) {\n+                    if (!g_ascii_isprint(ident_name[i])) {\n+                        copy_len = i;\n+                        break;\n+                    }\n+                }\n+                proto_tree_add_item(ext_object_tree, hf_icmp_int_ident_name_string,\n+                                    tvb, offset, copy_len, ENC_ASCII);\n+            }\n+            break;\n \t\tcase ICMP_EXT_ECHO_IDENT_INDEX:\n \t\t\tproto_tree_add_item(ext_object_tree, hf_icmp_int_ident_index, tvb, offset, 4, ENC_NA);\n \t\t\tbreak;\n",
+  "stdout": "",
+  "stderr": ""
+}

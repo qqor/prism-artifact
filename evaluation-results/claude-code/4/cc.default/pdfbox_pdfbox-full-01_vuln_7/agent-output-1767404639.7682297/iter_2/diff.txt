@@ -1,0 +1,113 @@
+diff --git a/pdfbox/src/main/java/org/apache/pdfbox/pdmodel/font/PDCIDFont.java b/pdfbox/src/main/java/org/apache/pdfbox/pdmodel/font/PDCIDFont.java
+index 8c7600ca3..4913f7577 100644
+--- a/pdfbox/src/main/java/org/apache/pdfbox/pdmodel/font/PDCIDFont.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/pdmodel/font/PDCIDFont.java
+@@ -80,7 +80,10 @@ public abstract class PDCIDFont implements COSObjectable, PDFontLike, PDVectorFo
+         {
+             int size = wArray.size();
+             int counter = 0;
+-            while (counter < size - 1)
++            // PDFBOX-5873: Limit total entries to prevent timeout from malicious PDFs
++            int totalEntries = 0;
++            final int maxEntries = 10000;
++            while (counter < size - 1 && totalEntries < maxEntries)
+             {
+                 COSBase firstCodeBase = wArray.getObject(counter++);
+                 if (!(firstCodeBase instanceof COSNumber))
+@@ -95,13 +98,14 @@ public abstract class PDCIDFont implements COSObjectable, PDFontLike, PDVectorFo
+                     COSArray array = (COSArray) next;
+                     int startRange = firstCode.intValue();
+                     int arraySize = array.size();
+-                    for (int i = 0; i < arraySize; i++)
++                    for (int i = 0; i < arraySize && totalEntries < maxEntries; i++)
+                     {
+                         COSBase widthBase = array.getObject(i);
+                         if (widthBase instanceof COSNumber)
+                         {
+                             COSNumber width = (COSNumber) widthBase;
+                             widths.put(startRange + i, width.floatValue());
++                            totalEntries++;
+                         }
+                         else
+                         {
+@@ -129,12 +133,23 @@ public abstract class PDCIDFont implements COSObjectable, PDFontLike, PDVectorFo
+                     int startRange = firstCode.intValue();
+                     int endRange = secondCode.intValue();
+                     float width = rangeWidth.floatValue();
+-                    for (int i = startRange; i <= endRange; i++)
++                    // PDFBOX-5873: Limit range size to prevent timeout
++                    int rangeSize = endRange - startRange + 1;
++                    if (rangeSize > maxEntries - totalEntries)
+                     {
+-                        widths.put(i, width);
++                        rangeSize = maxEntries - totalEntries;
++                    }
++                    for (int i = 0; i < rangeSize; i++)
++                    {
++                        widths.put(startRange + i, width);
++                        totalEntries++;
+                     }
+                 }
+             }
++            if (totalEntries >= maxEntries)
++            {
++                LOG.warn("Width entries limit reached, some entries may be missing");
++            }
+         }
+     }
+ 
+@@ -157,14 +172,17 @@ public abstract class PDCIDFont implements COSObjectable, PDFontLike, PDVectorFo
+         COSArray w2Array = dict.getCOSArray(COSName.W2);
+         if (w2Array != null)
+         {
+-            for (int i = 0; i < w2Array.size(); i++)
++            // PDFBOX-5873: Limit total entries to prevent timeout from malicious PDFs
++            int totalEntries = 0;
++            final int maxEntries = 10000;
++            for (int i = 0; i < w2Array.size() && totalEntries < maxEntries; i++)
+             {
+                 COSNumber c = (COSNumber) w2Array.getObject(i);
+                 COSBase next = w2Array.getObject(++i);
+                 if (next instanceof COSArray)
+                 {
+                     COSArray array = (COSArray)next;
+-                    for (int j = 0; j < array.size(); j++)
++                    for (int j = 0; j < array.size() && totalEntries < maxEntries; j++)
+                     {
+                         int cid = c.intValue() + j / 3;
+                         COSNumber w1y = (COSNumber) array.getObject(j);
+@@ -172,6 +190,7 @@ public abstract class PDCIDFont implements COSObjectable, PDFontLike, PDVectorFo
+                         COSNumber v1y = (COSNumber) array.getObject(++j);
+                         verticalDisplacementY.put(cid, w1y.floatValue());
+                         positionVectors.put(cid, new Vector(v1x.floatValue(), v1y.floatValue()));
++                        totalEntries++;
+                     }
+                 }
+                 else
+@@ -181,13 +200,25 @@ public abstract class PDCIDFont implements COSObjectable, PDFontLike, PDVectorFo
+                     COSNumber w1y = (COSNumber) w2Array.getObject(++i);
+                     COSNumber v1x = (COSNumber) w2Array.getObject(++i);
+                     COSNumber v1y = (COSNumber) w2Array.getObject(++i);
+-                    for (int cid = first; cid <= last; cid++)
++                    // PDFBOX-5873: Limit range size to prevent timeout
++                    int rangeSize = last - first + 1;
++                    if (rangeSize > maxEntries - totalEntries)
+                     {
++                        rangeSize = maxEntries - totalEntries;
++                    }
++                    for (int j = 0; j < rangeSize; j++)
++                    {
++                        int cid = first + j;
+                         verticalDisplacementY.put(cid, w1y.floatValue());
+                         positionVectors.put(cid, new Vector(v1x.floatValue(), v1y.floatValue()));
++                        totalEntries++;
+                     }
+                 }
+             }
++            if (totalEntries >= maxEntries)
++            {
++                LOG.warn("Vertical displacement entries limit reached, some entries may be missing");
++            }
+         }
+     }
+ 

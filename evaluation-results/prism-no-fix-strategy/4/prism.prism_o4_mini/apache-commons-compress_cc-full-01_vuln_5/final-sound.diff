@@ -1,0 +1,27 @@
+--- a/src/main/java/org/apache/commons/compress/archivers/ArchiveEntry.java
++++ b/src/main/java/org/apache/commons/compress/archivers/ArchiveEntry.java
+@@ -72,13 +72,16 @@
+      * @throws IOException if this method detects a Zip slip.
+      * @since 1.26.0
+      */
+-    default Path resolveIn(final Path parentPath) throws IOException {
+-        final String name = getName();
+-        final Path outputFile = parentPath.resolve(name);
+-        if (!outputFile.startsWith(parentPath)) {
+-            throw new IOException(String.format("Zip slip '%s' + '%s' -> '%s'", parentPath, name, outputFile));
+-        }
+-        return outputFile;
+-    }
++ default Path resolveIn(final Path parentPath) throws IOException {
++     final String name = getName();
++     // Resolve and normalize the entry name to prevent path traversal attacks
++     final Path outputFile = parentPath.resolve(name).normalize();
++     final Path normalizedParent = parentPath.normalize();
++     if (!outputFile.startsWith(normalizedParent)) {
++         throw new IOException(String.format("Zip slip detected: '%s' -> '%s' -> '%s'",
++             normalizedParent, name, outputFile));
++     }
++     return outputFile;
++ }
+ 
+ }

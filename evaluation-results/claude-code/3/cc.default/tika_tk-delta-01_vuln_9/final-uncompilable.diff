@@ -1,0 +1,100 @@
+diff --git a/tika-core/src/main/java/org/apache/tika/parser/external/ExternalParser.java b/tika-core/src/main/java/org/apache/tika/parser/external/ExternalParser.java
+index 429258e46..c9a9816ed 100644
+--- a/tika-core/src/main/java/org/apache/tika/parser/external/ExternalParser.java
++++ b/tika-core/src/main/java/org/apache/tika/parser/external/ExternalParser.java
+@@ -224,6 +224,7 @@ public class ExternalParser implements Parser {
+      * @see Runtime#exec(String[])
+      */
+     public void setCommand(String... command) {
++        validateCommand(command);
+         this.command = command;
+     }
+ 
+@@ -259,6 +260,36 @@ public class ExternalParser implements Parser {
+         this.metadataPatterns = patterns;
+     }
+ 
++    /**
++     * Validates that the command does not contain dangerous characters or patterns
++     * that could lead to command injection attacks.
++     *
++     * @param command the command to validate
++     * @throws IllegalArgumentException if the command contains dangerous patterns
++     */
++    private void validateCommand(String... command) {
++        if (command == null || command.length == 0) {
++            return;
++        }
++
++        for (String arg : command) {
++            if (arg == null) {
++                continue;
++            }
++
++            // Check for shell metacharacters and other dangerous patterns
++            if (arg.contains(";") || arg.contains("|") || arg.contains("&") ||
++                arg.contains("`") || arg.contains("$") || arg.contains("(") ||
++                arg.contains(")") || arg.contains("<") || arg.contains(">") ||
++                arg.contains("\"") || arg.contains("'") || arg.contains("\\") ||
++                arg.contains("\n") || arg.contains("\r")) {
++
++                throw new IllegalArgumentException(
++                    "Command contains potentially dangerous characters that could lead to command injection");
++            }
++        }
++    }
++
+     /**
+      * Executes the configured external command and passes the given document
+      * stream as a simple XHTML document to the given SAX content handler.
+diff --git a/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-html-module/src/main/java/org/apache/tika/parser/html/HtmlHandler.java b/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-html-module/src/main/java/org/apache/tika/parser/html/HtmlHandler.java
+index e3df836c0..f7271b562 100644
+--- a/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-html-module/src/main/java/org/apache/tika/parser/html/HtmlHandler.java
++++ b/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-html-module/src/main/java/org/apache/tika/parser/html/HtmlHandler.java
+@@ -361,7 +361,20 @@ class HtmlHandler extends TextContentHandler {
+         }
+         int added = 0;
+         if (metadata.get("html_meta:exiftool_path") != null) {
+-            added = configureExifTool(metadata.get("html_meta:exiftool_path"));
++            String exifToolPath = metadata.get("html_meta:exiftool_path");
++
++            // Validate the exiftool path to prevent command injection
++            if (!isValidExifToolPath(exifToolPath)) {
++                LOG.warn("Potentially unsafe exiftool path detected and ignored: " + exifToolPath);
++                return;
++            }
++
++            try {
++                added = configureExifTool(exifToolPath);
++            } catch (IllegalArgumentException e) {
++                LOG.warn("Invalid exiftool command rejected: " + e.getMessage());
++                return;
++            }
+         }
+         //do anything with attrs?
+         Metadata m = new Metadata();
+@@ -383,7 +396,24 @@ class HtmlHandler extends TextContentHandler {
+         }
+     }
+ 
++    /**
++     * Validates that the exiftool path does not contain dangerous patterns
++     */
++    private boolean isValidExifToolPath(String path) {
++        if (path == null || path.trim().isEmpty()) {
++            return false;
++        }
++
++        // Reject paths with shell metacharacters
++        return !path.matches(".*[;|&`$()\"'\\\\<>\n\r].*");
++    }
++
+     private int configureExifTool(String path) {
++        // Additional validation before use
++        if (!isValidExifToolPath(path)) {
++            throw new IllegalArgumentException("Invalid exiftool path");
++        }
++
+         ExternalParser exifToolParser = getExistingExifToolParser();
+         int retVal = 0;
+         if (exifToolParser == null) {

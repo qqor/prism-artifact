@@ -1,0 +1,85 @@
+--- a/core/src/main/java/org/apache/logging/log4j/core/lookup/JndiLookup.java
++++ b/core/src/main/java/org/apache/logging/log4j/core/lookup/JndiLookup.java
+@@ -21,6 +21,7 @@
+ 
+ import org.apache.logging.log4j.core.LogEvent;
+ import org.apache.logging.log4j.core.config.plugins.Plugin;
++import org.apache.logging.log4j.util.PropertiesUtil;
+ 
+ /**
+  * Looks up keys from JNDI resources.
+@@ -28,7 +29,9 @@
+ @Plugin(name = "jndi", category = "Lookup")
+ public class JndiLookup implements StrLookup {
+ 
+-    private static boolean ENABLE_JNDI = true;
++    private static final String ENABLE_JNDI_PROP = "log4j2.enableJndiLookup";
++    public static final boolean ENABLE_JNDI = PropertiesUtil.getProperties()
++        .getBooleanProperty(ENABLE_JNDI_PROP, false);
+ 
+     /** JNDI resourcce path prefix used in a J2EE container */
+     static final String CONTAINER_JNDI_RESOURCE_PATH_PREFIX = "java:comp/env/";
+@@ -40,6 +43,9 @@
+      */
+     @Override
+     public String lookup(final String key) {
++        if (!ENABLE_JNDI) {
++            return null;
++        }
+         return lookup(null, key);
+     }
+ 
+@@ -51,7 +57,7 @@
+      */
+     @Override
+     public String lookup(final LogEvent event, final String key) {
+-        if (key == null || ! ENABLE_JNDI) {
++        if (key == null || !ENABLE_JNDI) {
+             return null;
+         }
+ 
+@@ -78,10 +84,7 @@
+         return jndiName;
+     }
+ 
+-    public static void setEnableJndi(boolean enableJndi) {
+-        ENABLE_JNDI = enableJndi;
+-    }
+-
++    // Removed setter for ENABLE_JNDI to enforce immutability via system property log4j2.enableJndiLookup
+     public static boolean isEnableJndi() {
+         return ENABLE_JNDI;
+     }
+
+--- a/core/src/main/java/org/apache/logging/log4j/core/lookup/Interpolator.java
++++ b/core/src/main/java/org/apache/logging/log4j/core/lookup/Interpolator.java
+@@ -46,12 +46,16 @@
+         final Map<String, PluginType> plugins = manager.getPlugins();
+ 
+         for (final Map.Entry<String, PluginType> entry : plugins.entrySet()) {
++            final String key = entry.getKey();
++            if ("jndi".equals(key) && !JndiLookup.isEnableJndi()) {
++                continue;
++            }
+             @SuppressWarnings("unchecked")
+             final Class<StrLookup> clazz = entry.getValue().getPluginClass();
+             try {
+-                lookups.put(entry.getKey(), clazz.newInstance());
++                lookups.put(key, clazz.newInstance());
+             } catch (final Exception ex) {
+-                LOGGER.error("Unable to create Lookup for " + entry.getKey(), ex);
++                LOGGER.error("Unable to create Lookup for " + key, ex);
+             }
+         }
+     }
+@@ -63,7 +67,9 @@
+         this.defaultLookup = new MapLookup(new HashMap<String, String>());
+         lookups.put("sys", new SystemPropertiesLookup());
+         lookups.put("env", new EnvironmentLookup());
+-        lookups.put("jndi", new JndiLookup());
++        if (JndiLookup.ENABLE_JNDI) {
++            lookups.put("jndi", new JndiLookup());
++        }
+     }
+ 
+      /**

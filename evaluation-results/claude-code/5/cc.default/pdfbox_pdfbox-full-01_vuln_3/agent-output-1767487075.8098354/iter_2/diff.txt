@@ -1,0 +1,52 @@
+diff --git a/fontbox/src/main/java/org/apache/fontbox/cmap/CMap.java b/fontbox/src/main/java/org/apache/fontbox/cmap/CMap.java
+index df50a55b1..bda57bb88 100644
+--- a/fontbox/src/main/java/org/apache/fontbox/cmap/CMap.java
++++ b/fontbox/src/main/java/org/apache/fontbox/cmap/CMap.java
+@@ -170,17 +170,21 @@ public class CMap
+      */
+     public int readCode(InputStream in) throws IOException
+     {
+-        byte[] bytes = new byte[maxCodeLength];
+-        in.read(bytes,0,minCodeLength);
+-        in.mark(maxCodeLength);
+-        for (int i = minCodeLength-1; i < maxCodeLength; i++)
++        // Ensure minimum values of 1 to prevent zero-length arrays and infinite loops
++        // when the CMap has no valid codespace ranges (maxCodeLength would be 0)
++        int effectiveMaxCodeLength = Math.max(1, maxCodeLength);
++        int effectiveMinCodeLength = Math.max(1, Math.min(minCodeLength, effectiveMaxCodeLength));
++        byte[] bytes = new byte[effectiveMaxCodeLength];
++        in.read(bytes, 0, effectiveMinCodeLength);
++        in.mark(effectiveMaxCodeLength);
++        for (int i = effectiveMinCodeLength - 1; i < effectiveMaxCodeLength; i++)
+         {
+             final int byteCount = i + 1;
+             if (codespaceRanges.stream().anyMatch(r -> r.isFullMatch(bytes, byteCount)))
+             {
+                 return toInt(bytes, byteCount);
+             }
+-            if (byteCount < maxCodeLength)
++            if (byteCount < effectiveMaxCodeLength)
+             {
+                 bytes[byteCount] = (byte)in.read();
+             }
+@@ -188,7 +192,7 @@ public class CMap
+         if (LOG.isWarnEnabled())
+         {
+             StringBuilder sb = new StringBuilder();
+-            for (int i = 0; i < maxCodeLength; ++i)
++            for (int i = 0; i < effectiveMaxCodeLength; ++i)
+             {
+                 sb.append(String.format("0x%02X (%04o) ", bytes[i], bytes[i]));
+             }
+@@ -202,9 +206,9 @@ public class CMap
+         else
+         {
+             LOG.warn("mark() and reset() not supported, {} bytes have been skipped",
+-                    maxCodeLength - 1);
++                    effectiveMaxCodeLength - 1);
+         }
+-        return toInt(bytes, minCodeLength); // Adobe Reader behavior
++        return toInt(bytes, effectiveMinCodeLength); // Adobe Reader behavior
+     }
+ 
+     /**

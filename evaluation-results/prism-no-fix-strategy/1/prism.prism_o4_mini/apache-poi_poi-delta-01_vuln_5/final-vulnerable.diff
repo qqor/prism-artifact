@@ -1,0 +1,67 @@
+--- a/poi/src/main/java/org/apache/poi/util/XMLHelper.java
++++ b/poi/src/main/java/org/apache/poi/util/XMLHelper.java
+@@ -138,10 +138,22 @@
+      */
+     public static DocumentBuilder newDocumentBuilder() {
+         try {
+-            DocumentBuilder documentBuilder = documentBuilderFactory.newDocumentBuilder();
+-            documentBuilder.setEntityResolver(XMLHelper::ignoreEntity);
+-            documentBuilder.setErrorHandler(new DocHelperErrorHandler(true));
+-            return documentBuilder;
++        // Create and configure factory to disable external entities and DTDs
++        DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
++        factory.setNamespaceAware(true);
++        factory.setValidating(false);
++        trySet(factory::setFeature, FEATURE_SECURE_PROCESSING, true);
++        trySet(factory::setFeature, "http://apache.org/xml/features/nonvalidating/load-external-dtd", false);
++        trySet(factory::setFeature, "http://xml.org/sax/features/external-general-entities", false);
++        trySet(factory::setFeature, "http://xml.org/sax/features/external-parameter-entities", false);
++        trySet(factory::setFeature, FEATURE_DISALLOW_DOCTYPE_DECL, true);
++        // Block external DTD/schema access
++        trySet(factory::setAttribute, ACCESS_EXTERNAL_DTD, "");
++        trySet(factory::setAttribute, ACCESS_EXTERNAL_SCHEMA, "");
++        DocumentBuilder documentBuilder = factory.newDocumentBuilder();
++        documentBuilder.setEntityResolver(XMLHelper::ignoreEntity);
++        documentBuilder.setErrorHandler(new DocHelperErrorHandler(true));
++        return documentBuilder;
+         } catch (ParserConfigurationException e) {
+             throw new IllegalStateException("cannot create a DocumentBuilder", e);
+         }
+@@ -153,11 +165,14 @@
+             SAXParserFactory factory = SAXParserFactory.newInstance();
+             factory.setValidating(false);
+             factory.setNamespaceAware(true);
+-            trySet(factory::setFeature, FEATURE_SECURE_PROCESSING, true);
+-            trySet(factory::setFeature, FEATURE_LOAD_DTD_GRAMMAR, false);
+-            trySet(factory::setFeature, FEATURE_LOAD_EXTERNAL_DTD, false);
+-            trySet(factory::setFeature, FEATURE_EXTERNAL_ENTITIES, false);
+-            trySet(factory::setFeature, FEATURE_DISALLOW_DOCTYPE_DECL, true);
++        // Secure processing and disable external DTD/entity loading to prevent SSRF
++        trySet(factory::setFeature, FEATURE_SECURE_PROCESSING, true);
++        trySet(factory::setFeature, FEATURE_LOAD_DTD_GRAMMAR, false);
++        trySet(factory::setFeature, FEATURE_LOAD_EXTERNAL_DTD, false);
++        trySet(factory::setFeature, FEATURE_EXTERNAL_ENTITIES, false);
++        trySet(factory::setFeature, "http://xml.org/sax/features/external-general-entities", false);
++        trySet(factory::setFeature, "http://xml.org/sax/features/external-parameter-entities", false);
++        trySet(factory::setFeature, FEATURE_DISALLOW_DOCTYPE_DECL, true);
+             return factory;
+         } catch (RuntimeException | Error re) { // NOSONAR
+             // this also catches NoClassDefFoundError, which may be due to a local class path issue
+@@ -184,8 +199,17 @@
+         XMLReader xmlReader = saxFactory.newSAXParser().getXMLReader();
+         xmlReader.setEntityResolver(XMLHelper::ignoreEntity);
+         xmlReader.setErrorHandler(new DocHelperErrorHandler(false));
++        // Secure processing and disable external DTD/entity loading to prevent SSRF
+         trySet(xmlReader::setFeature, FEATURE_SECURE_PROCESSING, true);
++        trySet(xmlReader::setFeature, FEATURE_LOAD_DTD_GRAMMAR, false);
++        trySet(xmlReader::setFeature, FEATURE_LOAD_EXTERNAL_DTD, false);
+         trySet(xmlReader::setFeature, FEATURE_EXTERNAL_ENTITIES, false);
++        trySet(xmlReader::setFeature, "http://xml.org/sax/features/external-general-entities", false);
++        trySet(xmlReader::setFeature, "http://xml.org/sax/features/external-parameter-entities", false);
++        trySet(xmlReader::setFeature, FEATURE_DISALLOW_DOCTYPE_DECL, true);
++        // Block external DTD/schema access
++        trySet(xmlReader::setProperty, ACCESS_EXTERNAL_DTD, "");
++        trySet(xmlReader::setProperty, ACCESS_EXTERNAL_SCHEMA, "");
+         Object manager = getXercesSecurityManager();
+         if (manager == null || !trySet(xmlReader::setProperty, PROPERTY_SECURITY_MANAGER, manager)) {
+             // separate old version of Xerces not found => use the builtin way of setting the property

@@ -1,0 +1,47 @@
+diff --git a/libfreerdp/crypto/x509_utils.c b/libfreerdp/crypto/x509_utils.c
+index 7a24a35..1c02138 100644
+--- a/libfreerdp/crypto/x509_utils.c
++++ b/libfreerdp/crypto/x509_utils.c
+@@ -448,21 +448,27 @@ BOOL x509_validate_subject_aternative_names(const X509* cert) {
+         GENERAL_NAME *gen_name = sk_GENERAL_NAME_value(san_names, i);
+ 
+         if (gen_name->type == GEN_DNS) {
+-			// Allocate string length + 1 for security
+-			dns_name = malloc( strlen((char *)ASN1_STRING_get0_data(gen_name->d.dNSName)) + 1);
+-
+-			if (dns_name == NULL)
+-				goto end;
+-			
+-			memcpy(dns_name, (char *)ASN1_STRING_get0_data(gen_name->d.dNSName),  
+-				ASN1_STRING_length(gen_name->d.dNSName)) ;
+-			
+-            if (!verify_san(dns_name)) {
+-				free(dns_name);
+-				result = FALSE;
+-				goto end;
+-            } else {
+-				free(dns_name);
++            {
++                ASN1_STRING *asn1 = gen_name->d.dNSName;
++                const unsigned char *data = ASN1_STRING_get0_data(asn1);
++                size_t len = (size_t)ASN1_STRING_length(asn1);
++
++                /* Allocate buffer for DNS name plus null terminator */
++                dns_name = malloc(len + 1);
++                if (!dns_name)
++                    goto end;
++
++                /* Copy DNS name and null-terminate */
++                memcpy(dns_name, data, len);
++                dns_name[len] = '\0';
++
++                if (!verify_san(dns_name))
++                {
++                    free(dns_name);
++                    result = FALSE;
++                    goto end;
++                }
++                free(dns_name);
+             }
+         }
+     }

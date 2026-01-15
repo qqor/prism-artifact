@@ -1,0 +1,14 @@
+{
+  "project_name": "wireshark",
+  "vulnerability_identifier": "wireshark_ws-full-01_vuln_010",
+  "source_directory": "/home/qqor/aixcc/crete/.cache/official-afc-wireshark",
+  "llm_usage": {
+    "total_cost": 0.8459791999999999,
+    "prompt_tokens": 560196,
+    "completion_tokens": 52219
+  },
+  "variant": "sound",
+  "diff": "--- a/epan/dissectors/packet-netbios.c\n+++ b/epan/dissectors/packet-netbios.c\n@@ -687,10 +687,13 @@\n     proto_item *tf;\n \tuint8_t flag;\n \tstatic const char hex_digits[16] = {'0','1','2','3','4','5','6','7','8','9','a','b','c','d','e','f'};\n-\tuint8_t *signature;\n-\tuint8_t byte;\n-\tint i = 0;\n-\tint index = 0;\n+    uint8_t *signature;\n+    /* stack buffer large enough for hex of the larger of NB_SIZE_HMAC/TMAC */\n+    static char signature_buffer[NB_SIZE_HMAC * 2 + 1];\n+    int sig_len;\n+    uint8_t byte;\n+    int i = 0;\n+    int index = 0;\n \n     if (!tree)\n         return 0;\n@@ -703,20 +706,17 @@\n \tflag = tvb_get_uint8(tvb, offset + NB_DATA1);\n \n \t/* Allocate buffer for signature field */\n-\tif (flag & 0x80) {\n-\t\tsignature = g_malloc( NB_SIZE_HMAC + 1);\n-\t} else {\n-\t\tsignature = g_malloc( NB_SIZE_TMAC + 1);\n-\t}\n-\n-\tif (signature == NULL)\n-\t\treturn 0;\n+    /* determine how many raw bytes we have, but use stack buffer */\n+    sig_len = (flag & 0x80) ? NB_SIZE_HMAC : NB_SIZE_TMAC;\n+    signature = (uint8_t *)signature_buffer;\n+    /* no heap allocation, so nothing to fail-check here */\n \n     proto_tree_add_item(ttree, hf_netb_trace_id, tvb, offset + NB_DATA2, 2, ENC_BIG_ENDIAN);\n     proto_tree_add_item(ttree, hf_netb_trace_timestamp, tvb, offset + NB_XMIT_CORL, 4, ENC_BIG_ENDIAN);\n     proto_tree_add_item(ttree, hf_netb_trace_reason, tvb, offset + NB_RMT_SES, 1, ENC_NA);\n     proto_tree_add_item(ttree, hf_netb_trace_initiator, tvb, offset + NB_INIT_NAME, 16, ENC_ASCII | ENC_NA);\n-    proto_tree_add_item(ttree, hf_netb_trace_signature, tvb, offset + NB_SIGNATURE, 8, ENC_NA);\n+    /* show raw signature bytes (sig_len bytes) */\n+    proto_tree_add_item(ttree, hf_netb_trace_signature, tvb, offset + NB_SIGNATURE, sig_len, ENC_NA);\n \n \t/* Convert signature field to a string */\n \twhile ( tvb_offset_exists(tvb, offset + NB_SIGNATURE + i) ) {\n@@ -732,7 +732,7 @@\n \t\n \tproto_tree_add_string(ttree, hf_netb_trace_signature, tvb, offset + NB_SIGNATURE, i - 1, signature);\n \n-\tfree(signature);\n+    /* stack buffer; no free needed */\n \n \treturn 0;\n }\n",
+  "stdout": "",
+  "stderr": ""
+}

@@ -1,0 +1,74 @@
+
+================================================================================
+Response 1
+================================================================================
+Let me examine the HtmlHandler.java file since it contains the `handleDataURIScheme` method mentioned in the stack trace:
+
+================================================================================
+Response 2
+================================================================================
+Now I can see the vulnerability. The issue is in the `handleDataURIScheme` method which reads a path from HTML metadata (`html_meta:exiftool_path`) and passes it directly to the `configureExifTool` method, which then sets it as the command to be executed via `ExternalParser.setCommand()`. This allows an attacker to inject arbitrary OS commands via a crafted HTML document.
+
+Looking at the code:
+1. Line 363-365: `if (metadata.get("html_meta:exiftool_path") != null) { added = configureExifTool(metadata.get("html_meta:exiftool_path")); }`
+2. Line 405: `exifToolParser.setCommand(path, "${INPUT}");` - This passes the attacker-controlled `path` directly to the command
+
+The fix should remove this dangerous functionality that allows HTML metadata to control what external command gets executed. Let me create a patch:
+
+================================================================================
+Response 3
+================================================================================
+Now let me also remove the unused methods `configureExifTool`, `resetExifTool`, and `getExistingExifToolParser` as well as the unused imports that were supporting this vulnerable functionality:
+
+================================================================================
+Response 4
+================================================================================
+Now let me remove the unused imports:
+
+================================================================================
+Response 5
+================================================================================
+Now let me remove the unused JPEG constant since it was only used by the removed methods:
+
+================================================================================
+Response 6
+================================================================================
+The patch has been applied. Let me verify the final state of the file:
+
+================================================================================
+Response 7
+================================================================================
+The patch has been successfully applied. Here's a summary of the changes made to fix the OS Command Injection vulnerability:
+
+## Summary of the Fix
+
+**File Modified:** `tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-html-module/src/main/java/org/apache/tika/parser/html/HtmlHandler.java`
+
+### Vulnerability Description
+The `handleDataURIScheme()` method was reading a path from HTML metadata (`html_meta:exiftool_path`) and passing it directly to `configureExifTool()`, which would then set it as an external command to be executed via `ExternalParser.setCommand()`. An attacker could craft a malicious HTML document with a specially crafted `exiftool_path` metadata value that would be executed as an OS command.
+
+### Changes Made
+
+1. **Removed the vulnerable code block** in `handleDataURIScheme()` that read attacker-controlled metadata and configured an external parser with it:
+   ```java
+   // REMOVED:
+   int added = 0;
+   if (metadata.get("html_meta:exiftool_path") != null) {
+       added = configureExifTool(metadata.get("html_meta:exiftool_path"));
+   }
+   // ... and the finally block calling resetExifTool(added)
+   ```
+
+2. **Removed three vulnerable helper methods**:
+   - `configureExifTool(String path)` - allowed arbitrary command execution
+   - `resetExifTool(int added)` - cleanup method no longer needed
+   - `getExistingExifToolParser()` - helper method no longer needed
+
+3. **Removed unused imports**:
+   - `org.apache.tika.parser.Parser`
+   - `org.apache.tika.parser.external.CompositeExternalParser`
+   - `org.apache.tika.parser.external.ExternalParser`
+
+4. **Removed the unused `JPEG` constant** (`private static final MediaType JPEG = MediaType.image("jpeg")`)
+
+The fix removes the ability for HTML documents to control which external commands are executed, thereby eliminating the OS Command Injection vulnerability.

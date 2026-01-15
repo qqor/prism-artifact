@@ -1,0 +1,58 @@
+
+================================================================================
+Response 1
+================================================================================
+Let me find the source directory first:
+
+================================================================================
+Response 2
+================================================================================
+Now I can see the issue. Let me read more context around the `dissect_ber_GeneralString` function to understand the full picture:
+
+================================================================================
+Response 3
+================================================================================
+Now I understand the bug. Let me analyze it:
+
+1. In `try_dissect_unknown_ber` (line 825), `name_string` is declared as `char name_string[80]` - a buffer of 80 bytes.
+
+2. At line 935, `dissect_ber_GeneralString` is called with `name_string` and `sizeof(name_string)` (80).
+
+3. In `dissect_ber_GeneralString` (lines 3174-3199):
+   - `tvb_len` is read as `int8_t` from the tvb at line 3188: `tvb_len = tvb_get_uint8(tvb, offset);`
+   - At line 3194: `name_string[tvb_len] = '\0';`
+
+4. The problem: `tvb_len` is declared as `int8_t` (signed 8-bit), but `tvb_get_uint8` returns an unsigned 8-bit value. When the value read is >= 128 (e.g., 0xFF = 255), it gets interpreted as a negative number when stored in `int8_t` (e.g., -1). Then `name_string[tvb_len]` becomes `name_string[-1]`, which writes before the buffer - a stack buffer underflow!
+
+The crash log confirms this:
+- "Memory access at offset 159 underflows this variable" - the `name_string` is at offset 160, and the write is at offset 159 (one byte before).
+- The fuzz input contains `0xff` bytes which when interpreted as signed `int8_t` is -1.
+
+The fix is to change `tvb_len` from `int8_t` to `unsigned` (or `uint8_t`) and also add a proper bounds check to prevent overflow.
+
+================================================================================
+Response 4
+================================================================================
+The patch has been applied. Here's a summary of the fix:
+
+## Bug Analysis
+
+The AddressSanitizer detected a **stack-buffer-underflow** in `dissect_ber_GeneralString` at line 3194 of `packet-ber.c`.
+
+### Root Cause
+
+1. **Signed/Unsigned Type Mismatch**: The variable `tvb_len` was declared as `int8_t` (signed 8-bit integer), but `tvb_get_uint8()` returns an unsigned 8-bit value (0-255).
+
+2. **Negative Index**: When the tvb contains a value >= 128 (e.g., 0xFF = 255), storing it in `int8_t` causes it to be interpreted as a negative number (e.g., -1). Using this as an array index (`name_string[tvb_len]`) writes before the buffer's start address.
+
+3. **Incorrect Length Source**: The original code read the length from the wrong offset in the tvb (`tvb_get_uint8(tvb, offset)`) instead of getting the actual length of the output tvbuff.
+
+### Fix Applied
+
+1. **Changed type**: `int8_t tvb_len` → `unsigned tvb_len` to properly handle values 0-255+
+
+2. **Correct length source**: Changed from `tvb_get_uint8(tvb, offset)` to `tvb_reported_length(out_tvb)` to get the actual length of the decoded string data
+
+3. **Proper bounds checking**: The null-terminator is now placed correctly within bounds in both cases:
+   - If `tvb_len >= name_len`: Copy `name_len-1` bytes and null-terminate at `name_string[name_len-1]`
+   - If `tvb_len < name_len`: Copy `tvb_len` bytes and null-terminate at `name_string[tvb_len]`

@@ -1,0 +1,35 @@
+--- a/tika-app/src/main/java/org/apache/tika/cli/TikaUntar.java
++++ b/tika-app/src/main/java/org/apache/tika/cli/TikaUntar.java
+@@ -17,6 +17,7 @@
+ package org.apache.tika.cli;
+ 
+ import java.io.IOException;
++import org.apache.tika.exception.TikaException;
+ import java.io.InputStream;
+ import java.nio.file.Files;
+ import java.nio.file.Path;
+@@ -30,7 +31,7 @@
+  */
+ public class TikaUntar {
+ 
+-    public static void main(String[] args) throws IOException {
++    public static void main(String[] args) throws IOException, TikaException {
+         Path inputFile = Paths.get(args[0]);
+         Path extractDir = Paths.get(args[1]);
+         try (InputStream is = Files.newInputStream(inputFile);
+@@ -41,8 +42,13 @@
+             while (tae != null) {
+                 if (tae.isFile()) {
+                     Path target = extractDir.resolve(tae.getName()).normalize();
+-                    if (!Files.isDirectory(target.getParent())) {
+-                        Files.createDirectories(target.getParent());
++                    // Prevent path traversal by ensuring the target is within the extractDir
++                    if (!target.startsWith(extractDir)) {
++                        throw new TikaException("Tar entry is outside of extraction directory: " + tae.getName());
++                    }
++                    Path parent = target.getParent();
++                    if (parent != null && !Files.isDirectory(parent)) {
++                        Files.createDirectories(parent);
+                     }
+                     Files.write(target, tais.readAllBytes());
+                 }

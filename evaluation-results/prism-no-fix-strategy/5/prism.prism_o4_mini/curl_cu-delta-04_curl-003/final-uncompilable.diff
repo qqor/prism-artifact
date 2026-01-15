@@ -1,0 +1,36 @@
+--- a/lib/doh.c
++++ b/lib/doh.c
+@@ -1402,8 +1402,11 @@
+ void Curl_doh_close(struct Curl_easy *data)
+ {
+   struct doh_probes *doh = data->req.doh;
+-  if(doh && data->multi) {
+-    struct Curl_easy *probe_data;
++  if(!doh || !data->multi)
++    return;
++  if(doh->pending == 0)
++    return;
++  struct Curl_easy *probe_data;
+     curl_off_t mid;
+     size_t slot;
+     for(slot = 0; slot < DOH_SLOT_COUNT; slot++) {
+@@ -1436,6 +1439,7 @@
+     curl_slist_free_all(doh->req_hds);
+     data->req.doh->req_hds = NULL;
+     Curl_safefree(data->req.doh);
++    data->req.doh = NULL;
+   }
+ }
+ 
+
+--- a/lib/request.c
++++ b/lib/request.c
+@@ -105,7 +105,7 @@
+     (void)req_flush(data);
+   Curl_client_reset(data);
+ #ifndef CURL_DISABLE_DOH
+-  Curl_doh_close(data);
++  Curl_doh_cleanup(data);
+ #endif
+   return CURLE_OK;
+ }

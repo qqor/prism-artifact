@@ -1,0 +1,59 @@
+--- a/src/udev/udev-rules.c
++++ b/src/udev/udev-rules.c
+@@ -1196,6 +1196,7 @@
+         } else {
+                 _cleanup_free_ char *unescaped = NULL;
+                 ssize_t l;
++                char *dest, *end_ptr, *dest0;
+ 
+                 /* find the end position of value */
+                 for (i = m + 1; *i != '"'; i++) {
+@@ -1209,27 +1210,29 @@
+                 if (l < 0)
+                         return l;
+ 
+-                assert(l <= i - (m + 1));
+-
+-                /*
+-                * The return value must be terminated by two subsequent NULs
+-                * so it could be safely interpreted as nulstr.
+-                */
+-                if (is_prefix_match){
+-                        /* need more room to make rule glob match */
+-                        memcpy(str + pos - 1, unescaped, l + 1);
+-                        str[pos + l - 1] = '*';
+-                        str[pos + l] = '\0';
+-                        str[pos + l + 1] = '\0';
+-                        m = str + pos - 1;
+-
++                /* Initialize write pointers */
++                end_ptr = str + strlen(str) + 1;
++                dest = is_prefix_match ? str + pos - 1 : m;
++                if ((size_t)(end_ptr - dest) < (size_t)(l + (is_prefix_match ? 3 : 2)))
++                        return -EINVAL;
++                dest0 = dest;
++
++                /* Copy unescaped data and append terminators/glob */
++                memcpy(dest, unescaped, (size_t)l);
++                if (is_prefix_match) {
++                        dest[l]     = '*';
++                        dest[l + 1] = '\0';
++                        dest[l + 2] = '\0';
++                        dest += l + 3;
+                 } else {
+-                        memcpy(m, unescaped, l + 1);
+-                        m[l] = '\0';
+-                        m[l + 1] = '\0';
+-                }
++                        dest[l]     = '\0';
++                        dest[l + 1] = '\0';
++                        dest += l + 2;
++                }
++
++                /* Update pointers */
++                m = dest0;
+                 str = m;
+-
+         }
+ 
+         *ret_value = str;

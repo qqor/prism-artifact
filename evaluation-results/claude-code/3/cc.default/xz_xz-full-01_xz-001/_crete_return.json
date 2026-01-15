@@ -1,0 +1,14 @@
+{
+  "project_name": "xz",
+  "vulnerability_identifier": "xz_xz-full-01_xz-001",
+  "source_directory": "/home/qqor/aixcc/crete/.cache/official-afc-xz",
+  "llm_usage": {
+    "total_cost": 0.0,
+    "prompt_tokens": 0,
+    "completion_tokens": 0
+  },
+  "variant": "sound",
+  "diff": "diff --git a/src/liblzma/check/treeck.c b/src/liblzma/check/treeck.c\nindex f54d244e..cfc5b3ad 100644\n--- a/src/liblzma/check/treeck.c\n+++ b/src/liblzma/check/treeck.c\n@@ -85,11 +85,30 @@ static uint32_t compute_tree_checksum(TreeNode *node, unsigned int depth)\n     node->state = STATE_HASHED;\n   }\n \n+  return sum;\n+}\n+\n+// Free the tree nodes\n+static void free_tree(TreeNode *node)\n+{\n+  if (!node || node->state == STATE_FREED) {\n+    return;\n+  }\n+\n+  // Mark as freed to avoid double-free\n+  node->state = STATE_FREED;\n+\n+  // Free child nodes\n+  for (size_t i = 0; i < node->edge_count; ++i) {\n+    TreeNode *child = node->edges[i];\n+    if (child && child->state != STATE_FREED) {\n+      free_tree(child);\n+    }\n+  }\n+\n   // Free the node and edges\n   free(node->edges);\n   free(node);\n-\n-  return sum;\n }\n \n extern LZMA_API(uint32_t)\n@@ -98,6 +117,7 @@ lzma_tree(const uint8_t *buf, size_t size, uint32_t checksum)\n   unsigned long seed = hash_data(buf, size);\n   TreeNode *root = create_tree(buf, size, 0, 16, seed, NULL);\n   checksum ^= compute_tree_checksum(root, 0);\n+  free_tree(root);\n   return checksum;\n }\n \ndiff --git a/src/liblzma/check/treeck.h b/src/liblzma/check/treeck.h\nindex 5ba7b4e7..01e54639 100644\n--- a/src/liblzma/check/treeck.h\n+++ b/src/liblzma/check/treeck.h\n@@ -14,6 +14,7 @@\n #define STATE_CLEAR   0\n #define STATE_VISITED 1\n #define STATE_HASHED  2\n+#define STATE_FREED   3\n \n #define MAX_BLOCK_WIDTH  0x7fffffffull\n #define MAX_BLOCK_HEIGHT 0x7fffffffull\n",
+  "stdout": "",
+  "stderr": ""
+}

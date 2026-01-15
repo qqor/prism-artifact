@@ -1,0 +1,41 @@
+--- a/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-xml-module/src/main/java/org/apache/tika/parser/xliff/XLIFF12Parser.java
++++ b/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-xml-module/src/main/java/org/apache/tika/parser/xliff/XLIFF12Parser.java
+@@ -21,9 +21,12 @@
+ import java.util.Collections;
+ import java.util.Set;
+ 
+-import javax.xml.parsers.ParserConfigurationException;
+-import javax.xml.parsers.SAXParser;
+-import javax.xml.parsers.SAXParserFactory;
++ import javax.xml.parsers.ParserConfigurationException;
++ import javax.xml.parsers.SAXParser;
++ import javax.xml.parsers.SAXParserFactory;
++ import javax.xml.XMLConstants;
++ import org.xml.sax.SAXNotRecognizedException;
++ import org.xml.sax.SAXNotSupportedException;
+ 
+ import org.apache.commons.io.input.CloseShieldInputStream;
+ import org.xml.sax.ContentHandler;
+@@ -77,9 +80,19 @@
+ 
+     private static void _parse(InputStream is, DefaultHandler contentHandler,
+                                ParseContext context) throws SAXException, IOException {
+-        SAXParserFactory factory = SAXParserFactory.newInstance();
+-        factory.setNamespaceAware(true);
+-        SAXParser parser = null;
++         SAXParserFactory factory = SAXParserFactory.newInstance();
++         factory.setNamespaceAware(true);
++         // Secure processing: disable external entities to prevent SSRF/XXE
++         try {
++             factory.setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true);
++             factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
++             factory.setFeature("http://xml.org/sax/features/external-general-entities", false);
++             factory.setFeature("http://xml.org/sax/features/external-parameter-entities", false);
++             factory.setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false);
++         } catch (ParserConfigurationException | SAXNotRecognizedException | SAXNotSupportedException e) {
++             // ignore if unsupported
++         }
++         SAXParser parser = null;
+         try {
+             parser = factory.newSAXParser();
+         } catch (ParserConfigurationException e) {

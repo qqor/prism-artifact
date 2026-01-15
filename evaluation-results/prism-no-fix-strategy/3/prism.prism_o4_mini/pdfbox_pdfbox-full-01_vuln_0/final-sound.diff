@@ -1,0 +1,36 @@
+--- a/xmpbox/src/main/java/org/apache/xmpbox/xml/DomXmpParser.java
++++ b/xmpbox/src/main/java/org/apache/xmpbox/xml/DomXmpParser.java
+@@ -43,6 +43,12 @@
+ import org.apache.xmpbox.schema.XMPSchema;
+ import org.apache.xmpbox.schema.XmpSchemaException;
+ import org.apache.xmpbox.type.AbstractField;
++
++import org.xml.sax.EntityResolver;
++import org.xml.sax.InputSource;
++import java.io.StringReader;
++import org.xml.sax.SAXException;
++import java.io.IOException;
+ import org.apache.xmpbox.type.AbstractSimpleProperty;
+ import org.apache.xmpbox.type.AbstractStructuredType;
+ import org.apache.xmpbox.type.ArrayProperty;
+@@ -79,8 +85,20 @@
+         try
+         {
+             DocumentBuilderFactory dbFactory = DocumentBuilderFactory.newInstance();
++            dbFactory.setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true);
++            dbFactory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
++            dbFactory.setFeature("http://xml.org/sax/features/external-general-entities", false);
++            dbFactory.setFeature("http://xml.org/sax/features/external-parameter-entities", false);
++            dbFactory.setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false);
+             dbFactory.setNamespaceAware(true);
+             dBuilder = dbFactory.newDocumentBuilder();
++            dBuilder.setEntityResolver(new EntityResolver() {
++                @Override
++                public InputSource resolveEntity(String publicId, String systemId) throws SAXException, IOException {
++                    // Prevent external entity resolution to mitigate SSRF/XXE
++                    return new InputSource(new StringReader(""));
++                }
++            });
+             nsFinder = new NamespaceFinder();
+         }
+         catch (ParserConfigurationException e)

@@ -1,0 +1,38 @@
+diff --git a/src/cmsps2.c b/src/cmsps2.c
+index cb2db85..1738540 100644
+--- a/src/cmsps2.c
++++ b/src/cmsps2.c
+@@ -753,11 +753,13 @@ int EmitCIEBasedABC(cmsIOHANDLER* m, cmsFloat64Number* Matrix, cmsToneCurve** Cu
+ static
+ int EmitCIEBasedDEF(cmsIOHANDLER* m, cmsPipeline* Pipeline, cmsUInt32Number Intent, cmsCIEXYZ* BlackPoint)
+ {
++    // Prevent null dereference if pipeline or elements is missing
++    if (Pipeline == NULL || Pipeline->Elements == NULL) return 0;
++
+     const char* PreMaj;
+     const char* PostMaj;
+     const char* PreMin, *PostMin;
+     cmsStage* mpe;
+-        
+     mpe = Pipeline->Elements;
+ 
+     switch (cmsStageInputChannels(mpe)) {
+@@ -783,7 +785,7 @@ int EmitCIEBasedDEF(cmsIOHANDLER* m, cmsPipeline* Pipeline, cmsUInt32Number Inte
+ 
+     _cmsIOPrintf(m, "<<\n");
+ 
+-    if (cmsStageType(mpe) == cmsSigCurveSetElemType) {
++    if (mpe && cmsStageType(mpe) == cmsSigCurveSetElemType) {
+ 
+         _cmsIOPrintf(m, "/DecodeDEF [ ");
+         EmitNGamma(m, cmsStageOutputChannels(mpe), _cmsStageGetPtrToCurveSet(mpe));
+@@ -792,7 +794,8 @@ int EmitCIEBasedDEF(cmsIOHANDLER* m, cmsPipeline* Pipeline, cmsUInt32Number Inte
+         mpe = mpe ->Next;
+     }
+ 
+-    if (cmsStageType(mpe) == cmsSigCLutElemType) {
++    // Ensure mpe is valid before checking its type
++    if (mpe && cmsStageType(mpe) == cmsSigCLutElemType) {
+ 
+             _cmsIOPrintf(m, "/Table ");
+             WriteCLUT(m, mpe, PreMaj, PostMaj, PreMin, PostMin, FALSE, (cmsColorSpaceSignature) 0);

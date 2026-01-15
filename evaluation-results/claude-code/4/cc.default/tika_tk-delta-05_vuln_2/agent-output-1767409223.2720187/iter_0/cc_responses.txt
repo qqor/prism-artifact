@@ -1,0 +1,49 @@
+
+================================================================================
+Response 1
+================================================================================
+Let me read the TikaCLI.java file to find the `FileEmbeddedDocumentExtractor.parseEmbedded` method that's mentioned in the crash at line 1111:
+
+================================================================================
+Response 2
+================================================================================
+Now I can see the issue. The `getOutputFile` method at line 1128 tries to sanitize the filename, but the path traversal attack is still possible because after URL decoding on line 1156, the path can still contain `../` sequences. The issue is:
+
+1. `FilenameUtils.normalize(name)` is called on line 1141 BEFORE URL decoding
+2. URL decoding happens on line 1156 AFTER normalization
+3. So an attacker can URL-encode `../` to bypass the normalization
+
+Additionally, even if the name doesn't contain `../` after processing, the final output file path is created from `extractDir` + `normalizedName`, but there's no check to ensure the resulting canonical path stays within `extractDir`.
+
+Let me see the full method and understand the flow better:
+
+================================================================================
+Response 3
+================================================================================
+Now I have a clear understanding. The fix needs to:
+
+1. URL decode BEFORE normalizing (to handle encoded `../` sequences)
+2. Add a final check to ensure the canonical path of the output file stays within `extractDir`
+
+Let me create the fix:
+
+================================================================================
+Response 4
+================================================================================
+The patch has been applied successfully. Here's a summary of the fix:
+
+## Summary of the Path Traversal Fix
+
+The vulnerability was in the `getOutputFile` method in `TikaCLI.java` where a malicious embedded file name containing path traversal sequences (like `../../`) could write files outside the intended extraction directory.
+
+### Changes Made:
+
+1. **Moved URL decoding BEFORE normalization** (lines 1141-1146): The original code normalized the path first, then URL-decoded it. This allowed attackers to bypass the path normalization by URL-encoding path traversal sequences (e.g., `%2e%2e%2f` for `../`). Now URL decoding happens first, so `FilenameUtils.normalize()` can properly detect and handle traversal sequences.
+
+2. **Added canonical path validation** (lines 1162-1182): After constructing the output file path, the fix validates that the canonical path of the output file is actually within the `extractDir` by:
+   - Getting the canonical (resolved) paths of both `extractDir` and `outputFile`
+   - Checking that `outputFile`'s path starts with `extractDir`'s path
+   - If path traversal is detected, falling back to using only the base filename (extracted via `FilenameUtils.getName()`)
+   - Including proper error handling in case canonical path resolution fails
+
+This defense-in-depth approach ensures that even if some edge case bypasses the normalization, the canonical path check will catch any attempt to write outside the extraction directory.

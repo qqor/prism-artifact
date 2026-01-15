@@ -1,0 +1,14 @@
+{
+  "project_name": "lcms",
+  "vulnerability_identifier": "lcms_cm-full-01_lcms-002",
+  "source_directory": "/home/qqor/crete/.cache/official-afc-little-cms",
+  "llm_usage": {
+    "total_cost": 0.0,
+    "prompt_tokens": 0,
+    "completion_tokens": 0
+  },
+  "variant": "sound",
+  "diff": "diff --git a/src/cmsvirt.c b/src/cmsvirt.c\nindex 4439ff7..dd81fe1 100644\n--- a/src/cmsvirt.c\n+++ b/src/cmsvirt.c\n@@ -1070,6 +1070,7 @@ cmsHPROFILE CreateNamedColorDevicelink(cmsHTRANSFORM xform)\n     cmsHPROFILE hICC = NULL;\n     cmsUInt32Number i, nColors;\n     cmsNAMEDCOLORLIST *nc2 = NULL, *Original = NULL;\n+    cmsUInt16Number In[1];\n \n     // Create an empty placeholder\n     hICC = cmsCreateProfilePlaceholder(v->ContextID);\n@@ -1093,14 +1094,12 @@ cmsHPROFILE CreateNamedColorDevicelink(cmsHTRANSFORM xform)\n     // Colorant count now depends on the output space\n     nc2 ->ColorantCount = cmsPipelineOutputChannels(v ->Lut);\n \n-    // Make sure we have proper formatters\n-    cmsChangeBuffersFormat(xform, TYPE_NAMED_COLOR_INDEX,\n-        FLOAT_SH(0) | COLORSPACE_SH(_cmsLCMScolorSpace(v ->ExitColorSpace))\n-        | BYTES_SH(2) | CHANNELS_SH(cmsChannelsOfColorSpace(v ->ExitColorSpace)));\n-\n-    // Apply the transfor to colorants.\n+    // Apply the transform to colorants using cmsPipelineEval16 directly.\n+    // This avoids formatter issues with cmsDoTransform when the input\n+    // format may not match what the transform expects.\n     for (i=0; i < nColors; i++) {\n-        cmsDoTransform(xform, &i, nc2 ->List[i].DeviceColorant, 1);\n+        In[0] = (cmsUInt16Number) i;\n+        cmsPipelineEval16(In, nc2 ->List[i].DeviceColorant, v ->Lut);\n     }\n \n     if (!cmsWriteTag(hICC, cmsSigNamedColor2Tag, (void*) nc2)) goto Error;\n",
+  "stdout": "",
+  "stderr": ""
+}

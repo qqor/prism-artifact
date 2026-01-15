@@ -1,0 +1,50 @@
+diff --git a/pdfbox/src/main/java/org/apache/pdfbox/filter/CCITTFaxDecoderStream.java b/pdfbox/src/main/java/org/apache/pdfbox/filter/CCITTFaxDecoderStream.java
+index 5f01e4ce8..48cb3d709 100644
+--- a/pdfbox/src/main/java/org/apache/pdfbox/filter/CCITTFaxDecoderStream.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/filter/CCITTFaxDecoderStream.java
+@@ -74,6 +74,11 @@ final class CCITTFaxDecoderStream extends FilterInputStream {
+ 
+     private int lastChangingElement = 0;
+ 
++    // PDFBOX-5765: Limit total bits read to prevent infinite loops with malformed data
++    private static final int MAX_TOTAL_BITS_MULTIPLIER = 100;
++    private int totalBitsRead = 0;
++    private final int maxTotalBitsPerRow;
++
+     /**
+      * Creates a CCITTFaxDecoderStream.
+      * This constructor may be used for CCITT streams embedded in PDF files,
+@@ -98,6 +103,10 @@ final class CCITTFaxDecoderStream extends FilterInputStream {
+         changesReferenceRow = new int[columns + 2];
+         changesCurrentRow = new int[columns + 2];
+ 
++        // PDFBOX-5765: Set maximum bits to read per row to prevent infinite loops
++        // This is a generous limit that should never be reached with valid data
++        this.maxTotalBitsPerRow = Math.max(columns * MAX_TOTAL_BITS_MULTIPLIER, 100000);
++
+         switch (type) {
+             case TIFFExtension.COMPRESSION_CCITT_MODIFIED_HUFFMAN_RLE:
+                 optionByteAligned = byteAligned;
+@@ -305,6 +314,9 @@ final class CCITTFaxDecoderStream extends FilterInputStream {
+     }
+ 
+     private void decodeRow() throws IOException {
++        // PDFBOX-5765: Reset bit counter at start of each row
++        totalBitsRead = 0;
++
+         switch (type) {
+             case TIFFExtension.COMPRESSION_CCITT_MODIFIED_HUFFMAN_RLE:
+                 decodeRowType2();
+@@ -407,6 +419,12 @@ final class CCITTFaxDecoderStream extends FilterInputStream {
+     int bufferPos = -1;
+ 
+     private boolean readBit() throws IOException {
++        // PDFBOX-5765: Check for excessive bits read to detect infinite loops
++        totalBitsRead++;
++        if (totalBitsRead > maxTotalBitsPerRow) {
++            throw new EOFException("Maximum bits per row exceeded - possible malformed or malicious CCITT data");
++        }
++
+         if (bufferPos < 0 || bufferPos > 7) {
+             buffer = in.read();
+ 

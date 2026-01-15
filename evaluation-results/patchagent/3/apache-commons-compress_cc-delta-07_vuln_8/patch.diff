@@ -1,0 +1,32 @@
+diff --git a/src/main/java/org/apache/commons/compress/archivers/examples/Expander.java b/src/main/java/org/apache/commons/compress/archivers/examples/Expander.java
+index 30649f5..c9c7658 100644
+--- a/src/main/java/org/apache/commons/compress/archivers/examples/Expander.java
++++ b/src/main/java/org/apache/commons/compress/archivers/examples/Expander.java
+@@ -477,8 +477,12 @@ public void expand(final ZipFile archive, final Path targetDirectory) throws IOE
+             if (zae.isUnixSymlink()) {
+                 String targetName = IOUtils.toString(archive.getInputStream(zae),
+                         StandardCharsets.UTF_8);
+-                Path link = targetDirectory.resolve(zae.getName());
+-                Path target = targetDirectory.resolve(targetName);
++                Path link = zae.resolveIn(targetDirectory);
++                Path target = targetDirectory.resolve(targetName).normalize();
++                if (!target.startsWith(targetDirectory)) {
++                    throw new IOException(String.format("Symlink target outside '%s' -> '%s'",
++                            targetDirectory, target));
++                }
+                 Path parent = createParentDirectory(targetDirectory, link);
+ 
+                 if (!Files.isSameFile(link.getParent(), parent)) {
+@@ -488,11 +492,7 @@ public void expand(final ZipFile archive, final Path targetDirectory) throws IOE
+                     Files.createSymbolicLink(link, target);
+                 }
+             } else if (! zae.isDirectory()) {
+-                Path target = targetDirectory.resolve(zae.getName()).normalize();
+-                if (!target.startsWith(targetDirectory)) {
+-                    throw new IOException(String.format("Zip slip '%s' + '%s' -> '%s'",
+-                            targetDirectory, zae.getName(), target));
+-                }
++                Path target = zae.resolveIn(targetDirectory);
+                 Path parent = createParentDirectory(targetDirectory, target);
+                 if (! target.getParent().toAbsolutePath().normalize().equals(
+                         parent.toAbsolutePath().normalize())) {

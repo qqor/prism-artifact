@@ -1,0 +1,36 @@
+diff --git a/poi/src/main/java/org/apache/poi/hssf/record/EscherAggregate.java b/poi/src/main/java/org/apache/poi/hssf/record/EscherAggregate.java
+index 67beb2120..c3b08e32b 100644
+--- a/poi/src/main/java/org/apache/poi/hssf/record/EscherAggregate.java
++++ b/poi/src/main/java/org/apache/poi/hssf/record/EscherAggregate.java
+@@ -1024,10 +1024,18 @@ public final class EscherAggregate extends AbstractEscherHolderRecord {
+         }
+ 
+         // Decode the shapes
+-        Iterator<EscherRecord> shapeIter = recordFactory.parse(agg).iterator();
++        List<EscherRecord> shapes = recordFactory.parse(agg);
++        Iterator<EscherRecord> shapeIter = shapes.iterator();
+ 
+         // Associate the object records with the shapes
+-        objectRecords.forEach(or -> agg.shapeToObj.put(shapeIter.next(), or));
++        // Only associate as many object records as there are shapes to avoid NoSuchElementException
++        for (Record or : objectRecords) {
++            if (shapeIter.hasNext()) {
++                agg.shapeToObj.put(shapeIter.next(), or);
++            } else {
++                break;
++            }
++        }
+ 
+         return agg;
+     }
+@@ -1116,7 +1124,9 @@ public final class EscherAggregate extends AbstractEscherHolderRecord {
+ 
+             // Write the matching OBJ record
+             Record obj = shapeToObj.get(shapes.get(i));
+-            pos += obj.serialize(pos, data);
++            if (obj != null) {
++                pos += obj.serialize(pos, data);
++            }
+ 
+             isFirst = false;
+         }

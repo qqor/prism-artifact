@@ -1,0 +1,79 @@
+
+================================================================================
+Response 1
+================================================================================
+Looking at the crash log and the failed patch, I can see the issue:
+
+## Why the Previous Patch Failed
+
+The crash log shows a **timeout after 25 seconds** with the stack trace showing the fuzzer timeout detection code running - there's no actual stack trace of where the code is hanging. This means the previous patch failed because:
+
+1. **Wrong root cause**: The patch assumed the issue was too many rotation angles, but limiting angles to 10 doesn't prevent the actual timeout
+2. **The loop isn't the problem**: The timeout isn't caused by iterating through many angles - it's likely caused by **what happens inside the loop** for each angle (processing the text extraction with that rotation)
+3. **No timeout mechanism**: The patch didn't add any actual timeout or interrupt mechanism to stop long-running operations
+
+## The Real Problem
+
+The vulnerability is that processing text extraction with rotations can take an unbounded amount of time, especially with malicious PDFs. Each call to `stripper.writeText(document, dummy)` inside the angle loop can hang indefinitely.
+
+## New Approach: Add Total Time Budget
+
+Instead of limiting the number of angles, we need to:
+1. **Track elapsed time** during processing
+2. **Break out early** when we exceed a time budget
+3. **Apply this at the page level** since that's where the rotation processing happens
+
+Here's the new patch:
+
+```diff
+diff --git a/tools/src/main/java/org/apache/pdfbox/tools/ExtractText.java b/tools/src/main/java/org/apache/pdfbox/tools/ExtractText.java
+index 753f23c53..a5c2e5e9f 100644
+--- a/tools/src/main/java/org/apache/pdfbox/tools/ExtractText.java
++++ b/tools/src/main/java/org/apache/pdfbox/tools/ExtractText.java
+@@ -65,6 +65,9 @@ public final class ExtractText  implements Callable<Integer>
+ 
+     private static final String STD_ENCODING = "UTF-8";
+ 
++    // Maximum time in milliseconds to spend processing rotation angles per page
++    private static final long MAX_ROTATION_PROCESSING_TIME_MS = 5000;
++
+     // Expected for CLI app to write to System.out/System.err
+     @SuppressWarnings("squid:S106")
+     private final PrintStream SYSOUT;
+@@ -343,6 +346,8 @@ public final class ExtractText  implements Callable<Integer>
+                     angleCollector.setEndPage(p);
+                     angleCollector.writeText(document, new NullWriter());
+                     // rotation magic
++                    long rotationStartTime = System.currentTimeMillis();
++                    int processedAngles = 0;
+                     for (int angle : angleCollector.getAngles())
+                     {
+                         // prepend a transformation
+@@ -358,6 +363,17 @@ public final class ExtractText  implements Callable<Integer>
+                         stripper.setStartPage(p);
+                         stripper.setEndPage(p);
+                         stripper.writeText(document, dummy);
++                        processedAngles++;
++
++                        // Check if we've exceeded the time budget for rotation processing
++                        long elapsedTime = System.currentTimeMillis() - rotationStartTime;
++                        if (elapsedTime > MAX_ROTATION_PROCESSING_TIME_MS)
++                        {
++                            LOG.warn("Rotation processing exceeded time limit (" + elapsedTime +
++                                    " ms) after " + processedAngles + " angles, skipping remaining angles");
++                            break;
++                        }
+                     }
+                     stripper.setStartPage(p);
+                     stripper.setEndPage(p);
+```
+
+## Key Differences from the Failed Patch
+
+1. **Time-based instead of count-based**: Monitors actual elapsed time rather than limiting the number of angles arbitrarily
+2. **Placed after the expensive operation**: The time check happens after `writeText()`, which is the actual expensive operation
+3. **Break on timeout**: Uses `break` to exit the loop when time budget is exceeded
+4. **Reasonable time budget**: 5 seconds per page for rotation processing should be enough for legitimate PDFs while preventing timeouts from malicious ones
+5. **Progressive processing**: Processes as many angles as possible within the time budget rather than artificially limiting to 10 angles upfront
+
+This approach ensures that even if a malicious PDF causes each rotation angle processing to take a long time, we'll detect it and bail out before hitting the 25-second fuzzer timeout.

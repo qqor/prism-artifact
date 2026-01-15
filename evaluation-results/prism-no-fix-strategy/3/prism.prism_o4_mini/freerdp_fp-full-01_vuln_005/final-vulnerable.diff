@@ -1,0 +1,52 @@
+--- a/libfreerdp/core/mcs.c
++++ b/libfreerdp/core/mcs.c
+@@ -31,6 +31,10 @@
+ 
+ #include "mcs.h"
+ #include "tpdu.h"
++#include "tpkt.h"
++#include <winpr/stream.h>
++#include <freerdp/crypto/ber.h>
++#include "transport.h"
+ #include "tpkt.h"
+ #include "client.h"
+ #include "connection.h"
+@@ -902,7 +906,12 @@
+ 	UINT16 li = 0;
+ 	UINT32 calledConnectId = 0;
+ 
++	/* basic null checks */
+ 	if (!mcs || !s)
++		return FALSE;
++
++	/* ensure transport and context exist */
++	if (!mcs->transport || !transport_get_context(mcs->transport))
+ 		return FALSE;
+ 
+ 	if (!tpkt_read_header(s, &tlength))
+
+--- a/libfreerdp/core/freerdp.c
++++ b/libfreerdp/core/freerdp.c
+@@ -22,6 +22,8 @@
+ #include <freerdp/config.h>
+ 
+ #include "settings.h"
++#include "mcs.h"
++#include "transport.h"
+ 
+ #include <string.h>
+ #include <stdarg.h>
+@@ -1455,6 +1457,13 @@
+ 	rdpMcs* mcs = test_mcs_new();
+ 	WINPR_ASSERT(mcs);
+ 
++	/* guard against missing transport or context */
++	if (!mcs->transport || !transport_get_context(mcs->transport))
++	{
++		test_mcs_free(mcs);
++		return FALSE;
++	}
++
+ 	BOOL result = mcs_recv_connect_response(mcs, s);
+ 	test_mcs_free(mcs);
+ 	return result;

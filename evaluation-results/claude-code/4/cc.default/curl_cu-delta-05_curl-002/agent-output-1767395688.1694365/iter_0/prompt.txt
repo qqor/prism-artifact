@@ -1,0 +1,66 @@
+Create a patch to fix a AddressSanitizer: global-buffer-overflow bug given below and apply it to the code.
+NEVER fix files outside the source directory.
+NEVER do any git operations in or outside the source directory.
+
+Below is the crash log:
+
+<crash_log>
+==ERROR: AddressSanitizer: global-buffer-overflow on address 0x556fd0e3d240 at pc 0x556fd0bef409 bp 0x7ffe469e4630 sp 0x7ffe469e4628
+READ of size 8 at 0x556fd0e3d240 thread T0
+SCARINESS: 23 (8-byte-read-global-buffer-overflow)
+    #0 0x556fd0bef408 in ftp_state_mdtm_resp /src/curl/lib/ftp.c:2107:21
+    #1 0x556fd0bec3e6 in ftp_statemachine /src/curl/lib/ftp.c:3044:16
+    #2 0x556fd0cb86ec in Curl_pp_statemach /src/curl/lib/pingpong.c:137:14
+    #3 0x556fd0be4187 in ftp_multi_statemach /src/curl/lib/ftp.c:3109:21
+    #4 0x556fd0be42a7 in ftp_doing /src/curl/lib/ftp.c:4292:21
+    #5 0x556fd0a7ed75 in protocol_doing /src/curl/lib/multi.c:1755:14
+    #6 0x556fd0a6c124 in multi_runsingle /src/curl/lib/multi.c:2774:16
+    #7 0x556fd0a69fd5 in curl_multi_perform /src/curl/lib/multi.c:3016:16
+    #8 0x556fd0a18a6e in fuzz_handle_transfer(fuzz_data*) /src/curl_fuzzer/curl_fuzzer.cc:419:5
+    #9 0x556fd0a1608d in LLVMFuzzerTestOneInput /src/curl_fuzzer/curl_fuzzer.cc:97:3
+    #10 0x556fd08ca640 in fuzzer::Fuzzer::ExecuteCallback(unsigned char const*, unsigned long) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:614:13
+    #11 0x556fd08b58b5 in fuzzer::RunOneTest(fuzzer::Fuzzer*, char const*, unsigned long) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerDriver.cpp:327:6
+    #12 0x556fd08bb34f in fuzzer::FuzzerDriver(int*, char***, int (*)(unsigned char const*, unsigned long)) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerDriver.cpp:862:9
+    #13 0x556fd08e65f2 in main /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerMain.cpp:20:10
+    #14 0x7f55ffe5a082 in __libc_start_main (/lib/x86_64-linux-gnu/libc.so.6+0x24082) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #15 0x556fd08ada9d in _start (/out/curl_fuzzer_ftp+0x137a9d)
+
+DEDUP_TOKEN: ftp_state_mdtm_resp--ftp_statemachine--Curl_pp_statemach
+0x556fd0e3d240 is located 0 bytes after global variable 'Curl_seconds' defined in '/src/curl/lib/parsedate.c:113' (0x556fd0e3d060) of size 480
+SUMMARY: AddressSanitizer: global-buffer-overflow /src/curl/lib/ftp.c:2107:21 in ftp_state_mdtm_resp
+Shadow bytes around the buggy address:
+  0x556fd0e3cf80: 00 00 00 00 00 00 00 f9 f9 f9 f9 f9 00 00 00 00
+  0x556fd0e3d000: 00 00 00 00 00 00 00 00 f9 f9 f9 f9 00 00 00 00
+  0x556fd0e3d080: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+  0x556fd0e3d100: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+  0x556fd0e3d180: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+=>0x556fd0e3d200: 00 00 00 00 00 00 00 00[f9]f9 f9 f9 f9 f9 f9 f9
+  0x556fd0e3d280: f9 f9 f9 f9 00 00 00 00 00 00 00 f9 f9 f9 f9 f9
+  0x556fd0e3d300: 00 00 00 00 00 00 00 00 00 00 00 00 f9 f9 f9 f9
+  0x556fd0e3d380: 00 00 00 00 00 00 00 00 00 00 00 00 f9 f9 f9 f9
+  0x556fd0e3d400: 00 00 00 00 00 00 00 00 00 00 00 00 f9 f9 f9 f9
+  0x556fd0e3d480: 00 00 00 00 00 00 f9 f9 f9 f9 f9 f9 00 00 00 00
+Shadow byte legend (one shadow byte represents 8 application bytes):
+  Addressable:           00
+  Partially addressable: 01 02 03 04 05 06 07 
+  Heap left redzone:       fa
+  Freed heap region:       fd
+  Stack left redzone:      f1
+  Stack mid redzone:       f2
+  Stack right redzone:     f3
+  Stack after return:      f5
+  Stack use after scope:   f8
+  Global redzone:          f9
+  Global init order:       f6
+  Poisoned by user:        f7
+  Container overflow:      fc
+  Array cookie:            ac
+  Intra object redzone:    bb
+  ASan internal:           fe
+  Left alloca redzone:     ca
+  Right alloca redzone:    cb
+==18==ABORTING
+subprocess command returned a non-zero exit status: 1
+INFO:__main__:Running: docker run --privileged --shm-size=2g --platform linux/amd64 --rm -i -e HELPER=True -e ARCHITECTURE=x86_64 -v /home/qqor/crete/packages/python_oss_fuzz/.oss_fuzz/build/out/curl:/out -v /tmp/tmpj5jo9eo8:/testcase -t ghcr.io/aixcc-finals/base-runner:v1.3.0 reproduce curl_fuzzer_ftp -runs=100.
+
+</crash_log>

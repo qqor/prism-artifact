@@ -1,0 +1,95 @@
+
+================================================================================
+Response 1
+================================================================================
+Looking at the crash log and the failed patch, I can see the issue:
+
+## Why the Previous Patch Failed
+
+The crash log shows an infinite loop at line 247 in `Type1Lexer.readToken()`. The previous patch added a check at the end of the do-while loop to break if the buffer is exhausted. However, this approach failed because:
+
+1. **The check happens too late**: The condition `!buffer.hasRemaining()` is checked at the end of the loop, but the infinite loop likely occurs because the loop continues when `skip` remains `true` even though no progress is being made.
+
+2. **Root cause not addressed**: The real problem is that the loop can get stuck in a state where `skip` is always `true` but no actual progress is being made through the buffer. The previous patch only checked buffer exhaustion but didn't prevent the infinite looping condition.
+
+Let me first examine the file to understand the full context:
+
+================================================================================
+Response 2
+================================================================================
+Now I can see the problem clearly. Looking at the `readToken` method (lines 117-249), the issue is:
+
+## Root Cause Analysis
+
+The infinite loop occurs in the `do-while` loop at lines 120-247. The problem is:
+
+1. When `skip` is set to `true` (lines 199 or 204 for whitespace or NULL bytes)
+2. The inner `while (buffer.hasRemaining())` loop at line 123 continues
+3. If the buffer is filled with **only whitespace or NULL bytes**, the loop will:
+   - Set `skip = true` 
+   - Continue the inner while loop
+   - Never break out of the outer do-while loop
+   - Keep consuming characters but never returning a token
+
+The previous patch failed because it only checked `!buffer.hasRemaining()` at the END of the outer do-while loop, but by that time the inner while loop has already consumed all the buffer. The do-while condition is checked AFTER the loop body executes, so if `skip` is `true`, it would try to run again, but the inner while loop would immediately exit because `buffer.hasRemaining()` is false, and then the do-while would check the condition and exit. However, the real issue is that the inner while loop doesn't exit when it should - it keeps processing characters indefinitely.
+
+## New Approach
+
+The solution is to track whether we're making progress through the buffer. If we keep setting `skip = true` but never return a token and exhaust the buffer, we should break out. We need to add an iteration limit or detect when we've processed the entire buffer without finding a valid token.
+
+================================================================================
+Response 3
+================================================================================
+Perfect! Now let me create the patch file to show the complete fix:
+
+## Explanation of the New Fix
+
+### Why This Approach Works:
+
+1. **Iteration Counting**: We track the number of character reads with an `iterations` counter that increments on each loop iteration before reading a character.
+
+2. **Bounded Limit**: We set `maxIterations = buffer.remaining() + 1`, which ensures we can read through the entire buffer once, plus one extra iteration for safety. This is a reasonable upper bound because:
+   - If there's a valid token, we'll find it within one pass
+   - If the buffer contains only whitespace/NULL bytes, we'll detect the infinite loop
+
+3. **Early Exit**: When iterations exceed `maxIterations`, we log a warning and return `null`, which gracefully handles the malformed input instead of hanging forever.
+
+4. **Correct Placement**: The check happens at the START of each inner while loop iteration, BEFORE reading a character, ensuring we catch the infinite loop condition immediately.
+
+### Why the Previous Patch Failed:
+
+The previous patch only checked `!buffer.hasRemaining()` at the end of the do-while loop. This didn't work because:
+- The inner `while (buffer.hasRemaining())` naturally exits when the buffer is exhausted
+- The check was redundant and didn't prevent the infinite looping behavior
+- The root cause (unlimited iterations through skip logic) was not addressed
+
+### Patch Summary:
+
+```diff
+diff --git a/fontbox/src/main/java/org/apache/fontbox/type1/Type1Lexer.java b/fontbox/src/main/java/org/apache/fontbox/type1/Type1Lexer.java
+index 56aaf64ad..a8f9e8c9d 100644
+--- a/fontbox/src/main/java/org/apache/fontbox/type1/Type1Lexer.java
++++ b/fontbox/src/main/java/org/apache/fontbox/type1/Type1Lexer.java
+@@ -117,10 +117,18 @@ class Type1Lexer
+     private Token readToken(Token prevToken) throws IOException
+     {
+         boolean skip;
++        int maxIterations = buffer.remaining() + 1; // Allow at most one pass through the buffer
++        int iterations = 0;
+         do
+         {
+             skip = false;
+             while (buffer.hasRemaining())
+             {
++                // Prevent infinite loop by limiting iterations
++                if (++iterations > maxIterations)
++                {
++                    LOG.warn("Maximum iterations exceeded in readToken, returning null");
++                    return null;
++                }
+                 char c = getChar();
+ 
+                 // delimiters
+```
+
+This fix takes a completely different approach by adding an iteration guard that prevents infinite loops caused by pathological input (e.g., buffers filled with only whitespace or NULL bytes) while still allowing normal processing of valid Type1 font data.

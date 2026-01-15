@@ -1,0 +1,39 @@
+diff --git a/fontbox/src/main/java/org/apache/fontbox/pfb/PfbParser.java b/fontbox/src/main/java/org/apache/fontbox/pfb/PfbParser.java
+index cda8dc6f3..28ded69d5 100644
+--- a/fontbox/src/main/java/org/apache/fontbox/pfb/PfbParser.java
++++ b/fontbox/src/main/java/org/apache/fontbox/pfb/PfbParser.java
+@@ -153,10 +153,30 @@ public class PfbParser
+                 throw new IOException("Incorrect record type: " + recordType);
+             }
+ 
+-            int size = in.read();
+-            size += in.read() << 8;
+-            size += in.read() << 16;
+-            size += in.read() << 24;
++            // Read size bytes with validation to prevent OOM from malicious input
++            int b1 = in.read();
++            int b2 = in.read();
++            int b3 = in.read();
++            int b4 = in.read();
++
++            // Check if any read returned -1 (EOF)
++            if (b1 == -1 || b2 == -1 || b3 == -1 || b4 == -1)
++            {
++                throw new EOFException("Unexpected EOF while reading segment size");
++            }
++
++            // Calculate size using unsigned byte values
++            long sizeLong = (b1 & 0xFF) |
++                           ((b2 & 0xFF) << 8) |
++                           ((b3 & 0xFF) << 16) |
++                           ((long)(b4 & 0xFF) << 24);
++
++            // Validate size is positive and within reasonable bounds
++            if (sizeLong < 0 || sizeLong > MAX_LENGTH)
++            {
++                throw new IOException("Invalid segment size: " + sizeLong);
++            }
++            int size = (int) sizeLong;
+             LOG.debug("record type: {}, segment size: {}", recordType, size);
+             long newTotal = total + size;
+             if (newTotal > MAX_LENGTH) {

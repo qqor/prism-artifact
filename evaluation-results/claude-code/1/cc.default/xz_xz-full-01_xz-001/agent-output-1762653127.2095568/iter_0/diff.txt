@@ -1,0 +1,45 @@
+diff --git a/src/liblzma/check/treeck.c b/src/liblzma/check/treeck.c
+index f54d244e..9c1c0bb9 100644
+--- a/src/liblzma/check/treeck.c
++++ b/src/liblzma/check/treeck.c
+@@ -85,11 +85,30 @@ static uint32_t compute_tree_checksum(TreeNode *node, unsigned int depth)
+     node->state = STATE_HASHED;
+   }
+ 
++  return sum;
++}
++
++// Free the tree nodes
++static void free_tree(TreeNode *node)
++{
++  if (!node || node->state != STATE_HASHED) {
++    return;
++  }
++
++  // Mark as freed to avoid double-free
++  node->state = STATE_CLEAR;
++
++  // Free child nodes
++  for (size_t i = 0; i < node->edge_count; ++i) {
++    TreeNode *child = node->edges[i];
++    if (child) {
++      free_tree(child);
++    }
++  }
++
+   // Free the node and edges
+   free(node->edges);
+   free(node);
+-
+-  return sum;
+ }
+ 
+ extern LZMA_API(uint32_t)
+@@ -98,6 +117,7 @@ lzma_tree(const uint8_t *buf, size_t size, uint32_t checksum)
+   unsigned long seed = hash_data(buf, size);
+   TreeNode *root = create_tree(buf, size, 0, 16, seed, NULL);
+   checksum ^= compute_tree_checksum(root, 0);
++  free_tree(root);
+   return checksum;
+ }
+ 

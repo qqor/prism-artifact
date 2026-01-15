@@ -1,0 +1,14 @@
+{
+  "project_name": "tika",
+  "vulnerability_identifier": "tika_tk-full-01_vuln_8",
+  "source_directory": "/home/qqor/aixcc/crete/.cache/official-afc-tika",
+  "llm_usage": {
+    "total_cost": 1.1862015000000001,
+    "prompt_tokens": 919725,
+    "completion_tokens": 39660
+  },
+  "variant": "sound",
+  "diff": "--- a/tika-core/src/main/java/org/apache/tika/detect/ShellCodeDetector.java\n+++ b/tika-core/src/main/java/org/apache/tika/detect/ShellCodeDetector.java\n@@ -23,7 +23,7 @@\n import java.nio.file.Files;\n import java.nio.file.Path;\n import java.nio.file.Paths;\n-import java.nio.file.StandardCopyOption;\n+import java.io.BufferedReader;\n import java.util.Locale;\n \n import org.apache.commons.io.FileUtils;\n@@ -90,22 +90,17 @@\n         fileName = fileName.replaceAll(\"[^-_0-9A-Za-z.]+\", \"\");\n         fileName = fileName.replaceAll(\"\\\\.\\\\.\", \"\");\n \n-        if (fileName.length() > MAX_LENGTH) {\n-            fileName = fileName.substring(fileName.length() - MAX_LENGTH);\n-        }\n-        Path cwd = Paths.get(\".\").toAbsolutePath().normalize();\n-        Path tmpDir = Files.createTempDirectory(cwd, \"tika-shell-detect-\");\n-        Path tmpFile = tmpDir.resolve(fileName);\n-        Files.copy(tis.getPath(), tmpFile, StandardCopyOption.REPLACE_EXISTING);\n-        ProcessBuilder pb = new ProcessBuilder(fileName);\n-        pb.directory(tmpDir.toFile());\n-        try {\n-            FileProcessResult result = ProcessUtils.execute(pb, 20000, 100000, 100000);\n-            if (result.getExitValue() == 0) {\n-                metadata.set(SHELL_NO_ARGS, true);\n+        // static no-arg shell detection via shebang parsing\n+        try (BufferedReader reader = Files.newBufferedReader(tis.getPath(), StandardCharsets.UTF_8)) {\n+            String line = reader.readLine();\n+            if (line != null && line.startsWith(\"#!\")) {\n+                String[] parts = line.substring(2).trim().split(\"\\\\s+\");\n+                if (parts.length == 1) {\n+                    metadata.set(SHELL_NO_ARGS, true);\n+                }\n             }\n-        } finally {\n-            FileUtils.deleteDirectory(tmpDir.toFile());\n+        } catch (IOException e) {\n+            // ignore, best effort\n         }\n         return SHELL_SCRIPT;\n     }\n",
+  "stdout": "",
+  "stderr": ""
+}

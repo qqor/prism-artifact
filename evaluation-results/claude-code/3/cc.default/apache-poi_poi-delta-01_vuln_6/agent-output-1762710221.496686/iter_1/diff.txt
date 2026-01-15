@@ -1,0 +1,39 @@
+diff --git a/poi-ooxml/src/main/java/org/apache/poi/openxml4j/opc/internal/ContentType.java b/poi-ooxml/src/main/java/org/apache/poi/openxml4j/opc/internal/ContentType.java
+index f95aad6a3..05f76d138 100644
+--- a/poi-ooxml/src/main/java/org/apache/poi/openxml4j/opc/internal/ContentType.java
++++ b/poi-ooxml/src/main/java/org/apache/poi/openxml4j/opc/internal/ContentType.java
+@@ -143,6 +143,34 @@ public final class ContentType {
+      *             If the specified content type is not valid with RFC 2616.
+      */
+     public ContentType(String contentType) throws InvalidFormatException {
++        // Add input validation to prevent ReDoS attacks
++        if (contentType == null) {
++            throw new InvalidFormatException("Content type cannot be null");
++        }
++
++        // Limit input length to prevent catastrophic backtracking
++        // RFC 2616 doesn't specify a max length, but reasonable MIME types are under 1KB
++        if (contentType.length() > 1024) {
++            throw new InvalidFormatException(
++                    "The specified content type is too long (max 1024 characters).");
++        }
++
++        // Check for excessive repetition patterns that could trigger ReDoS
++        // Reject inputs with many consecutive semicolons or equals signs
++        if (contentType.contains(";;;") || contentType.contains("===")) {
++            throw new InvalidFormatException(
++                    "The specified content type contains invalid character repetitions.");
++        }
++
++        // Basic sanity check: must contain exactly one '/' separating type and subtype
++        int slashCount = contentType.length() - contentType.replace("/", "").length();
++        if (slashCount != 1) {
++            throw new InvalidFormatException(
++                    "The specified content type '"
++                    + contentType
++                    + "' is not compliant with RFC 2616: malformed content type.");
++        }
++
+         Matcher mMediaType = patternTypeSubType.matcher(contentType);
+         if (!mMediaType.matches()) {
+             // How about with parameters?

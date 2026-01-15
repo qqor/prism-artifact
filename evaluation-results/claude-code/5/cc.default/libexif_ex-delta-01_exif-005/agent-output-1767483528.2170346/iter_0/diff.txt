@@ -1,0 +1,41 @@
+diff --git a/libexif/apple/exif-mnote-data-apple.c b/libexif/apple/exif-mnote-data-apple.c
+index 83a9cb1..40ce2a4 100644
+--- a/libexif/apple/exif-mnote-data-apple.c
++++ b/libexif/apple/exif-mnote-data-apple.c
+@@ -71,6 +71,13 @@ exif_mnote_data_apple_load(ExifMnoteData *md, const unsigned char *buf, unsigned
+     /* Start of interesting data */
+     ofs = d->offset + 6;
+ 
++    /* Verify we can read up to ofs + 16 (including the 2-byte tcount at ofs + 14) */
++    if (ofs + 16 > buf_size) {
++        exif_log(md->log, EXIF_LOG_CODE_CORRUPT_DATA,
++                 "ExifMnoteDataApple", "Short MakerNote");
++        return;
++    }
++
+     if ((buf[ofs + 12] == 'M') && (buf[ofs + 13] == 'M')) {
+         d->order = EXIF_BYTE_ORDER_MOTOROLA;
+     } else if ((buf[ofs + 12] == 'I') && (buf[ofs + 13] == 'I')) {
+@@ -84,8 +91,8 @@ exif_mnote_data_apple_load(ExifMnoteData *md, const unsigned char *buf, unsigned
+ 
+     tcount = (unsigned int) exif_get_short(buf + ofs + 14, d->order);
+ 
+-    /* Sanity check the offset */
+-    if (buf_size < 6 + 16 + tcount * 6 + 4) {
++    /* Sanity check the offset - each entry is 12 bytes */
++    if (buf_size < ofs + 16 + tcount * 12) {
+         exif_log(md->log, EXIF_LOG_CODE_CORRUPT_DATA,
+                  "ExifMnoteDataApple", "Short MakerNote");
+         /*printf("%s(%d)\n", __FUNCTION__, __LINE__);*/
+@@ -117,9 +124,9 @@ exif_mnote_data_apple_load(ExifMnoteData *md, const unsigned char *buf, unsigned
+         } else {
+             dofs = ofs + 8;
+         }
+-	if (dofs > buf_size) {
++	if (dofs + dsize > buf_size) {
+ 		exif_log (md->log, EXIF_LOG_CODE_CORRUPT_DATA,
+-                                  "ExifMnoteApplet", "Tag size overflow detected (%u vs size %u)", dofs, buf_size);
++                                  "ExifMnoteApplet", "Tag size overflow detected (%u vs size %u)", dofs + dsize, buf_size);
+ 		continue;
+ 	}
+         ofs += 12;

@@ -1,0 +1,40 @@
+diff --git a/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/BaseParser.java b/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/BaseParser.java
+index b928a66f7..764cf8fef 100644
+--- a/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/BaseParser.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/BaseParser.java
+@@ -64,6 +64,8 @@ public abstract class BaseParser
+ 
+     private static final int MAX_LENGTH_LONG = Long.toString(Long.MAX_VALUE).length();
+ 
++    private static final int MAX_LINE_LENGTH = 1024 * 1024; // 1MB max line length
++
+     private static final Charset ALTERNATIVE_CHARSET;
+ 
+     private final Map<Long, COSObjectKey> keyCache = new HashMap<>();
+@@ -1170,6 +1172,7 @@ public abstract class BaseParser
+         StringBuilder buffer = new StringBuilder( 11 );
+ 
+         int c;
++        int bytesRead = 0;
+         while ((c = source.read()) != -1)
+         {
+             // CR and LF are valid EOLs
+@@ -1178,8 +1181,17 @@ public abstract class BaseParser
+                 break;
+             }
+             buffer.append( (char)c );
++            bytesRead++;
++
++            // Prevent infinite loops on malformed PDFs by limiting line length
++            if (bytesRead >= MAX_LINE_LENGTH)
++            {
++                LOG.warn("Line exceeds maximum length of {} bytes at offset {}, stopping read",
++                        MAX_LINE_LENGTH, source.getPosition());
++                break;
++            }
+         }
+-        // CR+LF is also a valid EOL 
++        // CR+LF is also a valid EOL
+         if (isCR(c) && isLF(source.peek()))
+         {
+             source.read();

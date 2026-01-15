@@ -1,0 +1,52 @@
+diff --git a/tika-pipes/tika-emitters/tika-emitter-fs/src/main/java/org/apache/tika/pipes/emitter/fs/FileSystemEmitter.java b/tika-pipes/tika-emitters/tika-emitter-fs/src/main/java/org/apache/tika/pipes/emitter/fs/FileSystemEmitter.java
+index 9142c9b7b..0141343d1 100644
+--- a/tika-pipes/tika-emitters/tika-emitter-fs/src/main/java/org/apache/tika/pipes/emitter/fs/FileSystemEmitter.java
++++ b/tika-pipes/tika-emitters/tika-emitter-fs/src/main/java/org/apache/tika/pipes/emitter/fs/FileSystemEmitter.java
+@@ -85,6 +85,7 @@ public class FileSystemEmitter extends AbstractEmitter implements StreamEmitter
+         }
+         if (basePath != null) {
+             output = basePath.resolve(emitKey);
++            validatePath(basePath, output);
+         } else {
+             output = Paths.get(emitKey);
+         }
+@@ -142,9 +143,39 @@ public class FileSystemEmitter extends AbstractEmitter implements StreamEmitter
+         this.prettyPrint = prettyPrint;
+     }
+ 
++    /**
++     * Validates that the resolved path does not escape the base directory.
++     * This prevents path traversal attacks using sequences like "../".
++     *
++     * @param basePath the base directory that output should be contained within
++     * @param resolvedPath the resolved output path to validate
++     * @throws TikaEmitterException if the path attempts to traverse outside the base directory
++     */
++    private void validatePath(Path basePath, Path resolvedPath) throws TikaEmitterException {
++        try {
++            Path normalizedBase = basePath.toRealPath();
++            Path normalizedResolved = resolvedPath.normalize().toAbsolutePath();
++
++            if (!normalizedResolved.startsWith(normalizedBase)) {
++                throw new TikaEmitterException("Path traversal detected: " + resolvedPath +
++                    " is outside base directory " + basePath);
++            }
++        } catch (IOException e) {
++            // If base path doesn't exist yet, use normalized absolute paths
++            Path normalizedBase = basePath.normalize().toAbsolutePath();
++            Path normalizedResolved = resolvedPath.normalize().toAbsolutePath();
++
++            if (!normalizedResolved.startsWith(normalizedBase)) {
++                throw new TikaEmitterException("Path traversal detected: " + resolvedPath +
++                    " is outside base directory " + basePath);
++            }
++        }
++    }
++
+     @Override
+     public void emit(String path, InputStream inputStream, Metadata userMetadata, ParseContext parseContext) throws IOException, TikaEmitterException {
+         Path target = basePath.resolve(path);
++        validatePath(basePath, target);
+ 
+         if (!Files.isDirectory(target.getParent())) {
+             Files.createDirectories(target.getParent());

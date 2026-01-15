@@ -1,0 +1,31 @@
+diff --git a/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-microsoft-module/src/main/java/org/apache/tika/parser/microsoft/rtf/RTFEmbObjHandler.java b/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-microsoft-module/src/main/java/org/apache/tika/parser/microsoft/rtf/RTFEmbObjHandler.java
+index b80c8727b..336e44c00 100644
+--- a/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-microsoft-module/src/main/java/org/apache/tika/parser/microsoft/rtf/RTFEmbObjHandler.java
++++ b/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-microsoft-module/src/main/java/org/apache/tika/parser/microsoft/rtf/RTFEmbObjHandler.java
+@@ -211,17 +211,15 @@ class RTFEmbObjHandler {
+             extractObj(bytes, handler, metadata);
+ 
+         } else if (state == EMB_STATE.JAVA_OBJDATA) {
+-            try {
+-                Object obj = new ObjectInputStream(
+-                        UnsynchronizedByteArrayInputStream.builder().setByteArray(bytes)
+-                                .get()).readObject();
+-                metadata.set(RTFMetadata.EMB_CLASS, obj.getClass().getName());
+-                metadata.set(TikaCoreProperties.CONTENT_TYPE_PARSER_OVERRIDE,
+-                        MediaType.text("plain").toString());
+-                extractObj(obj.toString().getBytes(StandardCharsets.UTF_8), handler, metadata);
+-            } catch (ClassNotFoundException e) {
+-                throw new TikaException("Not found", e);
+-            }
++            // Security: Skip deserialization of Java objects to prevent RCE attacks
++            // Java object deserialization from untrusted sources is a known security vulnerability
++            // that can lead to remote code execution. Instead, we'll just record the presence
++            // of the embedded object without deserializing it.
++            metadata.set(RTFMetadata.EMB_CLASS, "java.lang.Object (deserialization disabled for security)");
++            metadata.set(TikaCoreProperties.CONTENT_TYPE_PARSER_OVERRIDE,
++                    MediaType.text("plain").toString());
++            // Extract raw bytes instead of deserializing
++            extractObj(bytes, handler, metadata);
+         } else if (state == EMB_STATE.NADA) {
+             //swallow...no start for pict or embed?!
+         }

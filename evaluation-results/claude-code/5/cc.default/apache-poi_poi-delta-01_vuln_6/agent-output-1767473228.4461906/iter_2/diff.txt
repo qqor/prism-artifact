@@ -1,0 +1,117 @@
+diff --git a/poi/src/main/java/org/apache/poi/ss/usermodel/DataFormatter.java b/poi/src/main/java/org/apache/poi/ss/usermodel/DataFormatter.java
+index bfe795025..e14f0ad02 100644
+--- a/poi/src/main/java/org/apache/poi/ss/usermodel/DataFormatter.java
++++ b/poi/src/main/java/org/apache/poi/ss/usermodel/DataFormatter.java
+@@ -126,8 +126,101 @@ public class DataFormatter {
+     /** Pattern to find "AM/PM" marker */
+     private static final Pattern amPmPattern = Pattern.compile("(([AP])[M/P]*)", Pattern.CASE_INSENSITIVE);
+ 
+-    /** Pattern to find formats with condition ranges e.g. [>=100] */
+-    private static final Pattern rangeConditionalPattern = Pattern.compile(".*\\[\\s*(>|>=|<|<=|=)\\s*[0-9]*\\.*[0-9].*");
++    /**
++     * Check if format string contains a conditional range like [>=100], [<0], etc.
++     * Uses manual parsing to avoid regex backtracking/catastrophic performance.
++     */
++    private static boolean containsRangeConditional(String formatStr) {
++        if (formatStr == null || formatStr.length() < 4) {
++            return false;
++        }
++        int len = formatStr.length();
++        int i = 0;
++        while (i < len) {
++            // Find opening bracket
++            int bracketStart = formatStr.indexOf('[', i);
++            if (bracketStart < 0) {
++                return false;
++            }
++            // Find closing bracket
++            int bracketEnd = formatStr.indexOf(']', bracketStart + 1);
++            if (bracketEnd < 0) {
++                return false;
++            }
++            // Limit bracket content length to avoid processing excessively long segments
++            if (bracketEnd - bracketStart > 50) {
++                i = bracketStart + 1;
++                continue;
++            }
++            // Check content between brackets for conditional pattern
++            if (isRangeConditionalContent(formatStr, bracketStart + 1, bracketEnd)) {
++                return true;
++            }
++            i = bracketStart + 1;
++        }
++        return false;
++    }
++
++    /**
++     * Check if the content between brackets (start inclusive, end exclusive)
++     * matches a range conditional pattern like >=100, <0, =5, etc.
++     */
++    private static boolean isRangeConditionalContent(String s, int start, int end) {
++        int pos = start;
++        // Skip leading whitespace
++        while (pos < end && Character.isWhitespace(s.charAt(pos))) {
++            pos++;
++        }
++        if (pos >= end) {
++            return false;
++        }
++        // Check for comparison operator: >, >=, <, <=, =
++        char c = s.charAt(pos);
++        if (c == '>' || c == '<') {
++            pos++;
++            if (pos < end && s.charAt(pos) == '=') {
++                pos++;
++            }
++        } else if (c == '=') {
++            pos++;
++        } else {
++            return false;
++        }
++        // Skip whitespace after operator
++        while (pos < end && Character.isWhitespace(s.charAt(pos))) {
++            pos++;
++        }
++        if (pos >= end) {
++            return false;
++        }
++        // Optional minus sign
++        if (s.charAt(pos) == '-') {
++            pos++;
++        }
++        if (pos >= end) {
++            return false;
++        }
++        // Must have at least one digit
++        boolean hasDigit = false;
++        boolean hasDot = false;
++        while (pos < end) {
++            c = s.charAt(pos);
++            if (c >= '0' && c <= '9') {
++                hasDigit = true;
++                pos++;
++            } else if (c == '.' && !hasDot) {
++                hasDot = true;
++                pos++;
++            } else if (Character.isWhitespace(c)) {
++                // Skip trailing whitespace
++                pos++;
++            } else {
++                // Invalid character
++                return false;
++            }
++        }
++        return hasDigit;
++    }
+ 
+     /**
+      * A regex to find locale patterns like [$$-1009] and [$?-452].
+@@ -395,7 +488,7 @@ public class DataFormatter {
+         // TODO Going forward, we should really merge the logic between the two classes
+         if (formatStr.contains(";") &&
+                 (formatStr.indexOf(';') != formatStr.lastIndexOf(';')
+-                 || rangeConditionalPattern.matcher(formatStr).matches()
++                 || containsRangeConditional(formatStr)
+                 ) ) {
+             try {
+                 // Ask CellFormat to get a formatter for it

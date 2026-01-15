@@ -1,0 +1,41 @@
+--- a/poi/src/main/java/org/apache/poi/poifs/dev/POIFSDump.java
++++ b/poi/src/main/java/org/apache/poi/poifs/dev/POIFSDump.java
+@@ -43,6 +43,11 @@
+ 
+     private POIFSDump() {}
+ 
++    private static String sanitizeName(String name) {
++        // keep only the file name and replace any '..' segments to prevent traversal
++        String base = new java.io.File(name).getName();
++        return base.replace("..", "_");
++    }
+     public static void main(String[] args) throws IOException {
+         if (args.length == 0) {
+             System.err.println("Must specify at least one file to dump");
+@@ -105,12 +110,13 @@
+                 try (DocumentInputStream is = new DocumentInputStream(node)) {
+                    bytes = IOUtils.toByteArray(is);
+                 }
+-                try (OutputStream out = Files.newOutputStream(new File(parent, node.getName().trim()).toPath())) {
+-                    out.write(bytes);
+-                }
++            try (OutputStream out = Files.newOutputStream(new File(parent, sanitizeName(node.getName().trim())).toPath()))
++            {
++                out.write(bytes);
++            }
+             } else if (entry instanceof DirectoryEntry){
+                 DirectoryEntry dir = (DirectoryEntry)entry;
+-                File file = new File(parent, entry.getName());
++                File file = new File(parent, sanitizeName(entry.getName()));
+                 if(!file.exists() && !file.mkdirs()) {
+                     throw new IOException("Could not create directory " + file);
+                 }
+@@ -121,7 +127,7 @@
+         }
+     }
+     public static void dump(POIFSFileSystem fs, int startBlock, String name, File parent) throws IOException {
+-        File file = new File(parent, name);
++    File file = new File(parent, sanitizeName(name));
+         if (! Files.isDirectory(file.toPath().getParent())) {
+             Files.createDirectories(file.toPath().getParent());
+         }

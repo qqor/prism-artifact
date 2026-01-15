@@ -1,0 +1,35 @@
+
+================================================================================
+Response 1
+================================================================================
+Let me find the libxml2 source directory:
+
+================================================================================
+Response 2
+================================================================================
+I'm in the libxml2 source directory. Let me read the relevant section of parser.c around lines 9000-9030 where the double-free occurs:
+
+================================================================================
+Response 3
+================================================================================
+I can now clearly see the bug. The issue is a double-free of `internal_val`:
+
+1. On line 9009, `internal_val` is allocated via `xmlStrndup`
+2. On line 9024, `internal_val` is freed in the `else` branch (inside the `xml:tab` case) when the value is invalid
+3. On lines 9027-9029, `internal_val` is freed again if it's non-NULL
+
+The problem is that after freeing `internal_val` on line 9024, it's not set to `NULL`, so the check on line 9027 still sees it as non-NULL and frees it again.
+
+Looking at the `xml:space` handling (lines 8991-9004), there's no freeing inside the else branch there (it's missing), but for `xml:tab` (lines 9008-9025), there is a free inside the else branch at line 9024.
+
+The fix should be to set `internal_val = NULL` after freeing it at line 9024, to prevent the double-free. Let me create the patch:
+
+================================================================================
+Response 4
+================================================================================
+The patch has been applied. The fix adds `internal_val = NULL;` after `xmlFree(internal_val);` on line 9025. This prevents the double-free that occurred because:
+
+1. `internal_val` was allocated at line 9009 with `xmlStrndup(val, *len)`
+2. It was freed at line 9024 when an invalid `xml:tab` value was encountered
+3. Without the fix, it was freed again at lines 9028-9030 because `internal_val` was still non-NULL
+4. With the fix, `internal_val` is set to `NULL` after the first free, so the conditional check `if (internal_val)` at line 9028 correctly skips the second free

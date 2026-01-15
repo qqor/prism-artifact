@@ -1,0 +1,45 @@
+--- a/tika-app/src/main/java/org/apache/tika/cli/TikaCLI.java
++++ b/tika-app/src/main/java/org/apache/tika/cli/TikaCLI.java
+@@ -1125,7 +1125,7 @@
+             }
+         }
+ 
+-        private File getOutputFile(String name, Metadata metadata, MediaType contentType) {
++    private File getOutputFile(String name, Metadata metadata, MediaType contentType) throws IOException {
+             String ext = getExtension(contentType);
+             if (name.indexOf('.') == -1 && contentType != null) {
+                 name += ext;
+@@ -1157,16 +1157,23 @@
+             } catch (IllegalArgumentException e) {
+                 LOG.warn("couldn't url decode name {}", normalizedName);
+             }
+-            File outputFile = new File(extractDir, normalizedName);
+-            //if file already exists, prepend uuid
+-            if (outputFile.exists()) {
+-                String fileName = FilenameUtils.getName(normalizedName);
+-                outputFile = new File(extractDir, UUID
+-                        .randomUUID()
+-                        .toString() + "-" + fileName);
+-            }
+-            return outputFile;
+-        }
++        // resolve and normalize to prevent path traversal
++        Path normalizedPath = extractDir.toPath()
++            .resolve(normalizedName)
++            .normalize();
++        if (!normalizedPath.startsWith(extractDir.toPath())) {
++          throw new IOException("Invalid embedded entry name: " + normalizedName);
++        }
++        File outputFile = normalizedPath.toFile();
++
++        // if file already exists, prepend uuid
++        if (outputFile.exists()) {
++          String fileName = FilenameUtils.getName(normalizedName);
++          outputFile = new File(extractDir,
++              UUID.randomUUID().toString() + "-" + fileName);
++        }
++        return outputFile;
++      }
+ 
+         private String getExtension(MediaType contentType) {
+             try {

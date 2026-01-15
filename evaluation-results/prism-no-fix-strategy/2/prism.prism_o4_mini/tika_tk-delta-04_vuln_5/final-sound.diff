@@ -1,0 +1,76 @@
+--- a/tika-pipes/tika-emitters/tika-emitter-fs/src/main/java/org/apache/tika/pipes/emitter/fs/FileSystemEmitter.java
++++ b/tika-pipes/tika-emitters/tika-emitter-fs/src/main/java/org/apache/tika/pipes/emitter/fs/FileSystemEmitter.java
+@@ -83,14 +83,30 @@
+         if (fileExtension != null && fileExtension.length() > 0) {
+             emitKey += "." + fileExtension;
+         }
++        // Sanitize emitKey to prevent traversal
++        Path keyPath = Paths.get(emitKey);
++        Path normalizedKey = keyPath.normalize();
++        if (normalizedKey.startsWith("..")) {
++            throw new IOException("Invalid path traversal attempt: " + emitKey);
++        }
+         if (basePath != null) {
+-            output = basePath.resolve(emitKey);
++            output = basePath.resolve(normalizedKey).toAbsolutePath().normalize();
++            Path normalizedBase = basePath.toAbsolutePath().normalize();
++            if (normalizedBase.relativize(output).startsWith("..")) {
++                throw new IOException("Invalid path traversal attempt: " + emitKey);
++            }
+         } else {
+-            output = Paths.get(emitKey);
+-        }
+-
+-        if (!Files.isDirectory(output.getParent())) {
+-            Files.createDirectories(output.getParent());
++            Path cwd = Paths.get("").toAbsolutePath().normalize();
++            output = cwd.resolve(normalizedKey).toAbsolutePath().normalize();
++            if (cwd.relativize(output).startsWith("..")) {
++                throw new IOException("Invalid path traversal attempt: " + emitKey);
++            }
++        }
++
++        // Create parent directories after normalization
++        Path parent = output.getParent();
++        if (parent != null && !Files.isDirectory(parent)) {
++            Files.createDirectories(parent);
+         }
+         try (Writer writer = Files.newBufferedWriter(output, StandardCharsets.UTF_8)) {
+             JsonMetadataList.toJson(metadataList, writer, prettyPrint);
+@@ -144,10 +160,32 @@
+ 
+     @Override
+     public void emit(String path, InputStream inputStream, Metadata userMetadata, ParseContext parseContext) throws IOException, TikaEmitterException {
+-        Path target = basePath.resolve(path);
+-
+-        if (!Files.isDirectory(target.getParent())) {
+-            Files.createDirectories(target.getParent());
++        // Sanitize path to prevent traversal
++        Path keyPath = Paths.get(path);
++        Path normalizedKey = keyPath.normalize();
++        if (normalizedKey.startsWith("..")) {
++            throw new IOException("Invalid path traversal attempt: " + path);
++        }
++        // Declare target after sanitization
++        Path target;
++        if (basePath != null) {
++            target = basePath.resolve(normalizedKey).toAbsolutePath().normalize();
++            Path normalizedBase = basePath.toAbsolutePath().normalize();
++            if (normalizedBase.relativize(target).startsWith("..")) {
++                throw new IOException("Invalid path traversal attempt: " + path);
++            }
++        } else {
++            Path cwd = Paths.get("").toAbsolutePath().normalize();
++            target = cwd.resolve(normalizedKey).toAbsolutePath().normalize();
++            if (cwd.relativize(target).startsWith("..")) {
++                throw new IOException("Invalid path traversal attempt: " + path);
++            }
++        }
++
++        // Create parent directories after normalization
++        Path parent = target.getParent();
++        if (parent != null && !Files.isDirectory(parent)) {
++            Files.createDirectories(parent);
+         }
+         if (onExists == ON_EXISTS.REPLACE) {
+             Files.copy(inputStream, target, StandardCopyOption.REPLACE_EXISTING);

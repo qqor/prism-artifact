@@ -1,0 +1,55 @@
+--- a/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/COSParser.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/COSParser.java
+@@ -207,6 +207,20 @@
+             }
+         }
+         document = new COSDocument(streamCacheCreateFunction, this);
++    }
++
++    /**
++     * Expose the underlying PDF length for bounded searches.
++     */
++    public long getFileLen() {
++        return fileLen;
++    }
++
++    /**
++     * Expose how many trailing bytes are scanned when looking for EOF markers.
++     */
++    public int getEOFLookupRange() {
++        return readTrailBytes;
+     }
+ 
+     /**
+
+--- a/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/BruteForceParser.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/BruteForceParser.java
+@@ -49,13 +49,7 @@
+ 
+     private static final long MINIMUM_SEARCH_OFFSET = 6;
+ 
+-    /**
+-     * EOF-marker.
+-     */
+-    private static final char[] EOF_MARKER = { '%', '%', 'E', 'O', 'F' };
+-    /**
+-     * obj-marker.
+-     */
++    // Removed MAX_SEARCH_LENGTH; use parser.getEOFLookupRange() at runtime.
+     private static final char[] OBJ_MARKER = { 'o', 'b', 'j' };
+ 
+     /**
+@@ -525,7 +519,12 @@
+     {
+         long lastEOFMarker = -1;
+         long originOffset = source.getPosition();
+-        source.seek(MINIMUM_SEARCH_OFFSET);
++        long fileLen = parser.getFileLen();
++        int lookupRange = parser.getEOFLookupRange();
++        long eofSearchStart = fileLen > (MINIMUM_SEARCH_OFFSET + lookupRange)
++                              ? fileLen - lookupRange
++                              : MINIMUM_SEARCH_OFFSET;
++        source.seek(eofSearchStart);
+         long tempMarker = findString(EOF_MARKER);
+         while (tempMarker != -1)
+         {

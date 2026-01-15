@@ -1,0 +1,61 @@
+diff --git a/core/src/main/java/org/apache/logging/log4j/core/lookup/JndiLookup.java b/core/src/main/java/org/apache/logging/log4j/core/lookup/JndiLookup.java
+index 90e082a9f..f41b68386 100644
+--- a/core/src/main/java/org/apache/logging/log4j/core/lookup/JndiLookup.java
++++ b/core/src/main/java/org/apache/logging/log4j/core/lookup/JndiLookup.java
+@@ -28,7 +28,7 @@ import org.apache.logging.log4j.core.config.plugins.Plugin;
+ @Plugin(name = "jndi", category = "Lookup")
+ public class JndiLookup implements StrLookup {
+ 
+-    private static boolean ENABLE_JNDI = true;
++    private static boolean ENABLE_JNDI = false;
+ 
+     /** JNDI resourcce path prefix used in a J2EE container */
+     static final String CONTAINER_JNDI_RESOURCE_PATH_PREFIX = "java:comp/env/";
+@@ -55,6 +55,11 @@ public class JndiLookup implements StrLookup {
+             return null;
+         }
+ 
++        // Validate JNDI name to prevent remote lookups
++        if (!isValidJndiName(key)) {
++            return null;
++        }
++
+         try {
+             InitialContext ctx = new InitialContext();
+             return (String) ctx.lookup(convertJndiName(key));
+@@ -63,6 +68,35 @@ public class JndiLookup implements StrLookup {
+         }
+     }
+ 
++    /**
++     * Validates that the JNDI name does not contain remote lookup protocols.
++     * Only allows java: protocol to prevent remote code execution.
++     * @param jndiName The JNDI name to validate
++     * @return true if the name is safe, false otherwise
++     */
++    private boolean isValidJndiName(String jndiName) {
++        if (jndiName == null || jndiName.isEmpty()) {
++            return false;
++        }
++
++        String lowerKey = jndiName.toLowerCase();
++
++        // Block all remote protocols
++        if (lowerKey.contains("ldap:") || lowerKey.contains("ldaps:") ||
++            lowerKey.contains("rmi:") || lowerKey.contains("dns:") ||
++            lowerKey.contains("nis:") || lowerKey.contains("nds:") ||
++            lowerKey.contains("corba:") || lowerKey.contains("iiop:")) {
++            return false;
++        }
++
++        // Only allow java: protocol (local JNDI)
++        if (jndiName.indexOf(':') != -1 && !lowerKey.startsWith("java:")) {
++            return false;
++        }
++
++        return true;
++    }
++
+     /**
+      * Convert the given JNDI name to the actual JNDI name to use.
+      * Default implementation applies the "java:comp/env/" prefix

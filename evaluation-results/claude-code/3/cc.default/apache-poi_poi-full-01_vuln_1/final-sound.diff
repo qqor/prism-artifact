@@ -1,0 +1,38 @@
+diff --git a/poi-scratchpad/src/main/java/org/apache/poi/hmef/attribute/MAPIAttribute.java b/poi-scratchpad/src/main/java/org/apache/poi/hmef/attribute/MAPIAttribute.java
+index 651fee520..9ac7f7f95 100644
+--- a/poi-scratchpad/src/main/java/org/apache/poi/hmef/attribute/MAPIAttribute.java
++++ b/poi-scratchpad/src/main/java/org/apache/poi/hmef/attribute/MAPIAttribute.java
+@@ -168,6 +168,15 @@ public class MAPIAttribute {
+                   if (mplen < 0) {
+                      throw new IOException("Did not expect negative value: " + mplen);
+                   }
++                  // Validate mplen to prevent OOM - max reasonable property name length
++                  // Unicode strings need 2 bytes per character, so divide by 2 to get char count
++                  // Limit to 10000 characters (20000 bytes) for property names
++                  int maxPropertyNameLength = 10000;
++                  if (mplen > maxPropertyNameLength * 2) {
++                     throw new IOException("Property name length " + mplen +
++                           " exceeds maximum allowed length of " + (maxPropertyNameLength * 2) +
++                           " bytes");
++                  }
+                   byte[] mpdata = new byte[mplen];
+                   if (IOUtils.readFully(inp, mpdata) < 0) {
+                      throw new IOException("Not enough data to read " + mplen + " bytes for attribute name");
+diff --git a/poi/src/main/java/org/apache/poi/util/StringUtil.java b/poi/src/main/java/org/apache/poi/util/StringUtil.java
+index c1bb52154..574fd855f 100644
+--- a/poi/src/main/java/org/apache/poi/util/StringUtil.java
++++ b/poi/src/main/java/org/apache/poi/util/StringUtil.java
+@@ -91,6 +91,13 @@ public final class StringUtil {
+             throw new IllegalArgumentException("Illegal length " + len);
+         }
+ 
++        // Additional validation to prevent OOM - check against MAX_RECORD_LENGTH
++        if (len > MAX_RECORD_LENGTH / 2) {
++            throw new IllegalArgumentException("String length " + len +
++                  " exceeds maximum allowed length of " + (MAX_RECORD_LENGTH / 2) +
++                  " characters");
++        }
++
+         return new String(string, offset, len * 2, UTF16LE);
+     }
+ 

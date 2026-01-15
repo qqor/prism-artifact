@@ -1,0 +1,71 @@
+
+================================================================================
+Response 1
+================================================================================
+Let me search for the file in the current directory structure:
+
+================================================================================
+Response 2
+================================================================================
+Now I can see the bug. Looking at line 1108 and 1144:
+
+- Line 1108: `command = MIN(command, array_length(dissect_netb));`
+- Line 1144: `session_id = (dissect_netb[ command])( tvb, pinfo, offset, netb_tree);`
+
+The issue is that `MIN(command, array_length(dissect_netb))` allows `command` to equal `array_length(dissect_netb)`, which is one past the last valid index. The array `dissect_netb` has 33 elements (0x00 to 0x20), so valid indices are 0-32. When command equals 33 (the array length), accessing `dissect_netb[33]` causes a buffer overflow.
+
+The fix should use `array_length(dissect_netb) - 1` to ensure the command stays within bounds.
+
+Let me verify by checking the size of the array:
+
+================================================================================
+Response 3
+================================================================================
+The array has 33 elements (indices 0-32, from 0x00 to 0x20). The bug is on line 1108:
+
+```c
+command = MIN(command, array_length(dissect_netb));
+```
+
+This should be:
+
+```c
+command = MIN(command, array_length(dissect_netb) - 1);
+```
+
+The current code allows `command` to be equal to 33 (the array length), but valid indices are 0-32. When `command == 33`, accessing `dissect_netb[33]` causes the global-buffer-overflow.
+
+Let me apply the fix:
+
+================================================================================
+Response 4
+================================================================================
+The fix has been applied. Here's a summary of the bug and the fix:
+
+## Bug Analysis
+
+**Issue:** AddressSanitizer detected a global-buffer-overflow in `dissect_netbios()` at line 1144 when accessing the `dissect_netb` array.
+
+**Root Cause:** The bounds check on line 1108 was incorrect:
+```c
+command = MIN(command, array_length(dissect_netb));
+```
+
+This allowed `command` to equal `array_length(dissect_netb)` (33), which is one past the last valid index of the array (indices 0-32). When line 1144 executed:
+```c
+session_id = (dissect_netb[command])(tvb, pinfo, offset, netb_tree);
+```
+It accessed `dissect_netb[33]`, causing a read 8 bytes past the end of the global array (exactly as the crash log indicated: "0 bytes after global variable 'dissect_netb'").
+
+## Fix Applied
+
+Changed line 1108 from:
+```c
+command = MIN(command, array_length(dissect_netb));
+```
+to:
+```c
+command = MIN(command, array_length(dissect_netb) - 1);
+```
+
+This ensures `command` is clamped to a maximum value of 32 (the last valid index), preventing the out-of-bounds access.

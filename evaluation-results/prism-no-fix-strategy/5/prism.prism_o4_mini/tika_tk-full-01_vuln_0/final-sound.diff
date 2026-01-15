@@ -1,0 +1,56 @@
+--- a/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-xml-module/src/main/java/org/apache/tika/parser/xliff/XLIFF12Parser.java
++++ b/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-xml-module/src/main/java/org/apache/tika/parser/xliff/XLIFF12Parser.java
+@@ -21,9 +21,14 @@
+ import java.util.Collections;
+ import java.util.Set;
+ 
+-import javax.xml.parsers.ParserConfigurationException;
+-import javax.xml.parsers.SAXParser;
+-import javax.xml.parsers.SAXParserFactory;
++ import javax.xml.XMLConstants;
++ import javax.xml.parsers.ParserConfigurationException;
++ import javax.xml.parsers.SAXParser;
++ import javax.xml.parsers.SAXParserFactory;
++ import org.xml.sax.EntityResolver;
++ import org.xml.sax.InputSource;
++ import org.xml.sax.XMLReader;
++ import java.io.StringReader;
+ 
+ import org.apache.commons.io.input.CloseShieldInputStream;
+ import org.xml.sax.ContentHandler;
+@@ -79,13 +84,34 @@
+                                ParseContext context) throws SAXException, IOException {
+         SAXParserFactory factory = SAXParserFactory.newInstance();
+         factory.setNamespaceAware(true);
++
++        // Disable external entities and DTDs to prevent SSRF
++        try {
++            factory.setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true);
++            factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
++            factory.setFeature("http://xml.org/sax/features/external-general-entities", false);
++            factory.setFeature("http://xml.org/sax/features/external-parameter-entities", false);
++            factory.setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false);
++            factory.setValidating(false);
++        } catch (ParserConfigurationException e) {
++            throw new SAXException(e);
++        }
++
+         SAXParser parser = null;
+         try {
+             parser = factory.newSAXParser();
+         } catch (ParserConfigurationException e) {
+             throw new SAXException(e);
+         }
+-        parser.parse(is, contentHandler);
++        XMLReader xmlReader = parser.getXMLReader();
++        xmlReader.setEntityResolver(new EntityResolver() {
++            @Override
++            public InputSource resolveEntity(String publicId, String systemId) {
++                return new InputSource(new StringReader(""));
++            }
++        });
++        xmlReader.setContentHandler(contentHandler);
++        xmlReader.parse(new InputSource(is));
+     }
+ 
+ }

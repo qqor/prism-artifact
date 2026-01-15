@@ -1,0 +1,14 @@
+{
+  "project_name": "pdfbox",
+  "vulnerability_identifier": "pdfbox_pdfbox-full-01_vuln_6",
+  "source_directory": "/home/qqor/aixcc/crete/.cache/official-afc-pdfbox",
+  "llm_usage": {
+    "total_cost": 0.0,
+    "prompt_tokens": 0,
+    "completion_tokens": 0
+  },
+  "variant": "sound",
+  "diff": "diff --git a/fontbox/src/main/java/org/apache/fontbox/pfb/PfbParser.java b/fontbox/src/main/java/org/apache/fontbox/pfb/PfbParser.java\nindex cda8dc6f3..28ded69d5 100644\n--- a/fontbox/src/main/java/org/apache/fontbox/pfb/PfbParser.java\n+++ b/fontbox/src/main/java/org/apache/fontbox/pfb/PfbParser.java\n@@ -153,10 +153,30 @@ public class PfbParser\n                 throw new IOException(\"Incorrect record type: \" + recordType);\n             }\n \n-            int size = in.read();\n-            size += in.read() << 8;\n-            size += in.read() << 16;\n-            size += in.read() << 24;\n+            // Read size bytes with validation to prevent OOM from malicious input\n+            int b1 = in.read();\n+            int b2 = in.read();\n+            int b3 = in.read();\n+            int b4 = in.read();\n+\n+            // Check if any read returned -1 (EOF)\n+            if (b1 == -1 || b2 == -1 || b3 == -1 || b4 == -1)\n+            {\n+                throw new EOFException(\"Unexpected EOF while reading segment size\");\n+            }\n+\n+            // Calculate size using unsigned byte values\n+            long sizeLong = (b1 & 0xFF) |\n+                           ((b2 & 0xFF) << 8) |\n+                           ((b3 & 0xFF) << 16) |\n+                           ((long)(b4 & 0xFF) << 24);\n+\n+            // Validate size is positive and within reasonable bounds\n+            if (sizeLong < 0 || sizeLong > MAX_LENGTH)\n+            {\n+                throw new IOException(\"Invalid segment size: \" + sizeLong);\n+            }\n+            int size = (int) sizeLong;\n             LOG.debug(\"record type: {}, segment size: {}\", recordType, size);\n             long newTotal = total + size;\n             if (newTotal > MAX_LENGTH) {\n",
+  "stdout": "",
+  "stderr": ""
+}

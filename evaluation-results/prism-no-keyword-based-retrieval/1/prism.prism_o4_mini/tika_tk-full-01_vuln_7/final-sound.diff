@@ -1,0 +1,48 @@
+--- a/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-text-module/src/main/java/org/apache/tika/parser/csv/TextAndCSVConfig.java
++++ b/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-text-module/src/main/java/org/apache/tika/parser/csv/TextAndCSVConfig.java
+@@ -19,6 +19,7 @@
+ import java.io.Serializable;
+ import java.util.HashMap;
+ import java.util.Map;
++import org.apache.tika.config.Field;
+ 
+ public class TextAndCSVConfig implements Serializable {
+ 
+@@ -55,4 +56,15 @@
+         nameToDelimiterMap.entrySet()
+                           .forEach(e -> delimiterToNameMap.put(e.getValue(), e.getKey()));
+     }
++
++    @Field
++    private boolean allowRemoteResources = false;
++
++    public boolean isAllowRemoteResources() {
++        return allowRemoteResources;
++    }
++
++    public void setAllowRemoteResources(boolean allowRemoteResources) {
++        this.allowRemoteResources = allowRemoteResources;
++    }
+ }
+
+--- a/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-text-module/src/main/java/org/apache/tika/parser/csv/TextAndCSVParser.java
++++ b/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-text-module/src/main/java/org/apache/tika/parser/csv/TextAndCSVParser.java
+@@ -248,6 +248,7 @@
+                              Metadata metadata,
+                              ParseContext context) throws IOException, SAXException {
+         xhtml.startElement(TD);
++        TextAndCSVConfig config = context.get(TextAndCSVConfig.class, defaultTextAndCSVConfig);
+         Matcher m = HYPERLINK_PATTERN.matcher(cellContent);
+         if (m.find()) {
+             String url = m.group(1);
+@@ -258,7 +259,9 @@
+             xhtml.startElement("a", "href", url);
+             xhtml.characters(name);
+             xhtml.endElement("a");
+-            processURL(url, name, xhtml, metadata, context);
++            if (config.isAllowRemoteResources()) {
++                processURL(url, name, xhtml, metadata, context);
++            }
+         } else {
+             xhtml.characters(cellContent);
+         }

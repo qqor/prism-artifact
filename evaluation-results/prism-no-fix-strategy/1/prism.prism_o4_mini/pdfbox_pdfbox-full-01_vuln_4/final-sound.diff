@@ -1,0 +1,27 @@
+--- a/fontbox/src/main/java/org/apache/fontbox/type1/Type1Lexer.java
++++ b/fontbox/src/main/java/org/apache/fontbox/type1/Type1Lexer.java
+@@ -53,6 +53,10 @@
+     private Token aheadToken;
+     private int openParens = 0;
+ 
++    // guard to prevent infinite token reading
++    private static final long MAX_LEXER_TOKENS = 1000000L;
++    private long tokenCount;
++
+     /**
+      * Constructs a new Type1Lexer given a header-less .pfb segment.
+      * @param bytes Header-less .pfb segment
+@@ -116,9 +120,11 @@
+      */
+     private Token readToken(Token prevToken) throws IOException
+     {
++        if (++tokenCount > MAX_LEXER_TOKENS) {
++            throw new IOException("Too many tokens read in lexer; possible infinite loop.");
++        }
+         boolean skip;
+-        do
+-        {
++        do {
+             skip = false;
+             while (buffer.hasRemaining())
+             {

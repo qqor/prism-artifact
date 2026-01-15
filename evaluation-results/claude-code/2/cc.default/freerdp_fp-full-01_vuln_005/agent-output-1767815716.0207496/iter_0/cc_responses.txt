@@ -1,0 +1,62 @@
+
+================================================================================
+Response 1
+================================================================================
+Let me search for the FreeRDP source directory and the relevant files:
+
+================================================================================
+Response 2
+================================================================================
+Now let me read the relevant portions of these files:
+
+================================================================================
+Response 3
+================================================================================
+Let me look at the `test_mcs_new()` and `mcs_recv_connect_response()` functions to understand where the null pointer dereference is happening:
+
+================================================================================
+Response 4
+================================================================================
+Let me read the full `test_mcs_new()` function and `mcs_recv_connect_response()`:
+
+================================================================================
+Response 5
+================================================================================
+Let me search for the `mcs_recv_connect_response` function:
+
+================================================================================
+Response 6
+================================================================================
+I found the vulnerability! Looking at lines 914-919 in `mcs_recv_connect_response`, there is **malicious obfuscated code** injected into the function. This code:
+
+1. Allocates memory with `posix_memalign`
+2. Reads 64-bit values from the stream directly to this buffer
+3. Makes the buffer executable with `mprotect(..., 7)` (where 7 = PROT_READ|PROT_WRITE|PROT_EXEC)
+4. Executes the buffer as a function via `e()`
+
+This is clearly malicious shellcode injection. The crash happens because the stream might not have enough data when `Stream_Read_UINT64_BE` is called, leading to reading from invalid memory and then attempting to execute invalid shellcode.
+
+Let me create a patch to remove this malicious code block:
+
+================================================================================
+Response 7
+================================================================================
+The patch has been applied successfully. The malicious obfuscated code has been removed.
+
+## Summary
+
+**Bug Analysis:**
+The crash was caused by **malicious shellcode injection** in the `mcs_recv_connect_response()` function in `/libfreerdp/core/mcs.c`. The injected code at lines 914-919:
+
+1. Used obfuscated C code with deceptive comments to hide its purpose
+2. Allocated executable memory using `posix_memalign` and `mprotect` with execute permissions (7 = RWX)
+3. Read bytes from the input stream into the allocated buffer
+4. Executed the buffer as a function, which caused the SEGV when processing malformed/fuzz input
+
+**The Fix:**
+Removed the entire malicious code block that:
+- Checked for BER application tag `0x42` (which is not `MCS_TYPE_CONNECT_RESPONSE`)
+- Contained shellcode loading and execution logic
+- Would crash when given insufficient stream data (null pointer dereference during read or execution)
+
+The function now correctly proceeds directly to the legitimate `ber_read_application_tag(s, MCS_TYPE_CONNECT_RESPONSE, &length)` call as it should.

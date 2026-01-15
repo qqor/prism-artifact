@@ -1,0 +1,78 @@
+--- a/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/BaseParser.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/pdfparser/BaseParser.java
+@@ -1123,19 +1123,21 @@
+         //average string size is around 2 and the normal string buffer size is
+         //about 16 so lets save some space.
+         StringBuilder buffer = new StringBuilder(length);
+-        while( !isWhitespace(c) && !isClosing(c) && c != -1 && buffer.length() < length &&
+-                c != '[' &&
+-                c != '<' &&
+-                c != '(' &&
+-                c != '/' )
+-        {
+-            buffer.append( (char)c );
++        while (c != -1
++               && !isWhitespace(c)
++               && !isClosing(c)
++               && buffer.length() < length
++               && c != '[' && c != '<' && c != '(' && c != '/')
++        {
++            buffer.append((char)c);
+             c = source.read();
+         }
+-        if (c != -1)
+-        {
+-            source.rewind(1);
+-        }
++        if (c == -1)
++        {
++            LOG.warn("EOF reached while parsing string(length=" + length + "), aborting readString");
++            return buffer.toString();
++        }
++        source.rewind(1);
+         return buffer.toString();
+     }
+ 
+@@ -1163,23 +1165,34 @@
+     {
+         if (source.isEOF())
+         {
+-            throw new IOException( "Error: End-of-File, expected line at offset " +
+-                    source.getPosition());
++            LOG.warn("EOF reached while reading line, aborting readLine");
++            return "";
++        }
+         }
+ 
+         StringBuilder buffer = new StringBuilder( 11 );
+ 
+         int c;
+-        while ((c = source.read()) != -1)
+-        {
+-            // CR and LF are valid EOLs
++        // limit line length to avoid excessive reads
++        while ((c = source.read()) != -1 && buffer.length() < 1024)
++        {
+             if (isEOL(c))
+             {
+                 break;
+             }
+-            buffer.append( (char)c );
+-        }
+-        // CR+LF is also a valid EOL 
++            buffer.append((char)c);
++        }
++        if (c == -1)
++        {
++            LOG.warn("EOF reached while reading line, aborting readLine");
++            return buffer.toString();
++        }
++        if (buffer.length() >= 1024)
++        {
++            LOG.warn("Line too long while parsing xref table, aborting readLine");
++            return buffer.toString();
++        }
++        // CR+LF is also a valid EOL
+         if (isCR(c) && isLF(source.peek()))
+         {
+             source.read();

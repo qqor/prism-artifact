@@ -1,0 +1,29 @@
+--- a/parser.c
++++ b/parser.c
+@@ -766,10 +766,9 @@
+         return;
+     }
+ 
+-    if (buf->cap == 0) {
+-        // Ensure that the buffer is double the necessary size
+-        // This ensures no buffer overflow is possible
+-        if (xmlSBufGrow(buf, len * 2) < 0)
++    if (buf->cap - buf->size < len) {
++        // Ensure that the buffer has enough capacity to hold new data
++        if (xmlSBufGrow(buf, len) < 0)
+             return;
+     }
+ 
+@@ -4001,8 +4000,10 @@
+                 }
+ 
+                 // Grow the buffer to handle the input
+-                xmlSBufGrow(buf, str - chunk);
+-                xmlSBufAddEntitySecure(buf, ent->name, ent->length);
++                // Grow buffer enough for the pending text plus the entity value
++                xmlSBufGrow(buf, (str - chunk) + ent->length);
++                // Copy the entity’s content, not its name
++                xmlSBufAddEntitySecure(buf, ent->content, ent->length);
+ 
+                 chunk = str;
+             } else {

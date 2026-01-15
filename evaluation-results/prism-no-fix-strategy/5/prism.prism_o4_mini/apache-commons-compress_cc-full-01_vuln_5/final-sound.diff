@@ -1,0 +1,30 @@
+--- a/src/main/java/org/apache/commons/compress/archivers/examples/Expander.java
++++ b/src/main/java/org/apache/commons/compress/archivers/examples/Expander.java
+@@ -51,6 +51,18 @@
+  */
+ public class Expander {
+ 
++    /**
++     * Safely resolve an entry name under a parent directory, preventing zip-slip.
++     */
++    private static Path safeResolve(Path parentDir, String name) throws IOException {
++        Path normalized = parentDir.normalize();
++        Path resolved = normalized.resolve(name).normalize();
++        if (!resolved.startsWith(normalized)) {
++            throw new IOException(String.format("Zip slip '%s' -> '%s'", normalized, resolved));
++        }
++        return resolved;
++    }
++
+     @FunctionalInterface
+     private interface ArchiveEntryBiConsumer<T extends ArchiveEntry> {
+         void accept(T entry, OutputStream out) throws IOException;
+@@ -70,7 +82,7 @@
+         final Path targetDirPath = nullTarget ? null : targetDirectory.normalize();
+         T nextEntry = supplier.get();
+         while (nextEntry != null) {
+-            final Path targetPath = nullTarget ? null : nextEntry.resolveIn(targetDirPath);
++    final Path targetPath = nullTarget ? null : safeResolve(targetDirPath, nextEntry.getName());
+             if (nextEntry.isDirectory()) {
+                 if (!nullTarget && !Files.isDirectory(targetPath) && Files.createDirectories(targetPath) == null) {
+                     throw new IOException("Failed to create directory " + targetPath);

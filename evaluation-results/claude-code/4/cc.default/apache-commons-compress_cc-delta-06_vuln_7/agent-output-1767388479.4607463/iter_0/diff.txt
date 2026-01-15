@@ -1,0 +1,23 @@
+diff --git a/src/main/java/org/apache/commons/compress/archivers/examples/Expander.java b/src/main/java/org/apache/commons/compress/archivers/examples/Expander.java
+index 4b987871b..cec2092e6 100644
+--- a/src/main/java/org/apache/commons/compress/archivers/examples/Expander.java
++++ b/src/main/java/org/apache/commons/compress/archivers/examples/Expander.java
+@@ -67,10 +67,17 @@ public class Expander {
+     private <T extends ArchiveEntry> void expand(final ArchiveEntrySupplier<T> supplier, final ArchiveEntryBiConsumer<T> writer, final Path targetDirectory)
+             throws IOException {
+         final boolean nullTarget = targetDirectory == null;
+-        final Path targetDirPath = nullTarget ? null : targetDirectory.normalize();
++        final Path targetDirPath = nullTarget ? null : targetDirectory.toAbsolutePath().normalize();
+         T nextEntry = supplier.get();
+         while (nextEntry != null) {
+             final Path targetPath = nullTarget ? null : nextEntry.resolveIn(targetDirPath);
++            // Additional path traversal check: verify the resolved path is within the target directory
++            if (!nullTarget) {
++                final Path normalizedTarget = targetPath.toAbsolutePath().normalize();
++                if (!normalizedTarget.startsWith(targetDirPath)) {
++                    throw new IOException("Entry is outside of the target directory: " + nextEntry.getName());
++                }
++            }
+             if (nextEntry.isDirectory()) {
+                 if (!nullTarget && !Files.isDirectory(targetPath) && Files.createDirectories(targetPath) == null) {
+                     throw new IOException("Failed to create directory " + targetPath);

@@ -1,0 +1,69 @@
+--- a/pdfbox/src/main/java/org/apache/pdfbox/pdmodel/PDPageTree.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/pdmodel/PDPageTree.java
+@@ -33,6 +33,7 @@
+ import java.util.List;
+ import java.util.NoSuchElementException;
+ import java.util.Set;
++import java.util.IdentityHashMap;
+ import org.apache.logging.log4j.Logger;
+ import org.apache.logging.log4j.LogManager;
+ 
+@@ -179,7 +180,8 @@
+      */
+     private final class PageIterator implements Iterator<PDPage>
+     {
+-        private final Queue<COSDictionary> queue = new ArrayDeque<>();
++    private final Queue<COSDictionary> queue = new ArrayDeque<>();
++    private final Set<COSDictionary> visited = Collections.newSetFromMap(new IdentityHashMap<>());
+ 
+         private PageIterator(COSDictionary node)
+         {
+@@ -203,26 +205,31 @@
+          * @param node
+          * @return
+          */
+-        private List<COSDictionary> enqueueKids(COSDictionary node)
+-        {
+-            if (isPageTreeNode(node))
+-            {
+-                return getKids(node);
++    private List<COSDictionary> enqueueKids(COSDictionary node)
++    {
++        // avoid cycles and null nodes
++        if (node == null || !visited.add(node))
++        {
++            return Collections.emptyList();
++        }
++        if (isPageTreeNode(node))
++        {
++            return getKids(node);
++        }
++        else
++        {
++            if (COSName.PAGE.equals(node.getCOSName(COSName.TYPE)))
++            {
++                queue.add(node);
+             }
+             else
+             {
+-                if (node != null && COSName.PAGE.equals(node.getCOSName(COSName.TYPE)))
+-                {
+-                    queue.add(node);
+-                }
+-                else
+-                {
+-                    LOG.error("Page skipped due to an invalid or missing type {}",
+-                            () -> (node == null ? "(null)" : node.getCOSName(COSName.TYPE)));
+-                }
+-            }
+-            return Collections.EMPTY_LIST;
+-        }
++                LOG.error("Page skipped due to an invalid or missing type {}",
++                          () -> node.getCOSName(COSName.TYPE));
++            }
++        }
++        return Collections.emptyList();
++    }
+ 
+         @Override
+         public boolean hasNext()

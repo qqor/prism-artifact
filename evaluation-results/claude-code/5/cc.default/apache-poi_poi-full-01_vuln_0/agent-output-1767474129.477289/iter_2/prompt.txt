@@ -1,0 +1,132 @@
+I tried to fix a timeout after 25 seconds vulnerability causing the crash log in the <crash_log> below.
+I failed to fix the vulnerability with the following patches:
+
+```diff
+diff --git a/poi-scratchpad/src/main/java/org/apache/poi/hmef/CompressedRTF.java b/poi-scratchpad/src/main/java/org/apache/poi/hmef/CompressedRTF.java
+index 46988b9ec..8174948ab 100644
+--- a/poi-scratchpad/src/main/java/org/apache/poi/hmef/CompressedRTF.java
++++ b/poi-scratchpad/src/main/java/org/apache/poi/hmef/CompressedRTF.java
+@@ -84,6 +84,7 @@ public final class CompressedRTF extends LZWDecompresser {
+       if(compressionType == UNCOMPRESSED_SIGNATURE_INT) {
+          // Nope, nothing fancy to do
+          IOUtils.copy(src, res);
++         return;
+       } else if(compressionType == COMPRESSED_SIGNATURE_INT) {
+          // We need to decompress it below
+       } else {
+
+``````diff
+diff --git a/poi-scratchpad/src/main/java/org/apache/poi/hmef/CompressedRTF.java b/poi-scratchpad/src/main/java/org/apache/poi/hmef/CompressedRTF.java
+index 46988b9ec..98bef1eb0 100644
+--- a/poi-scratchpad/src/main/java/org/apache/poi/hmef/CompressedRTF.java
++++ b/poi-scratchpad/src/main/java/org/apache/poi/hmef/CompressedRTF.java
+@@ -17,6 +17,7 @@
+ 
+ package org.apache.poi.hmef;
+ 
++import java.io.FilterOutputStream;
+ import java.io.IOException;
+ import java.io.InputStream;
+ import java.io.OutputStream;
+@@ -33,6 +34,10 @@ import org.apache.poi.util.LittleEndian;
+  *  handles decompressing it for you.
+  */
+ public final class CompressedRTF extends LZWDecompresser {
++   /**
++    * Maximum decompressed size allowed to prevent decompression bombs
++    */
++   private static final int MAX_DECOMPRESSED_SIZE = 100_000_000; // 100 MB
+    // github-77: mutable static fields could be changed by malicious code or by accident.
+    // These byte arrays should be package protected.
+    /*package*/ static final byte[] COMPRESSED_SIGNATURE =
+@@ -75,6 +80,13 @@ public final class CompressedRTF extends LZWDecompresser {
+       // Validate the header on the front of the RTF
+       compressedSize = LittleEndian.readInt(src);
+       decompressedSize = LittleEndian.readInt(src);
++
++      // Validate decompressedSize to prevent decompression bombs
++      if (decompressedSize < 0 || decompressedSize > MAX_DECOMPRESSED_SIZE) {
++         throw new IllegalArgumentException("Invalid decompressed size: " + decompressedSize +
++            ". Must be between 0 and " + MAX_DECOMPRESSED_SIZE);
++      }
++
+       int compressionType = LittleEndian.readInt(src);
+       /* int dataCRC = */ LittleEndian.readInt(src);
+ 
+@@ -84,14 +96,16 @@ public final class CompressedRTF extends LZWDecompresser {
+       if(compressionType == UNCOMPRESSED_SIGNATURE_INT) {
+          // Nope, nothing fancy to do
+          IOUtils.copy(src, res);
++         return;
+       } else if(compressionType == COMPRESSED_SIGNATURE_INT) {
+          // We need to decompress it below
+       } else {
+          throw new IllegalArgumentException("Invalid compression signature " + compressionType);
+       }
+ 
+-      // Have it processed
+-      super.decompress(src, res);
++      // Have it processed with size-limited output stream
++      LimitedOutputStream limitedRes = new LimitedOutputStream(res, decompressedSize);
++      super.decompress(src, limitedRes);
+    }
+ 
+    /**
+@@ -127,4 +141,36 @@ public final class CompressedRTF extends LZWDecompresser {
+      // Start adding new codes after the constants
+      return preload.length;
+    }
++
++   /**
++    * Output stream wrapper that limits the number of bytes written
++    * to prevent decompression bombs
++    */
++   private static class LimitedOutputStream extends FilterOutputStream {
++      private final int maxSize;
++      private int bytesWritten;
++
++      LimitedOutputStream(OutputStream out, int maxSize) {
++         super(out);
++         this.maxSize = maxSize;
++         this.bytesWritten = 0;
++      }
++
++      @Override
++      public void write(int b) throws IOException {
++         if (++bytesWritten > maxSize) {
++            throw new IOException("Decompressed size exceeds expected size of " + maxSize);
++         }
++         out.write(b);
++      }
++
++      @Override
++      public void write(byte[] b, int off, int len) throws IOException {
++         if (bytesWritten + len > maxSize) {
++            throw new IOException("Decompressed size exceeds expected size of " + maxSize);
++         }
++         bytesWritten += len;
++         out.write(b, off, len);
++      }
++   }
+ }
+
+```
+
+Explain why the patches failed and provide a new patch to fix the vulnerability.
+Do not repeat the same mistakes in the new patch.
+Try a completely different approach to fix the vulnerability.
+NEVER fix files outside the source directory.
+NEVER do any git operations in or outside the source directory.
+
+Below is the crash log:
+
+<crash_log>
+== ERROR: libFuzzer: timeout after 25 seconds
+ALARM: working on the last Unit for 39 seconds
+       and the timeout value is 25 (use -timeout=N to change)
+==16== ERROR: libFuzzer: timeout after 39 seconds
+SUMMARY: libFuzzer: timeout
+subprocess command returned a non-zero exit status: 70
+INFO:__main__:Running: docker run --privileged --shm-size=2g --platform linux/amd64 --rm -i -e HELPER=True -e ARCHITECTURE=x86_64 -v /home/qqor/crete/packages/python_oss_fuzz/.oss_fuzz/build/out/apache-poi:/out -v /tmp/tmpq6tzq_h2:/testcase -t ghcr.io/aixcc-finals/base-runner:v1.3.0 reproduce POIHMEFFuzzer -runs=100.
+
+</crash_log>

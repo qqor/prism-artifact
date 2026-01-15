@@ -1,0 +1,80 @@
+Create a patch to fix a AddressSanitizer: heap-buffer-overflow bug given below and apply it to the code.
+NEVER fix files outside the source directory.
+NEVER do any git operations in or outside the source directory.
+
+Below is the crash log:
+
+<crash_log>
+==ERROR: AddressSanitizer: heap-buffer-overflow on address 0x5020000009b5 at pc 0x560b731b5e44 bp 0x7ffdbe22ff70 sp 0x7ffdbe22f730
+WRITE of size 20 at 0x5020000009b5 thread T0
+SCARINESS: 45 (multi-byte-write-heap-buffer-overflow)
+    #0 0x560b731b5e43 in __asan_memcpy /src/llvm-project/compiler-rt/lib/asan/asan_interceptors_memintrinsics.cpp:63:3
+    #1 0x560b73212011 in x509_validate_subject_aternative_names /src/FreeRDP/libfreerdp/crypto/x509_utils.c:457:4
+    #2 0x560b731fa87f in freerdp_rsa_from_x509 /src/FreeRDP/libfreerdp/crypto/certificate.c:1259:7
+    #3 0x560b731facaa in freerdp_certificate_new_from_x509 /src/FreeRDP/libfreerdp/crypto/certificate.c:1341:7
+    #4 0x560b731fafb0 in freerdp_certificate_new_from /src/FreeRDP/libfreerdp/crypto/certificate.c:1358:25
+    #5 0x560b731fb036 in freerdp_certificate_new_from_pem /src/FreeRDP/libfreerdp/crypto/certificate.c:1370:9
+    #6 0x560b731f5883 in freerdp_certificate_data_new_from_pem /src/FreeRDP/libfreerdp/crypto/certificate_data.c:154:25
+    #7 0x560b731f52cd in LLVMFuzzerTestOneInput /src/FreeRDP/libfreerdp/core/test/TestFuzzCryptoCertificateDataSetPEM.c:13:9
+    #8 0x560b730ac0f0 in fuzzer::Fuzzer::ExecuteCallback(unsigned char const*, unsigned long) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:614:13
+    #9 0x560b73097365 in fuzzer::RunOneTest(fuzzer::Fuzzer*, char const*, unsigned long) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerDriver.cpp:327:6
+    #10 0x560b7309cdff in fuzzer::FuzzerDriver(int*, char***, int (*)(unsigned char const*, unsigned long)) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerDriver.cpp:862:9
+    #11 0x560b730c80a2 in main /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerMain.cpp:20:10
+    #12 0x7f8c251fc082 in __libc_start_main (/lib/x86_64-linux-gnu/libc.so.6+0x24082) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #13 0x560b7308f54d in _start (/out/TestFuzzCryptoCertificateDataSetPEM+0xcf54d)
+
+DEDUP_TOKEN: __asan_memcpy--x509_validate_subject_aternative_names--freerdp_rsa_from_x509
+0x5020000009b5 is located 0 bytes after 5-byte region [0x5020000009b0,0x5020000009b5)
+allocated by thread T0 here:
+    #0 0x560b731b7ebf in malloc /src/llvm-project/compiler-rt/lib/asan/asan_malloc_linux.cpp:68:3
+    #1 0x560b73211f53 in x509_validate_subject_aternative_names /src/FreeRDP/libfreerdp/crypto/x509_utils.c:452:15
+    #2 0x560b731fa87f in freerdp_rsa_from_x509 /src/FreeRDP/libfreerdp/crypto/certificate.c:1259:7
+    #3 0x560b731facaa in freerdp_certificate_new_from_x509 /src/FreeRDP/libfreerdp/crypto/certificate.c:1341:7
+    #4 0x560b731fafb0 in freerdp_certificate_new_from /src/FreeRDP/libfreerdp/crypto/certificate.c:1358:25
+    #5 0x560b731fb036 in freerdp_certificate_new_from_pem /src/FreeRDP/libfreerdp/crypto/certificate.c:1370:9
+    #6 0x560b731f5883 in freerdp_certificate_data_new_from_pem /src/FreeRDP/libfreerdp/crypto/certificate_data.c:154:25
+    #7 0x560b731f52cd in LLVMFuzzerTestOneInput /src/FreeRDP/libfreerdp/core/test/TestFuzzCryptoCertificateDataSetPEM.c:13:9
+    #8 0x560b730ac0f0 in fuzzer::Fuzzer::ExecuteCallback(unsigned char const*, unsigned long) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:614:13
+    #9 0x560b73097365 in fuzzer::RunOneTest(fuzzer::Fuzzer*, char const*, unsigned long) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerDriver.cpp:327:6
+    #10 0x560b7309cdff in fuzzer::FuzzerDriver(int*, char***, int (*)(unsigned char const*, unsigned long)) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerDriver.cpp:862:9
+    #11 0x560b730c80a2 in main /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerMain.cpp:20:10
+    #12 0x7f8c251fc082 in __libc_start_main (/lib/x86_64-linux-gnu/libc.so.6+0x24082) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+
+DEDUP_TOKEN: __interceptor_malloc--x509_validate_subject_aternative_names--freerdp_rsa_from_x509
+SUMMARY: AddressSanitizer: heap-buffer-overflow /src/FreeRDP/libfreerdp/crypto/x509_utils.c:457:4 in x509_validate_subject_aternative_names
+Shadow bytes around the buggy address:
+  0x502000000700: fa fa 00 03 fa fa 00 06 fa fa 00 00 fa fa 00 fa
+  0x502000000780: fa fa fd fa fa fa fd fd fa fa fd fd fa fa fd fd
+  0x502000000800: fa fa fd fa fa fa 00 00 fa fa 00 fa fa fa 06 fa
+  0x502000000880: fa fa 05 fa fa fa 00 00 fa fa 00 00 fa fa 00 00
+  0x502000000900: fa fa 00 00 fa fa 00 00 fa fa 05 fa fa fa 00 00
+=>0x502000000980: fa fa 05 fa fa fa[05]fa fa fa fa fa fa fa fa fa
+  0x502000000a00: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa
+  0x502000000a80: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa
+  0x502000000b00: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa
+  0x502000000b80: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa
+  0x502000000c00: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa
+Shadow byte legend (one shadow byte represents 8 application bytes):
+  Addressable:           00
+  Partially addressable: 01 02 03 04 05 06 07 
+  Heap left redzone:       fa
+  Freed heap region:       fd
+  Stack left redzone:      f1
+  Stack mid redzone:       f2
+  Stack right redzone:     f3
+  Stack after return:      f5
+  Stack use after scope:   f8
+  Global redzone:          f9
+  Global init order:       f6
+  Poisoned by user:        f7
+  Container overflow:      fc
+  Array cookie:            ac
+  Intra object redzone:    bb
+  ASan internal:           fe
+  Left alloca redzone:     ca
+  Right alloca redzone:    cb
+==18==ABORTING
+subprocess command returned a non-zero exit status: 1
+INFO:__main__:Running: docker run --privileged --shm-size=2g --platform linux/amd64 --rm -i -e HELPER=True -e ARCHITECTURE=x86_64 -v /home/qqor/aixcc/crete/packages/python_oss_fuzz/.oss_fuzz/build/out/freerdp:/out -v /tmp/tmpb7mts146:/testcase -t ghcr.io/aixcc-finals/base-runner:v1.3.0 reproduce TestFuzzCryptoCertificateDataSetPEM -runs=100.
+
+</crash_log>

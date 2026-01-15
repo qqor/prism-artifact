@@ -1,0 +1,99 @@
+
+================================================================================
+Response 1
+================================================================================
+Looking at this timeout issue, I can see the problem with the previous patch: **it only limits iterations of the outer `do-while` loop, but doesn't address potential infinite loops within the attribute parsing itself**.
+
+Let me analyze the code structure:
+
+================================================================================
+Response 2
+================================================================================
+Let me find the correct path:
+
+================================================================================
+Response 3
+================================================================================
+Now let me check the TNEFMAPIAttribute which is created for certain attribute types:
+
+================================================================================
+Response 4
+================================================================================
+Perfect! Now I can see the **real problem**. Let me analyze why the previous patch failed:
+
+## Why The Previous Patch Failed
+
+The previous patch added a loop iteration counter to the outer `do-while` loop in `HMEFMessage.process()`. However, this doesn't solve the actual problem because:
+
+1. **The timeout happens in `MAPIAttribute.create()`**, specifically in the nested loops at lines 125-214
+2. Line 125 has: `for(int i=0; i<count; i++)` where `count` comes from reading a 4-byte integer from the malformed input
+3. Line 196 has: `for(int j=0; j<values; j++)` where `values` is also read from input
+4. A malicious file can set `count` to a huge value (e.g., 2^31-1), causing the loop to run billions of times
+5. The outer loop counter in `HMEFMessage.process()` never gets incremented during this inner processing
+
+## The Real Vulnerability
+
+The vulnerability is in **`MAPIAttribute.create()`** where malformed input can specify:
+- A huge `count` value (line 121) causing millions of iterations
+- A huge `values` value (line 189) causing nested millions of iterations
+
+## The Solution
+
+We need to add iteration limits **inside `MAPIAttribute.create()`** where the actual infinite loops occur, not in the outer message processing loop.
+
+Here's the correct patch:
+
+```diff
+diff --git a/poi-scratchpad/src/main/java/org/apache/poi/hmef/attribute/MAPIAttribute.java b/poi-scratchpad/src/main/java/org/apache/poi/hmef/attribute/MAPIAttribute.java
+index abc123def..def456ghi 100644
+--- a/poi-scratchpad/src/main/java/org/apache/poi/hmef/attribute/MAPIAttribute.java
++++ b/poi-scratchpad/src/main/java/org/apache/poi/hmef/attribute/MAPIAttribute.java
+@@ -43,7 +43,8 @@ public class MAPIAttribute {
+    //arbitrarily selected; may need to increase
+    private static final int DEFAULT_MAX_RECORD_LENGTH = 1_000_000;
+    private static int MAX_RECORD_LENGTH = 1_000_000;
+-   private static int MAX_RECORD_COUNT = 10_000;
++   private static final int MAX_RECORD_COUNT = 10_000;
++   private static final int MAX_VALUES_PER_ATTRIBUTE = 100_000;
+ 
+    private final MAPIProperty property;
+    private final int type;
+@@ -119,6 +120,13 @@ public class MAPIAttribute {
+       try(UnsynchronizedByteArrayInputStream inp = UnsynchronizedByteArrayInputStream.builder().setByteArray(parent.getData()).get()) {
+          // First up, get the number of attributes
+          int count = LittleEndian.readInt(inp);
++         
++         // Prevent infinite loops from malformed files with huge counts
++         if (count < 0 || count > MAX_RECORD_COUNT) {
++            throw new IOException(
++                "MAPI attribute count " + count + " exceeds maximum allowed " + MAX_RECORD_COUNT
++            );
++         }
+          List<MAPIAttribute> attrs = new ArrayList<>();
+ 
+          // Now, read each one in turn
+@@ -186,6 +194,13 @@ public class MAPIAttribute {
+             // Now read in the value(s)
+             int values = 1;
+             if(isMV || isVL) {
+                values = LittleEndian.readInt(inp);
++               
++               // Prevent infinite loops from malformed files with huge values
++               if (values < 0 || values > MAX_VALUES_PER_ATTRIBUTE) {
++                  throw new IOException(
++                      "MAPI attribute values count " + values + " exceeds maximum allowed " + MAX_VALUES_PER_ATTRIBUTE
++                  );
++               }
+             }
+ 
+             if (type == Types.NULL && values > 1) {
+```
+
+This patch:
+1. **Validates the `count` variable** before entering the outer loop - prevents processing billions of fake attributes
+2. **Validates the `values` variable** before entering the inner loop - prevents processing billions of fake values per attribute  
+3. **Uses reasonable limits**: 10,000 attributes and 100,000 values per attribute (generous for legitimate files)
+4. **Throws IOException** with clear error messages when limits are exceeded
+5. **Checks for negative values** which could also cause issues
+
+This directly addresses the root cause where malformed input causes the timeout, rather than trying to limit iterations in the wrong place.

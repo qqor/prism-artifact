@@ -1,0 +1,57 @@
+diff --git a/pdfbox/src/main/java/org/apache/pdfbox/contentstream/PDFStreamEngine.java b/pdfbox/src/main/java/org/apache/pdfbox/contentstream/PDFStreamEngine.java
+index d8dc8042a..9567ea509 100644
+--- a/pdfbox/src/main/java/org/apache/pdfbox/contentstream/PDFStreamEngine.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/contentstream/PDFStreamEngine.java
+@@ -91,6 +91,10 @@ public abstract class PDFStreamEngine
+     // used to monitor potentially recursive operations.
+     private int level = 0;
+ 
++    // used to limit total number of operations processed to prevent timeout attacks
++    private int operationCount = 0;
++    private static final int MAX_OPERATIONS = 1000000;
++
+     // default font, used if there isn't any font available
+     private PDFont defaultFont;
+ 
+@@ -152,6 +156,7 @@ public abstract class PDFStreamEngine
+     public void processPage(PDPage page) throws IOException
+     {
+         initPage(page);
++        operationCount = 0;
+         if (page.hasContents())
+         {
+             isProcessingPage = true;
+@@ -483,6 +488,7 @@ public abstract class PDFStreamEngine
+                     " #processPage(PDPage) call #processChildStream(PDContentStream) instead");
+         }
+         initPage(page);
++        operationCount = 0;
+         processStream(contentStream);
+         currentPage = null;
+     }
+@@ -544,11 +550,11 @@ public abstract class PDFStreamEngine
+         }
+         try
+         {
+-            while (token != null)
++            while (token != null && operationCount <= MAX_OPERATIONS)
+             {
+                 if (token instanceof Operator)
+                 {
+-                    if (isFirstOperator && contentStream instanceof PDType3CharProc && 
++                    if (isFirstOperator && contentStream instanceof PDType3CharProc &&
+                         OperatorName.TYPE3_D1.equals(((Operator) token).getName()))
+                     {
+                         shouldProcessColorOperators = false;
+@@ -915,6 +921,11 @@ public abstract class PDFStreamEngine
+      */
+     protected void processOperator(Operator operator, List<COSBase> operands) throws IOException
+     {
++        if (++operationCount > MAX_OPERATIONS)
++        {
++            LOG.error("Maximum number of operations exceeded, stopping to prevent timeout");
++            return;
++        }
+         String name = operator.getName();
+         OperatorProcessor processor = operators.get(name);
+         if (processor != null)

@@ -1,0 +1,168 @@
+
+================================================================================
+Response 1
+================================================================================
+Let me find the correct paths for these files:
+
+================================================================================
+Response 2
+================================================================================
+Now I understand the problem. Let me analyze why the previous patches failed:
+
+## Analysis of Why Previous Patches Failed
+
+### Patch 1 Issues:
+1. **It limited output size based on `decompressedSize`** from the header, but this header value can be maliciously crafted. An attacker could set a large `decompressedSize` (up to 100MB) in the header while using a tiny input that causes infinite LZW loops.
+2. The actual vulnerability is in the **LZW decompression loop** in `LZWDecompresser.decompress()` - it can process malicious data indefinitely if the input is crafted to cause cycles.
+
+### Patch 2 Issues:
+1. **It limited input size based on `compressedSize`** from the header, but again this header value can be malicious.
+2. The issue isn't how much input is read - it's that the LZW algorithm can produce output indefinitely from a small input by using dictionary back-references that cause loops.
+
+### Root Cause:
+The `LZWDecompresser.decompress()` method has no limit on:
+1. How many iterations it processes
+2. How much output it produces
+
+A malicious input can create dictionary references that cause the decompression to loop indefinitely, producing output forever - this is the timeout after 26 seconds.
+
+## New Approach
+Instead of trusting header values, we need to **limit the total amount of processing** regardless of what the headers say. We should:
+1. Set a maximum output size limit that's reasonable
+2. Count bytes written and stop when limit exceeded
+3. Optionally limit iterations as a safety backstop
+
+Let me create a fix that limits the decompression directly in `CompressedRTF`:
+
+================================================================================
+Response 3
+================================================================================
+Now let me add the `OutputLimitingStream` inner class at the end of the file:
+
+================================================================================
+Response 4
+================================================================================
+Let me verify the complete file:
+
+================================================================================
+Response 5
+================================================================================
+The file looks good. Now let me generate the patch:
+
+## Why the Previous Patches Failed
+
+### Patch 1 Failed Because:
+1. **It trusted the header's `decompressedSize` value** - A malicious file can set `decompressedSize` to a large value (up to 100MB per the limit) while providing compressed data that causes infinite LZW loops.
+2. The check `decompressedSize > MAX_DECOMPRESSED_SIZE` doesn't prevent the actual attack - the attacker just sets a valid `decompressedSize` in the header but provides malicious LZW data.
+
+### Patch 2 Failed Because:
+1. **It limited input bytes based on `compressedSize` from the header** - This doesn't prevent the DoS because the LZW algorithm amplifies small inputs. A tiny malicious input can still produce infinite output.
+2. The `BoundedInputStream` only limits how much is read from input, not how much is produced as output.
+
+### Root Cause:
+The vulnerability is in the LZW decompression algorithm itself. In `LZWDecompresser.decompress()`, the `while ((flag = src.read()) != -1)` loop continues indefinitely as long as the input stream provides data. A malicious input can be crafted to cause the decompressor to output data indefinitely, leading to the 26-second timeout.
+
+## New Approach (This Patch)
+Instead of trusting any header values, this patch:
+1. **Limits the actual output produced** - regardless of what headers say
+2. Uses an `OutputLimitingStream` wrapper that counts bytes written and throws an exception when the limit (50MB) is exceeded
+3. This stops the decompression early when too much output is produced, preventing the infinite loop timeout
+
+Here's the patch:
+
+```diff
+diff --git a/poi-scratchpad/src/main/java/org/apache/poi/hmef/CompressedRTF.java b/poi-scratchpad/src/main/java/org/apache/poi/hmef/CompressedRTF.java
+index 46988b9ec..7a5b8a3e1 100644
+--- a/poi-scratchpad/src/main/java/org/apache/poi/hmef/CompressedRTF.java
++++ b/poi-scratchpad/src/main/java/org/apache/poi/hmef/CompressedRTF.java
+@@ -25,6 +25,7 @@ import java.nio.charset.StandardCharsets;
+ import org.apache.poi.util.IOUtils;
+ import org.apache.poi.util.LZWDecompresser;
+ import org.apache.poi.util.LittleEndian;
++import org.apache.poi.util.RecordFormatException;
+ 
+ 
+ /**
+@@ -52,6 +53,9 @@ public final class CompressedRTF extends LZWDecompresser {
+       "\\fmodern \\fscript \\fdecor MS Sans SerifSymbolArialTimes New RomanCourier" +
+       "{\\colortbl\\red0\\green0\\blue0\n\r\\par \\pard\\plain\\f0\\fs20\\b\\i\\u\\tab\\tx";
+ 
++   // Maximum allowed decompressed output size (50 MB) - prevents DoS attacks from malicious LZW data
++   private static final int MAX_OUTPUT_SIZE = 50_000_000;
++
+    private int compressedSize;
+    private int decompressedSize;
+ 
+@@ -78,17 +82,65 @@ public final class CompressedRTF extends LZWDecompresser {
+       // Do we need to do anything?
+       if(compressionType == UNCOMPRESSED_SIGNATURE_INT) {
+-         // Nope, nothing fancy to do
+-         IOUtils.copy(src, res);
++         // Nope, nothing fancy to do - but limit output to prevent DoS
++         IOUtils.copy(src, res, MAX_OUTPUT_SIZE);
++         return;
+       } else if(compressionType == COMPRESSED_SIGNATURE_INT) {
+          // We need to decompress it below
+       } else {
+          throw new IllegalArgumentException("Invalid compression signature " + compressionType);
+       }
+ 
+-      // Have it processed
+-      super.decompress(src, res);
++      // Have it processed with output size limiting to prevent DoS attacks
++      OutputLimitingStream limitedRes = new OutputLimitingStream(res, MAX_OUTPUT_SIZE);
++      super.decompress(src, limitedRes);
+    }
+ 
+    /**
+@@ -121,4 +173,50 @@ public final class CompressedRTF extends LZWDecompresser {
+      // Start adding new codes after the constants
+      return preload.length;
+    }
++
++   /**
++    * Output stream wrapper that limits total bytes written.
++    * Prevents denial-of-service attacks from malicious compressed data
++    * that could produce unbounded output.
++    */
++   private static class OutputLimitingStream extends OutputStream {
++      private final OutputStream delegate;
++      private final int maxBytes;
++      private int bytesWritten;
++
++      OutputLimitingStream(OutputStream delegate, int maxBytes) {
++         this.delegate = delegate;
++         this.maxBytes = maxBytes;
++         this.bytesWritten = 0;
++      }
++
++      @Override
++      public void write(int b) throws IOException {
++         if (bytesWritten >= maxBytes) {
++            throw new RecordFormatException("Decompressed data exceeds maximum allowed size of " + maxBytes + " bytes");
++         }
++         delegate.write(b);
++         bytesWritten++;
++      }
++
++      @Override
++      public void write(byte[] b, int off, int len) throws IOException {
++         if (bytesWritten + len > maxBytes) {
++            throw new RecordFormatException("Decompressed data exceeds maximum allowed size of " + maxBytes + " bytes");
++         }
++         delegate.write(b, off, len);
++         bytesWritten += len;
++      }
++
++      @Override
++      public void flush() throws IOException {
++         delegate.flush();
++      }
++
++      @Override
++      public void close() throws IOException {
++         delegate.close();
++      }
++   }
+ }
+```

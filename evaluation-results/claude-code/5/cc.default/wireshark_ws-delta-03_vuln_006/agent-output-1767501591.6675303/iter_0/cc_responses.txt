@@ -1,0 +1,80 @@
+
+================================================================================
+Response 1
+================================================================================
+Let me find the wireshark source directory:
+
+================================================================================
+Response 2
+================================================================================
+I can see the bug. In `dissect_irc_names` at line 563, there's a `tvb_memcpy` call that copies `length` bytes without checking if `length` exceeds the allocated buffer size (`CHANNELLEN+1`). Let me check the CHANNELLEN constant:
+
+================================================================================
+Response 3
+================================================================================
+Now I see the bug clearly. At line 563 in `dissect_irc_names`, the `tvb_memcpy` call copies `length` bytes without checking against `CHANNELLEN`. The buffer is allocated as `CHANNELLEN+1` (51 bytes), but the code copies `length` bytes which could be larger than the allocated buffer.
+
+Looking at the crash log:
+- A 51-byte region was allocated (`0x5060001c64c0,0x5060001c64f3`)
+- A WRITE of size 132 was attempted at the end of this region
+
+The fix should be to limit the copy size to `CHANNELLEN` similar to other places in the code (like line 555 for the `end_offset == -1` case, and like line 613 in `dissect_irc_list`).
+
+The bug is on line 563:
+```c
+tvb_memcpy(tvb, channel_name, start_offset, length);
+```
+
+This should be:
+```c
+tvb_memcpy(tvb, channel_name, start_offset, (length < CHANNELLEN) ? length : CHANNELLEN);
+```
+
+But actually, looking more closely, the `length` used here should probably be `end_offset - start_offset` since we're copying the current channel name (from start_offset to the comma), not the entire remaining buffer. Looking at line 613 in `dissect_irc_list`, the correct pattern is:
+```c
+tvb_memcpy(tvb, channel_name, start_offset, (end_offset-start_offset < CHANNELLEN) ? end_offset-start_offset : CHANNELLEN);
+```
+
+Let me apply the fix:
+
+================================================================================
+Response 4
+================================================================================
+Let me re-read the exact section to get the correct whitespace:
+
+================================================================================
+Response 5
+================================================================================
+The patch has been applied. Here's a summary of the fix:
+
+## Bug Analysis
+
+**Root Cause:** In the `dissect_irc_names` function at line 563, there was a heap-buffer-overflow vulnerability. The code allocated a buffer of size `CHANNELLEN+1` (51 bytes) but then copied `length` bytes into it without bounds checking.
+
+**The problematic code:**
+```c
+tvb_memcpy(tvb, channel_name, start_offset, length);
+```
+
+Here, `length` was the remaining length of the tvb from `start_offset`, which could be much larger than the 51-byte allocated buffer (in the crash case, it was 132 bytes).
+
+## Fix Applied
+
+**File:** `/home/qqor/crete/.cache/official-afc-wireshark/epan/dissectors/packet-irc.c`  
+**Line:** 563
+
+**Changed from:**
+```c
+tvb_memcpy(tvb, channel_name, start_offset, length);
+```
+
+**Changed to:**
+```c
+tvb_memcpy(tvb, channel_name, start_offset, (end_offset-start_offset < CHANNELLEN) ? end_offset-start_offset : CHANNELLEN);
+```
+
+The fix limits the copy size to:
+1. `end_offset - start_offset` (the actual channel name length up to the comma delimiter), or
+2. `CHANNELLEN` (50), whichever is smaller
+
+This matches the pattern used correctly in the similar `dissect_irc_list` function at line 613 and other places in the file, preventing the buffer overflow while still extracting the correct channel name data.

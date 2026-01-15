@@ -1,0 +1,36 @@
+diff --git a/fontbox/src/main/java/org/apache/fontbox/type1/Type1Lexer.java b/fontbox/src/main/java/org/apache/fontbox/type1/Type1Lexer.java
+index 56aaf64..5933362 100644
+--- a/fontbox/src/main/java/org/apache/fontbox/type1/Type1Lexer.java
++++ b/fontbox/src/main/java/org/apache/fontbox/type1/Type1Lexer.java
+@@ -501,16 +501,25 @@ class Type1Lexer
+      */
+     private Token readCharString(int length) throws IOException
+     {
+-        try
++        // validate length to prevent invalid or excessive allocation
++        if (length < 0)
+         {
+-            buffer.get(); // space
+-            byte[] data = new byte[length];
+-            buffer.get(data);
+-            return new Token(data, Token.CHARSTRING);
++            throw new IOException("Invalid charstring length: " + length);
+         }
+-        catch (BufferUnderflowException exception)
++        // ensure enough bytes for space delimiter and data
++        if (buffer.remaining() < length + 1)
+         {
+             throw new IOException("Premature end of buffer reached");
+         }
++        // consume space delimiter
++        buffer.get();
++        // limit charstring size to avoid excessive memory allocation
++        if (length > 100 * 1024 * 1024)
++        {
++            throw new IOException("Charstring too large: " + length);
++        }
++        byte[] data = new byte[length];
++        buffer.get(data);
++        return new Token(data, Token.CHARSTRING);
+     }
+ }

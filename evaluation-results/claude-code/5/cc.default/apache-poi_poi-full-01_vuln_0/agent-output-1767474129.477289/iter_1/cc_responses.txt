@@ -1,0 +1,192 @@
+
+================================================================================
+Response 1
+================================================================================
+Let me find the correct path to the file:
+
+================================================================================
+Response 2
+================================================================================
+Now let me look at the parent class `LZWDecompresser` to understand the decompression logic:
+
+================================================================================
+Response 3
+================================================================================
+Now I understand the issue. Let me analyze it:
+
+## Analysis of the Vulnerability and Failed Patch
+
+### Why the Original Patch Failed
+
+The failed patch added a `return` statement after `IOUtils.copy(src, res)` for the uncompressed case. However, this doesn't address the root cause of the timeout vulnerability.
+
+The issue is in the `decompress` method of `LZWDecompresser` (the parent class). When decompressing compressed RTF:
+
+1. If `compressionType == COMPRESSED_SIGNATURE_INT`, the code falls through to call `super.decompress(src, res)` at line 94
+2. The parent class's `decompress` method (LZWDecompresser) reads from the stream in an infinite loop until EOF (`while ((flag = src.read()) != -1)`)
+3. **The problem**: There's no limit on the decompressed output size. A malicious input could cause the decompression to produce an extremely large output (decompression bomb) or run indefinitely.
+
+The key vulnerability is that:
+- `compressedSize` and `decompressedSize` are read from the input header but **never validated or used to limit the output**
+- The LZW decompression loop has no bounds checking based on expected output size
+- This allows a malformed input to cause unbounded decompression time
+
+### The Correct Fix
+
+Instead of just adding a `return` for the uncompressed case, we need to limit the decompression based on the `decompressedSize` value read from the header. We should wrap the output stream to track bytes written and stop when we've reached the expected size.
+
+Here's the new patch:
+
+```diff
+diff --git a/poi-scratchpad/src/main/java/org/apache/poi/hmef/CompressedRTF.java b/poi-scratchpad/src/main/java/org/apache/poi/hmef/CompressedRTF.java
+index 46988b9ec..5e2b7c8d1 100644
+--- a/poi-scratchpad/src/main/java/org/apache/poi/hmef/CompressedRTF.java
++++ b/poi-scratchpad/src/main/java/org/apache/poi/hmef/CompressedRTF.java
+@@ -17,14 +17,20 @@
+ 
+ package org.apache.poi.hmef;
+ 
++import java.io.FilterOutputStream;
+ import java.io.IOException;
+ import java.io.InputStream;
+ import java.io.OutputStream;
+ import java.nio.charset.StandardCharsets;
+ 
+ import org.apache.poi.util.IOUtils;
+ import org.apache.poi.util.LZWDecompresser;
+ import org.apache.poi.util.LittleEndian;
+ 
++/**
++ * Maximum decompressed size allowed to prevent decompression bombs
++ */
++private static final int MAX_DECOMPRESSED_SIZE = 100_000_000; // 100 MB
+ 
+ /**
+  * Within a {@link HMEFMessage}, the content is often
+@@ -73,6 +79,14 @@ public final class CompressedRTF extends LZWDecompresser {
+    @Override
+    public void decompress(InputStream src, OutputStream res) throws IOException {
+       // Validate the header on the front of the RTF
+       compressedSize = LittleEndian.readInt(src);
+       decompressedSize = LittleEndian.readInt(src);
++      
++      // Validate decompressedSize to prevent decompression bombs
++      if (decompressedSize < 0 || decompressedSize > MAX_DECOMPRESSED_SIZE) {
++         throw new IllegalArgumentException("Invalid decompressed size: " + decompressedSize + 
++            ". Must be between 0 and " + MAX_DECOMPRESSED_SIZE);
++      }
++      
+       int compressionType = LittleEndian.readInt(src);
+       /* int dataCRC = */ LittleEndian.readInt(src);
+ 
+@@ -82,13 +96,15 @@ public final class CompressedRTF extends LZWDecompresser {
+       if(compressionType == UNCOMPRESSED_SIGNATURE_INT) {
+          // Nope, nothing fancy to do
+          IOUtils.copy(src, res);
++         return;
+       } else if(compressionType == COMPRESSED_SIGNATURE_INT) {
+          // We need to decompress it below
+       } else {
+          throw new IllegalArgumentException("Invalid compression signature " + compressionType);
+       }
+ 
+-      // Have it processed
+-      super.decompress(src, res);
++      // Have it processed with size-limited output stream
++      LimitedOutputStream limitedRes = new LimitedOutputStream(res, decompressedSize);
++      super.decompress(src, limitedRes);
+    }
+ 
+    /**
+@@ -127,4 +143,33 @@ public final class CompressedRTF extends LZWDecompresser {
+      // Start adding new codes after the constants
+      return preload.length;
+    }
++
++   /**
++    * Output stream wrapper that limits the number of bytes written
++    * to prevent decompression bombs
++    */
++   private static class LimitedOutputStream extends FilterOutputStream {
++      private final int maxSize;
++      private int bytesWritten;
++
++      LimitedOutputStream(OutputStream out, int maxSize) {
++         super(out);
++         this.maxSize = maxSize;
++         this.bytesWritten = 0;
++      }
++
++      @Override
++      public void write(int b) throws IOException {
++         if (++bytesWritten > maxSize) {
++            throw new IOException("Decompressed size exceeds expected size of " + maxSize);
++         }
++         out.write(b);
++      }
++
++      @Override
++      public void write(byte[] b, int off, int len) throws IOException {
++         if (bytesWritten + len > maxSize) {
++            throw new IOException("Decompressed size exceeds expected size of " + maxSize);
++         }
++         bytesWritten += len;
++         out.write(b, off, len);
++      }
++   }
+ }
+```
+
+Let me now create the actual edit to the file:
+
+================================================================================
+Response 4
+================================================================================
+Now let me add the `LimitedOutputStream` inner class at the end of the file:
+
+================================================================================
+Response 5
+================================================================================
+Let me verify the final file is correct:
+
+================================================================================
+Response 6
+================================================================================
+The fix is complete. Here's a summary:
+
+## Summary
+
+### Why the Original Patch Failed
+
+The original patch only added a `return` statement after `IOUtils.copy(src, res)` for uncompressed data. This didn't fix the vulnerability because:
+
+1. **The timeout was caused by compressed data processing**, not uncompressed data
+2. The actual vulnerability is a **decompression bomb** - a small compressed input can expand to an enormous output
+3. The LZW decompression loop in the parent class `LZWDecompresser.decompress()` has **no bounds checking** on output size
+4. A malicious input can craft a compressed stream that causes unbounded decompression, leading to the 25+ second timeout
+
+### The New Fix (Completely Different Approach)
+
+The new patch addresses the root cause with three key changes:
+
+1. **Added a maximum decompressed size constant** (`MAX_DECOMPRESSED_SIZE = 100 MB`) to cap the output
+
+2. **Validates `decompressedSize` from the header** - Rejects inputs claiming to decompress to more than 100 MB or negative sizes:
+   ```java
+   if (decompressedSize < 0 || decompressedSize > MAX_DECOMPRESSED_SIZE) {
+      throw new IllegalArgumentException("Invalid decompressed size: ...");
+   }
+   ```
+
+3. **Wraps the output stream with a size-limiting wrapper** - The `LimitedOutputStream` inner class tracks bytes written and throws an exception if the actual decompressed output exceeds the expected size:
+   ```java
+   LimitedOutputStream limitedRes = new LimitedOutputStream(res, decompressedSize);
+   super.decompress(src, limitedRes);
+   ```
+
+4. **Keeps the `return` for uncompressed case** - The original fix was correct for the uncompressed path (prevent falling through to `super.decompress()`)
+
+This approach defends against:
+- Maliciously large claimed decompression sizes in the header
+- Actual decompression bombs where the output exceeds what was declared
+- Both prevent the infinite/excessive loop that caused the timeout

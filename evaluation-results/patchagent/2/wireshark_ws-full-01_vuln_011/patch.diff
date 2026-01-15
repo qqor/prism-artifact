@@ -1,0 +1,41 @@
+diff --git a/epan/dissectors/packet-aim.c b/epan/dissectors/packet-aim.c
+index ec79a79..4796cf3 100644
+--- a/epan/dissectors/packet-aim.c
++++ b/epan/dissectors/packet-aim.c
+@@ -583,14 +583,28 @@ aim_get_buddyname(wmem_allocator_t *pool, uint8_t **name, tvbuff_t *tvb, int off
+ {
+ 	uint16_t buddyname_length;
+ 
+-	*name = wmem_alloc(pool, 256);
+-
+-	buddyname_length = tvb_get_ntohs(tvb, offset);
+-
+-	if (pool)
+-		memcpy(*name, tvb_get_ptr(tvb,offset,1), buddyname_length);
+-
+-	return buddyname_length;
++    /* Read buddy name length (big-endian) from two-byte field */
++    buddyname_length = tvb_get_ntohs(tvb, offset);
++    /* Determine available data length after length field */
++    {
++        int avail_len = tvb_reported_length_remaining(tvb, offset + 2);
++        if (buddyname_length > avail_len) {
++            buddyname_length = avail_len;
++        }
++    }
++    /* Cap to safe maximum to avoid excessive allocation */
++    if (buddyname_length > 255) {
++        buddyname_length = 255;
++    }
++    /* Allocate buffer for name plus null terminator */
++    *name = wmem_alloc(pool, buddyname_length + 1);
++    /* Copy buddy name data, skipping the length field */
++    memcpy(*name,
++           tvb_get_ptr(tvb, offset + 2, buddyname_length),
++           buddyname_length);
++    /* Null-terminate buddy name */
++    (*name)[buddyname_length] = '\0';
++    return buddyname_length;
+ }
+ 
+ 

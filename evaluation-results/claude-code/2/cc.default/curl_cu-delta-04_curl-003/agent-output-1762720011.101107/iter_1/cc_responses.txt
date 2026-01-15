@@ -1,0 +1,176 @@
+
+================================================================================
+Response 1
+================================================================================
+Looking at the crash log and the failed patch, I need to analyze what's actually happening.
+
+## Analysis of the Crash
+
+The crash occurs at line 1410 in `Curl_doh_close`, which is a READ memory access violation. The failed patch tried to add a null check for `data->multi` before calling `curl_multi_remove_handle`, but this didn't fix the issue.
+
+Let me first examine the actual code to understand the problem:
+
+================================================================================
+Response 2
+================================================================================
+Let me search for the source directory:
+
+================================================================================
+Response 3
+================================================================================
+Now I can see the issue! Looking at line 1410, the crash is happening at `mid = doh->probe[slot].easy_mid;`. The problem is NOT with `data->multi` being NULL, but with `doh` being an invalid/freed pointer.
+
+The check on line 1405 is `if(doh && data->multi)`, but between the time this check is made and line 1410 is executed, the `doh` pointer could be pointing to freed memory or could be corrupted. The failed patch only checked `data->multi` but missed the real issue - the `doh` pointer itself is unsafe.
+
+Let me look at the broader context to understand how `doh` is managed:
+
+================================================================================
+Response 4
+================================================================================
+Now let me check what `data->req.doh` structure looks like and where it might be getting corrupted:
+
+================================================================================
+Response 5
+================================================================================
+Now let me check the `doh_probe` structure:
+
+================================================================================
+Response 6
+================================================================================
+Perfect! Now I understand the structure. The issue is that `data->req.doh` is being accessed, but the pointer could be dangling or freed. Looking back at the crash and the code flow:
+
+1. Line 1404: `struct doh_probes *doh = data->req.doh;` - we read the pointer
+2. Line 1405: `if(doh && data->multi)` - we check if it's non-NULL
+3. Line 1410: `mid = doh->probe[slot].easy_mid;` - **CRASH HERE** - trying to read from potentially freed/corrupted memory
+
+The real issue is that between checking `doh` is non-NULL and dereferencing it, the memory pointed to by `doh` could have been freed or could be corrupted. The check at line 1405 only verifies the pointer is not NULL, not that the memory is valid.
+
+Looking at `Curl_doh_cleanup` (lines 1431-1440), I can see that `data->req.doh` gets freed with `Curl_safefree(data->req.doh)` at line 1438. This means there could be a use-after-free scenario.
+
+The key insight: **The problem is likely that `data->req.doh` itself might be pointing to freed or invalid memory when accessed.** The previous patch only checked `data->multi` but the actual crash is happening when dereferencing `doh->probe[slot].easy_mid`.
+
+Let me check if there's any re-entrancy or if `Curl_doh_close` could be called after the structure is freed:
+
+================================================================================
+Response 7
+================================================================================
+The key issue: `Curl_doh_cleanup` calls `Curl_doh_close` and then frees the structure. But if `Curl_doh_close` is somehow called again or if there's memory corruption, we'll have a use-after-free.
+
+## Why the Previous Patch Failed
+
+The previous patch only added a null check for `data->multi` before calling `curl_multi_remove_handle`. However, the crash is happening **earlier** at line 1410 when trying to read `doh->probe[slot].easy_mid`. The problem is that the `doh` pointer itself might be invalid/freed, not that `data->multi` is NULL.
+
+## New Approach
+
+The solution is to **validate that the doh structure is still valid** before accessing its members. We need to:
+
+1. Make a defensive copy or add more robust validation
+2. Check if `data->req.doh` is still valid after the initial check
+3. Most importantly, prevent accessing `doh` pointer after it could have been freed
+
+Looking at the code more carefully, I notice that in the loop at line 1409, we're iterating through slots and calling operations that might modify the state. The safest approach is to **ensure we don't access doh pointer if it becomes invalid during the loop**.
+
+Here's my new patch:
+
+================================================================================
+Response 8
+================================================================================
+Now I'll create a comprehensive fix. The issue is that `data->req.doh` could be pointing to invalid memory. The safest approach is to:
+
+1. Re-validate `data->req.doh` pointer within the loop (in case it changes)
+2. Ensure we don't continue using a potentially stale `doh` pointer
+
+Here's my new patch:
+
+```diff
+diff --git a/lib/doh.c b/lib/doh.c
+index 8769372e0..a9e8c7d4f 100644
+--- a/lib/doh.c
++++ b/lib/doh.c
+@@ -1401,12 +1401,15 @@ void Curl_doh_close(struct Curl_easy *data)
+ 
+ void Curl_doh_close(struct Curl_easy *data)
+ {
+-  struct doh_probes *doh = data->req.doh;
+-  if(doh && data->multi) {
++  struct doh_probes *doh;
++  if(!data || !data->req.doh || !data->multi)
++    return;
++  
++  doh = data->req.doh;
++  if(doh) {
+     struct Curl_easy *probe_data;
+     curl_off_t mid;
+     size_t slot;
+     for(slot = 0; slot < DOH_SLOT_COUNT; slot++) {
+-      mid = doh->probe[slot].easy_mid;
++      /* Re-check doh pointer validity within the loop */
++      if(!data->req.doh)
++        break;
++      doh = data->req.doh;
++      mid = doh->probe[slot].easy_mid;
+       if(mid < 0)
+         continue;
+       doh->probe[slot].easy_mid = -1;
+       /* should have been called before data is removed from multi handle */
+       DEBUGASSERT(data->multi);
++      if(!data->multi)
++        break;
+       probe_data = data->multi ? Curl_multi_get_handle(data->multi, mid) :
+         NULL;
+       if(!probe_data) {
+@@ -1422,7 +1429,8 @@ void Curl_doh_close(struct Curl_easy *data)
+         continue;
+       }
+       /* data->multi might already be reset at this time */
+-      curl_multi_remove_handle(data->multi, probe_data);
++      if(data->multi)
++        curl_multi_remove_handle(data->multi, probe_data);
+       Curl_close(&probe_data);
+     }
+   }
+```
+
+Wait, I think I'm overcomplicating this. Let me reconsider the actual crash. The crash is at line 1410 trying to read `doh->probe[slot].easy_mid`. This suggests that `doh` passed the NULL check on line 1405, but the memory it points to is invalid (freed or corrupted).
+
+The most likely scenario is that `data->req.doh` is **not NULL but points to freed memory**. This is a classic dangling pointer issue. 
+
+Let me think about a simpler, more targeted fix: Since the crash happens when dereferencing `doh->probe[slot]`, we should add validation that the data structure itself is not corrupted, or better yet, **add an early NULL check AND validate data pointer**.
+
+Here's a better, simpler patch:
+
+## Explanation and New Patch
+
+**Why the previous patch failed:**
+The previous patch only checked if `data->multi` was NULL before calling `curl_multi_remove_handle()`. However, the actual crash occurs at line 1410 when trying to access `doh->probe[slot].easy_mid`. The `doh` pointer passed the NULL check at line 1405, but it was pointing to freed or corrupted memory (a dangling pointer), causing a segmentation fault when dereferencing it.
+
+**New approach:**
+Add defensive checks to validate the `data` pointer itself is valid before accessing any of its members, and re-validate critical pointers before dereferencing them within the loop:
+
+```diff
+diff --git a/lib/doh.c b/lib/doh.c
+index 8769372e0..3f1c8a0e1 100644
+--- a/lib/doh.c
++++ b/lib/doh.c
+@@ -1401,7 +1401,11 @@ CURLcode Curl_doh_is_resolved(struct Curl_easy *data,
+ 
+ void Curl_doh_close(struct Curl_easy *data)
+ {
+-  struct doh_probes *doh = data->req.doh;
++  struct doh_probes *doh;
++  if(!data)
++    return;
++  
++  doh = data->req.doh;
+   if(doh && data->multi) {
+     struct Curl_easy *probe_data;
+     curl_off_t mid;
+     size_t slot;
+     for(slot = 0; slot < DOH_SLOT_COUNT; slot++) {
++      /* Re-validate doh pointer before each access */
++      doh = data->req.doh;
++      if(!doh)
++        break;
+       mid = doh->probe[slot].easy_mid;
+       if(mid < 0)
+         continue;

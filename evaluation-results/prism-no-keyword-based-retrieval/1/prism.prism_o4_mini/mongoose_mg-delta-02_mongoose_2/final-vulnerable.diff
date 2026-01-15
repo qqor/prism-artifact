@@ -1,0 +1,33 @@
+--- a/src/net_builtin.c
++++ b/src/net_builtin.c
+@@ -380,8 +380,11 @@
+ }
+ 
+ static void rx_icmp(struct mg_tcpip_if *ifp, struct pkt *pkt) {
+-  // MG_DEBUG(("ICMP %d", (int) len));
+-  if (pkt->icmp->type == 8 && pkt->ip != NULL && pkt->ip->dst == ifp->ip) {
++  // MG_DEBUG(("ICMP %d", (int) pkt->icmp->type));
++  if ((char *)&pkt->icmp->type + 1 <= pkt->raw.buf + pkt->raw.len &&
++      pkt->icmp->type == 8 &&
++      pkt->ip != NULL &&
++      pkt->ip->dst == ifp->ip) {
+     size_t hlen = sizeof(struct eth) + sizeof(struct ip) + sizeof(struct icmp);
+     size_t space = ifp->tx.len - hlen, plen = pkt->pay.len;
+     if (plen > space) plen = space;
+@@ -799,9 +802,13 @@
+     struct mg_connection *c = getpeer(ifp->mgr, pkt, false);
+     if (c) mg_error(c, "Received fragmented packet");
+   } else if (pkt->ip->proto == 1) {
+-    pkt->icmp = (struct icmp *) (pkt->ip + 1);
+-    if (pkt->pay.len < sizeof(*pkt->icmp)) return;
+-    mkpay(pkt, pkt->icmp + 1);
++    /* Validate IPv4 header and ICMP header presence in raw buffer */
++    size_t ihl = (size_t)(pkt->ip->ver & 0x0F) * 4;
++    if (ihl < sizeof(*pkt->ip)) return;
++    size_t icmp_off = sizeof(*pkt->eth) + ihl;
++    if (pkt->raw.len < icmp_off + sizeof(*pkt->icmp)) return;
++    pkt->icmp = (struct icmp *) ((char *)pkt->ip + ihl);
++    mkpay(pkt, (char *)pkt->icmp + sizeof(*pkt->icmp));
+     rx_icmp(ifp, pkt);
+   } else if (pkt->ip->proto == 17) {
+     pkt->udp = (struct udp *) (pkt->ip + 1);

@@ -1,0 +1,48 @@
+
+================================================================================
+Response 1
+================================================================================
+Let me look for the source directory:
+
+================================================================================
+Response 2
+================================================================================
+Let me read the MAPIAttribute.java file to understand the issue at line 175:
+
+================================================================================
+Response 3
+================================================================================
+Now I can see the issue. The crash is at line 175 where `StringUtil.getFromUnicodeLE(mpdata, 0, (mplen/2)-1)` is called. The problem is that `mplen` could be a very large value read from the input stream (at line 167), which leads to allocating a huge `mpdata` byte array (line 171), causing an OutOfMemoryError.
+
+The fix should validate `mplen` against `MAX_RECORD_LENGTH` before allocating the byte array. Let me check the `IOUtils.safelyAllocate` method used elsewhere in this file:
+
+================================================================================
+Response 4
+================================================================================
+I see the pattern. The fix should use `IOUtils.safelyAllocate` instead of just `new byte[mplen]` on line 171, just like line 198 does for similar allocations. This will prevent OOM by throwing an exception if `mplen` exceeds `MAX_RECORD_LENGTH`.
+
+Let me create the fix:
+
+================================================================================
+Response 5
+================================================================================
+The fix has been applied. Here's a summary of the change:
+
+## Patch Summary
+
+**File:** `poi-scratchpad/src/main/java/org/apache/poi/hmef/attribute/MAPIAttribute.java`
+
+**Issue:** The `MAPIAttribute.create()` method was vulnerable to an Out of Memory (OOM) attack. When parsing a TNEF MAPI attribute, the code reads `mplen` from the input stream and directly allocates a byte array of that size without validation. A maliciously crafted file could specify an extremely large `mplen` value, causing `new byte[mplen]` to allocate excessive memory and crash the JVM with an OutOfMemoryError.
+
+**Fix:** Changed line 171 from:
+```java
+byte[] mpdata = new byte[mplen];
+```
+to:
+```java
+byte[] mpdata = IOUtils.safelyAllocate(mplen, MAX_RECORD_LENGTH);
+```
+
+The `IOUtils.safelyAllocate()` method validates that the requested allocation size doesn't exceed the `MAX_RECORD_LENGTH` limit (1,000,000 bytes by default) before performing the allocation. If the size exceeds the limit, it throws a `RecordFormatException` instead of attempting to allocate excessive memory.
+
+This is consistent with other similar allocations in the same file (see line 198) and follows the established pattern throughout the Apache POI codebase for preventing OOM attacks from malformed input files.

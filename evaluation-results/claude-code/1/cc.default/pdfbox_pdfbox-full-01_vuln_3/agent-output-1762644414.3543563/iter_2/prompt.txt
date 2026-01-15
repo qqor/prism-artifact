@@ -1,0 +1,189 @@
+I tried to fix a timeout after 25 seconds vulnerability causing the crash log in the <crash_log> below.
+I failed to fix the vulnerability with the following patches:
+
+```diff
+diff --git a/fontbox/src/main/java/org/apache/fontbox/type1/Type1Lexer.java b/fontbox/src/main/java/org/apache/fontbox/type1/Type1Lexer.java
+index 56aaf64ad..4f1b4aec2 100644
+--- a/fontbox/src/main/java/org/apache/fontbox/type1/Type1Lexer.java
++++ b/fontbox/src/main/java/org/apache/fontbox/type1/Type1Lexer.java
+@@ -44,6 +44,12 @@ import org.apache.logging.log4j.LogManager;
+  */
+ class Type1Lexer
+ {
++    /**
++     * Maximum number of iterations to prevent infinite loops in malformed fonts.
++     * This allows processing large fonts while preventing hangs on malicious input.
++     */
++    private static final int MAX_ITERATIONS = 1000000;
++
+     /**
+      * Log instance.
+      */
+@@ -117,9 +123,15 @@ class Type1Lexer
+     private Token readToken(Token prevToken) throws IOException
+     {
+         boolean skip;
++        int iterationCount = 0;
+         do
+         {
+             skip = false;
++            if (++iterationCount > MAX_ITERATIONS)
++            {
++                throw new IOException("Maximum iteration limit exceeded while reading token at position " +
++                                     buffer.position() + ". Possible infinite loop in malformed font data.");
++            }
+             while (buffer.hasRemaining())
+             {
+                 char c = getChar();
+
+``````diff
+diff --git a/fontbox/src/main/java/org/apache/fontbox/type1/Type1Lexer.java b/fontbox/src/main/java/org/apache/fontbox/type1/Type1Lexer.java
+index 56aaf64ad..676e55163 100644
+--- a/fontbox/src/main/java/org/apache/fontbox/type1/Type1Lexer.java
++++ b/fontbox/src/main/java/org/apache/fontbox/type1/Type1Lexer.java
+@@ -117,11 +117,32 @@ class Type1Lexer
+     private Token readToken(Token prevToken) throws IOException
+     {
+         boolean skip;
++        int loopCount = 0;
++        int lastPosition = -1;
++        final int MAX_STALL_ITERATIONS = 100000;
++
+         do
+         {
+             skip = false;
+             while (buffer.hasRemaining())
+             {
++                // Detect if buffer position is not advancing (infinite loop protection)
++                int currentPosition = buffer.position();
++                if (currentPosition == lastPosition)
++                {
++                    loopCount++;
++                    if (loopCount > MAX_STALL_ITERATIONS)
++                    {
++                        throw new IOException("Buffer position not advancing at position " +
++                                currentPosition + ". Possible infinite loop in malformed font data.");
++                    }
++                }
++                else
++                {
++                    loopCount = 0;
++                    lastPosition = currentPosition;
++                }
++
+                 char c = getChar();
+ 
+                 // delimiters
+
+```
+
+Explain why the patches failed and provide a new patch to fix the vulnerability.
+Do not repeat the same mistakes in the new patch.
+Try a completely different approach to fix the vulnerability.
+NEVER fix files outside the source directory.
+NEVER do any git operations in or outside the source directory.
+
+Below is the crash log:
+
+<crash_log>
+== ERROR: libFuzzer: timeout after 25 seconds
+
+Stack traces of all JVM threads:
+Thread[Cleaner-0,5,InnocuousThreadGroup]
+	at java.base@17.0.2/java.lang.Object.wait(Native Method)
+	at java.base@17.0.2/java.lang.ref.ReferenceQueue.remove(ReferenceQueue.java:155)
+	at java.base@17.0.2/jdk.internal.ref.CleanerImpl.run(CleanerImpl.java:140)
+	at java.base@17.0.2/java.lang.Thread.run(Thread.java:833)
+	at java.base@17.0.2/jdk.internal.misc.InnocuousThread.run(InnocuousThread.java:162)
+
+Thread[Attach Listener,9,system]
+
+Thread[Signal Dispatcher,9,system]
+
+Thread[main,5,main]
+	at app//com.code_intelligence.jazzer.driver.FuzzTargetRunner.dumpAllStackTraces(FuzzTargetRunner.java:534)
+	at com.code_intelligence.jazzer.runtime.TraceDataFlowNativeCallbacks.traceConstCmpInt(Native Method)
+	at app//org.apache.fontbox.type1.Type1Lexer.readToken(Type1Lexer.java:123)
+	at app//org.apache.fontbox.type1.Type1Lexer.nextToken(Type1Lexer.java:75)
+	at app//org.apache.fontbox.type1.Type1Parser.readEncoding(Type1Parser.java:222)
+	at app//org.apache.fontbox.type1.Type1Parser.parseASCII(Type1Parser.java:142)
+	at app//org.apache.fontbox.type1.Type1Parser.parse(Type1Parser.java:63)
+	at app//org.apache.fontbox.type1.Type1Font.createWithPFB(Type1Font.java:71)
+	at app//org.apache.pdfbox.pdmodel.font.PDType1Font.<init>(PDType1Font.java:227)
+	at app//org.apache.pdfbox.pdmodel.font.PDFontFactory.createFont(PDFontFactory.java:140)
+	at app//org.apache.pdfbox.pdmodel.PDResources.getFont(PDResources.java:170)
+	at app//org.apache.pdfbox.contentstream.operator.text.SetFontAndSize.process(SetFontAndSize.java:72)
+	at app//org.apache.pdfbox.contentstream.PDFStreamEngine.processOperator(PDFStreamEngine.java:924)
+	at app//org.apache.pdfbox.contentstream.PDFStreamEngine.processStreamOperators(PDFStreamEngine.java:557)
+	at app//org.apache.pdfbox.contentstream.PDFStreamEngine.processStream(PDFStreamEngine.java:515)
+	at app//org.apache.pdfbox.contentstream.PDFStreamEngine.processPage(PDFStreamEngine.java:158)
+	at app//org.apache.pdfbox.text.LegacyPDFStreamEngine.processPage(LegacyPDFStreamEngine.java:153)
+	at app//org.apache.pdfbox.text.PDFTextStripper.processPage(PDFTextStripper.java:378)
+	at app//org.apache.pdfbox.text.PDFTextStripper.processPages(PDFTextStripper.java:303)
+	at app//org.apache.pdfbox.text.PDFTextStripper.writeText(PDFTextStripper.java:251)
+	at app//org.apache.pdfbox.text.PDFTextStripper.getText(PDFTextStripper.java:218)
+	at app//com.example.PDFExtractTextFuzzer.fuzzerTestOneInput(PDFExtractTextFuzzer.java:41)
+	at java.base@17.0.2/java.lang.invoke.LambdaForm$DMH/0x0000000800cbc000.invokeStaticInit(LambdaForm$DMH)
+	at java.base@17.0.2/java.lang.invoke.LambdaForm$MH/0x0000000800cbd000.invoke(LambdaForm$MH)
+	at java.base@17.0.2/java.lang.invoke.LambdaForm$MH/0x0000000800cbc800.invoke_MT(LambdaForm$MH)
+	at app//com.code_intelligence.jazzer.driver.FuzzTargetRunner.runOne(FuzzTargetRunner.java:234)
+	at com.code_intelligence.jazzer.runtime.FuzzTargetRunnerNatives.startLibFuzzer(Native Method)
+	at app//com.code_intelligence.jazzer.driver.FuzzTargetRunner.startLibFuzzer(FuzzTargetRunner.java:551)
+	at app//com.code_intelligence.jazzer.driver.FuzzTargetRunner.startLibFuzzer(FuzzTargetRunner.java:441)
+	at app//com.code_intelligence.jazzer.driver.Driver.start(Driver.java:166)
+	at app//com.code_intelligence.jazzer.Jazzer.start(Jazzer.java:118)
+	at app//com.code_intelligence.jazzer.Jazzer.main(Jazzer.java:77)
+
+Thread[Finalizer,8,system]
+	at java.base@17.0.2/java.lang.Object.wait(Native Method)
+	at java.base@17.0.2/java.lang.ref.ReferenceQueue.remove(ReferenceQueue.java:155)
+	at java.base@17.0.2/java.lang.ref.ReferenceQueue.remove(ReferenceQueue.java:176)
+	at java.base@17.0.2/java.lang.ref.Finalizer$FinalizerThread.run(Finalizer.java:172)
+
+Thread[Notification Thread,9,system]
+
+Thread[process reaper,10,system]
+	at java.base@17.0.2/jdk.internal.misc.Unsafe.park(Native Method)
+	at java.base@17.0.2/java.util.concurrent.locks.LockSupport.parkNanos(LockSupport.java:252)
+	at java.base@17.0.2/java.util.concurrent.SynchronousQueue$TransferStack.transfer(SynchronousQueue.java:401)
+	at java.base@17.0.2/java.util.concurrent.SynchronousQueue.poll(SynchronousQueue.java:903)
+	at java.base@17.0.2/java.util.concurrent.ThreadPoolExecutor.getTask(ThreadPoolExecutor.java:1061)
+	at java.base@17.0.2/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1122)
+	at java.base@17.0.2/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:635)
+	at java.base@17.0.2/java.lang.Thread.run(Thread.java:833)
+
+Thread[Reference Handler,10,system]
+	at java.base@17.0.2/java.lang.ref.Reference.waitForReferencePendingList(Native Method)
+	at java.base@17.0.2/java.lang.ref.Reference.processPendingReferences(Reference.java:253)
+	at java.base@17.0.2/java.lang.ref.Reference$ReferenceHandler.run(Reference.java:215)
+
+Thread[Common-Cleaner,8,InnocuousThreadGroup]
+	at java.base@17.0.2/java.lang.Object.wait(Native Method)
+	at java.base@17.0.2/java.lang.ref.ReferenceQueue.remove(ReferenceQueue.java:155)
+	at java.base@17.0.2/jdk.internal.ref.CleanerImpl.run(CleanerImpl.java:140)
+	at java.base@17.0.2/java.lang.Thread.run(Thread.java:833)
+	at java.base@17.0.2/jdk.internal.misc.InnocuousThread.run(InnocuousThread.java:162)
+
+Garbage collector stats:
+INFO: Instrumented com.sun.management.internal.PlatformMBeanProviderImpl (took 5 ms, size +14%)
+INFO: detected a native library load, enabling interception for libc functions
+INFO: Instrumented com.sun.management.internal.PlatformMBeanProviderImpl$1 (took 1 ms, size +8%)
+INFO: Instrumented com.sun.management.internal.PlatformMBeanProviderImpl$2 (took 1 ms, size +4%)
+INFO: Instrumented com.sun.management.internal.PlatformMBeanProviderImpl$3 (took 1 ms, size +4%)
+INFO: Instrumented com.sun.management.internal.PlatformMBeanProviderImpl$4 (took 1 ms, size +6%)
+INFO: Instrumented com.sun.management.internal.DiagnosticCommandImpl (took 8 ms, size +16%)
+INFO: Instrumented com.sun.management.DiagnosticCommandMBean (took 0 ms, size +0%)
+INFO: Instrumented com.sun.management.internal.PlatformMBeanProviderImpl$5 (took 1 ms, size +6%)
+INFO: Instrumented com.sun.management.internal.GarbageCollectorExtImpl (took 3 ms, size +13%)
+INFO: Instrumented com.sun.management.GarbageCollectorMXBean (took 0 ms, size +0%)
+INFO: Instrumented com.sun.jmx.mbeanserver.GetPropertyAction (took 1 ms, size +13%)
+INFO: Instrumented com.sun.jmx.mbeanserver.Util (took 5 ms, size +13%)
+
+PS MarkSweep: 0 collections took 0ms
+PS Scavenge: 9 collections took 54ms
+
+SUMMARY: libFuzzer: timeout
+subprocess command returned a non-zero exit status: 70
+INFO:__main__:Running: docker run --privileged --shm-size=2g --platform linux/amd64 --rm -i -e HELPER=True -e ARCHITECTURE=x86_64 -v /home/qqor/aixcc/crete/packages/python_oss_fuzz/.oss_fuzz/build/out/pdfbox:/out -v /tmp/tmpa7kb0b35:/testcase -t ghcr.io/aixcc-finals/base-runner:v1.3.0 reproduce PDFExtractTextFuzzer -runs=100.
+
+</crash_log>

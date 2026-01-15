@@ -1,0 +1,57 @@
+
+================================================================================
+Response 1
+================================================================================
+Let me search for the wireshark source directory:
+
+================================================================================
+Response 2
+================================================================================
+Let me read the relevant parts of the file based on the crash log. The key lines are around 2099, 2182, 2211, 2322, and 652:
+
+================================================================================
+Response 3
+================================================================================
+Now let me read the `dissect_naws_subopt` function around line 652 where the memory is allocated, to understand the full picture:
+
+================================================================================
+Response 4
+================================================================================
+Now I understand the bug! Let me look at the global variables declared at the beginning of the file to understand the context better:
+
+================================================================================
+Response 5
+================================================================================
+Now I fully understand the bug:
+
+**Root Cause Analysis:**
+
+1. `dissect_naws_subopt` (line 652) allocates memory for `hf_naws_data` using `wmem_alloc(pinfo->pool, ...)` and sets `hf_telnet_naws_subopt_set = 1`.
+
+2. `dissect_linemode_subopt` (line 639-640) frees the memory using `wmem_free(pinfo->pool, hf_naws_data)` when `hf_telnet_naws_subopt_set` is true. **However, it does NOT set `hf_telnet_naws_subopt_set = 0` or `hf_naws_data = NULL` after freeing.**
+
+3. Later, in `telnet_add_text` (line 2209-2211), the code checks `hf_telnet_naws_subopt_set` and uses `hf_naws_data` which has already been freed, causing a heap-use-after-free.
+
+**The Fix:**
+
+After freeing the memory in `dissect_linemode_subopt`, we need to reset the global state to prevent use-after-free:
+
+================================================================================
+Response 6
+================================================================================
+The patch has been applied. Here's a summary of the fix:
+
+## Summary
+
+**Bug:** AddressSanitizer heap-use-after-free in `telnet_add_text` function
+
+**Root Cause:** In `dissect_linemode_subopt()`, when `hf_naws_data` was freed using `wmem_free()`, the global flag `hf_telnet_naws_subopt_set` was not reset to 0 and `hf_naws_data` was not set to NULL. This left the system in an inconsistent state where:
+1. The memory was freed
+2. But `hf_telnet_naws_subopt_set` still indicated the memory was valid
+3. Later, `telnet_add_text()` would check `hf_telnet_naws_subopt_set`, see it was set, and attempt to write to the already-freed `hf_naws_data` buffer
+
+**Fix:** After freeing `hf_naws_data` in `dissect_linemode_subopt()`, the code now properly resets the global state:
+- Sets `hf_naws_data = NULL`  
+- Sets `hf_telnet_naws_subopt_set = 0`
+
+This ensures that subsequent calls to `telnet_add_text()` will correctly skip the NAWS data handling code path since the memory has been deallocated.

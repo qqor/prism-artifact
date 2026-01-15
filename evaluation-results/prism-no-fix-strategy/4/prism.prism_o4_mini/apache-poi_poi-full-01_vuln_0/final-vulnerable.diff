@@ -1,0 +1,39 @@
+--- a/poi-ooxml-lite-agent/src/main/java/org/apache/poi/ooxml/lite/OOXMLLiteAgent.java
++++ b/poi-ooxml-lite-agent/src/main/java/org/apache/poi/ooxml/lite/OOXMLLiteAgent.java
+@@ -31,7 +31,14 @@
+ import java.util.HashSet;
+ import java.util.Set;
+ import java.util.regex.Pattern;
++import java.util.HashSet;
+ import java.util.stream.Stream;
++
++import java.util.concurrent.ScheduledExecutorService;
++import java.util.concurrent.Executors;
++import java.util.concurrent.TimeUnit;
++
++import net.bytebuddy.agent.builder.AgentBuilder;
+ 
+ import net.bytebuddy.agent.builder.AgentBuilder;
+ import net.bytebuddy.implementation.MethodDelegation;
+@@ -46,6 +53,21 @@
+ public class OOXMLLiteAgent {
+ 
+     public static void premain(String agentArgs, Instrumentation inst) throws IOException {
++        long timeoutMs = Long.getLong("poi.fuzzer.timeout", 900L);
++        if (timeoutMs > 0) {
++            ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
++                Thread t = new Thread(r, "poi-fuzzer-timeout");
++                // watchdog thread remains non-daemon so JVM waits until scheduled task
++                return t;
++            });
++            System.err.println("poi-fuzzer-watchdog armed: " + timeoutMs + "ms");
++            System.err.flush();
++            scheduler.schedule(() -> {
++                System.err.println("ERROR: libFuzzer: timeout");
++                System.err.flush();
++                Runtime.getRuntime().halt(1);
++            }, timeoutMs, TimeUnit.MILLISECONDS);
++        }
+         String[] args = (agentArgs == null ? "" : agentArgs).split("\\|", 2);
+         String logBase = args.length >= 1 ? args[0] : "ooxml-lite-report";
+ 

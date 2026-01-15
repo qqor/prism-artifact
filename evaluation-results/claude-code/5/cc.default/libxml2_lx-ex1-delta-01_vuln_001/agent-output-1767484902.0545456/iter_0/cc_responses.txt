@@ -1,0 +1,57 @@
+
+================================================================================
+Response 1
+================================================================================
+Let me look at more of the `htmlSecureComment` function to understand the buffer allocation and the issue:
+
+================================================================================
+Response 2
+================================================================================
+Now I understand the issue. Let me examine the code more carefully. The buffer is allocated with size 500 (line 3335), but the check for buffer growth at line 3577 compares `extraSize` (which is `chunkSize + replSize`) with `buffer_size`. However, the real issue is that the check should be for `used + extraSize > buffer_size`, not `extraSize > buffer_size`.
+
+Let me verify by looking at the logic more carefully:
+
+================================================================================
+Response 3
+================================================================================
+I've found the bug! The issue is in line 3577:
+
+```c
+if (extraSize > buffer_size) {
+```
+
+This condition checks if the *new data* (`extraSize = chunkSize + replSize`) fits in the buffer, but it doesn't consider the *already used* space in the buffer. The correct check should be:
+
+```c
+if (used + extraSize > buffer_size) {
+```
+
+Without this fix, if `extraSize` is less than `buffer_size` but `used + extraSize` exceeds `buffer_size`, the memcpy at line 3591 will write beyond the allocated buffer, causing the heap-buffer-overflow.
+
+Let me apply this fix:
+
+================================================================================
+Response 4
+================================================================================
+The patch has been applied. Here's a summary of the fix:
+
+## Bug Analysis
+
+**Root Cause:** In the `htmlSecureComment` function at line 3577 of `HTMLparser.c`, the buffer growth check was incorrectly comparing only the size of new data (`extraSize`) against the buffer capacity (`buffer_size`), without accounting for the space already used in the buffer (`used`).
+
+**The Bug:**
+```c
+if (extraSize > buffer_size) {  // WRONG: doesn't consider 'used' space
+```
+
+**The Fix:**
+```c
+if (used + extraSize > buffer_size) {  // CORRECT: checks if total needed exceeds capacity
+```
+
+**How the overflow occurred:**
+1. A buffer of 500 bytes was allocated (line 3335)
+2. Data was accumulated in the buffer, incrementing `used`
+3. When new data (`extraSize`) was about to be added, the check `extraSize > buffer_size` would pass (be false) if `extraSize` was small
+4. But `used + extraSize` could exceed `buffer_size`, causing the `memcpy` at line 3591 to write beyond the buffer's end
+5. In the crash case: 501 bytes were already in use (`used = 501`) and the code tried to write 105 more bytes, but since `extraSize` (105) was less than `buffer_size` (500), no reallocation happened, leading to the heap-buffer-overflow

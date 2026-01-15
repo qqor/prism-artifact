@@ -1,0 +1,28 @@
+diff --git a/src/shared/condition.c b/src/shared/condition.c
+index 67894f9..aea884d 100644
+--- a/src/shared/condition.c
++++ b/src/shared/condition.c
+@@ -97,10 +97,20 @@ Condition* condition_free(Condition *c) {
+ }
+ 
+ Condition* condition_free_list_type(Condition *head, ConditionType type) {
+-        LIST_FOREACH(conditions, c, head)
+-                if (type < 0 || c->type == type) {
+-                        condition_free(c);
++        /* Safely remove and free matching conditions to avoid use-after-free */
++        {
++                Condition *c = head, *next;
++                while (c) {
++                        next = c->conditions_next;
++                        if (type < 0 || c->type == type) {
++                                /* remove from list */
++                                LIST_REMOVE(conditions, head, c);
++                                /* free the removed node */
++                                condition_free(c);
++                        }
++                        c = next;
+                 }
++        }
+ 
+         assert(type >= 0 || !head);
+         return head;

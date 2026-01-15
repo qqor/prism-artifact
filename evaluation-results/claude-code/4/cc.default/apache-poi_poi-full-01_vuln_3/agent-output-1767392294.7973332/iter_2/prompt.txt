@@ -1,0 +1,148 @@
+I tried to fix a deadly signal vulnerability causing the crash log in the <crash_log> below.
+I failed to fix the vulnerability with the following patches:
+
+```diff
+diff --git a/poi/src/main/java/org/apache/poi/poifs/filesystem/POIFSMiniStore.java b/poi/src/main/java/org/apache/poi/poifs/filesystem/POIFSMiniStore.java
+index 527436164..fab947ddd 100644
+--- a/poi/src/main/java/org/apache/poi/poifs/filesystem/POIFSMiniStore.java
++++ b/poi/src/main/java/org/apache/poi/poifs/filesystem/POIFSMiniStore.java
+@@ -129,8 +129,9 @@ public class POIFSMiniStore extends BlockStore {
+         // This is now the new end
+         _filesystem.setNextBlock(newBigBlock, POIFSConstants.END_OF_CHAIN);
+ 
+-        // Now try again, to get the real small block
+-        return createBlockIfNeeded(offset);
++        // Now try again to get the block - use getBlockAt() directly to avoid infinite recursion
++        // if the offset is still beyond the stream (e.g., corrupted input with invalid offset)
++        return getBlockAt(offset);
+     }
+ 
+     /**
+
+``````diff
+diff --git a/poi/src/main/java/org/apache/poi/poifs/filesystem/POIFSMiniStore.java b/poi/src/main/java/org/apache/poi/poifs/filesystem/POIFSMiniStore.java
+index 527436164..03210ebee 100644
+--- a/poi/src/main/java/org/apache/poi/poifs/filesystem/POIFSMiniStore.java
++++ b/poi/src/main/java/org/apache/poi/poifs/filesystem/POIFSMiniStore.java
+@@ -86,51 +86,58 @@ public class POIFSMiniStore extends BlockStore {
+      * Load the block, extending the underlying stream if needed
+      */
+     protected ByteBuffer createBlockIfNeeded(final int offset) throws IOException {
+-        boolean firstInStore = false;
+-        if (_mini_stream.getStartBlock() == POIFSConstants.END_OF_CHAIN) {
+-            firstInStore = true;
++        // Validate offset to prevent attacks with corrupted files containing huge offsets
++        if (offset < 0) {
++            throw new IOException("Invalid negative offset: " + offset);
+         }
+ 
+-        // Try to get it without extending the stream
+-        if (!firstInStore) {
+-            try {
+-                return getBlockAt(offset);
+-            } catch (NoSuchElementException ignored) {
++        // Calculate how many big blocks we need for this offset
++        // Use long arithmetic to avoid integer overflow
++        long byteOffset = (long) offset * POIFSConstants.SMALL_BLOCK_SIZE;
++        int bigBlocksNeeded = (int) (byteOffset / _filesystem.getBigBlockSize()) + 1;
++
++        // Count how many big blocks currently exist in the mini stream
++        int currentBigBlocks = 0;
++        if (_mini_stream.getStartBlock() != POIFSConstants.END_OF_CHAIN) {
++            Iterator<Integer> countIt = _mini_stream.getBlockOffsetIterator();
++            while (countIt.hasNext()) {
++                countIt.next();
++                currentBigBlocks++;
+             }
+         }
+ 
+-        // Need to extend the stream
+-        // TODO Replace this with proper append support
+-        // For now, do the extending by hand...
+-
+-        // Ask for another block
+-        int newBigBlock = _filesystem.getFreeBlock();
+-        _filesystem.createBlockIfNeeded(newBigBlock);
+-
+-        // If we are the first block to be allocated, initialise the stream
+-        if (firstInStore) {
+-            _filesystem._get_property_table().getRoot().setStartBlock(newBigBlock);
+-            _mini_stream = new POIFSStream(_filesystem, newBigBlock);
+-        } else {
+-            // Tack it onto the end of our chain
+-            ChainLoopDetector loopDetector = _filesystem.getChainLoopDetector();
+-            int block = _mini_stream.getStartBlock();
+-            while (true) {
+-                loopDetector.claim(block);
+-                int next = _filesystem.getNextBlock(block);
+-                if (next == POIFSConstants.END_OF_CHAIN) {
+-                    break;
++        // Extend the stream by the required number of blocks (not recursively)
++        int blocksToAdd = bigBlocksNeeded - currentBigBlocks;
++        for (int i = 0; i < blocksToAdd; i++) {
++            // Ask for another block
++            int newBigBlock = _filesystem.getFreeBlock();
++            _filesystem.createBlockIfNeeded(newBigBlock);
++
++            // If we are the first block to be allocated, initialise the stream
++            if (_mini_stream.getStartBlock() == POIFSConstants.END_OF_CHAIN) {
++                _filesystem._get_property_table().getRoot().setStartBlock(newBigBlock);
++                _mini_stream = new POIFSStream(_filesystem, newBigBlock);
++            } else {
++                // Tack it onto the end of our chain
++                ChainLoopDetector loopDetector = _filesystem.getChainLoopDetector();
++                int block = _mini_stream.getStartBlock();
++                while (true) {
++                    loopDetector.claim(block);
++                    int next = _filesystem.getNextBlock(block);
++                    if (next == POIFSConstants.END_OF_CHAIN) {
++                        break;
++                    }
++                    block = next;
+                 }
+-                block = next;
++                _filesystem.setNextBlock(block, newBigBlock);
+             }
+-            _filesystem.setNextBlock(block, newBigBlock);
+-        }
+ 
+-        // This is now the new end
+-        _filesystem.setNextBlock(newBigBlock, POIFSConstants.END_OF_CHAIN);
++            // This is now the new end
++            _filesystem.setNextBlock(newBigBlock, POIFSConstants.END_OF_CHAIN);
++        }
+ 
+-        // Now try again, to get the real small block
+-        return createBlockIfNeeded(offset);
++        // Now get the block (no recursion needed)
++        return getBlockAt(offset);
+     }
+ 
+     /**
+
+```
+
+Explain why the patches failed and provide a new patch to fix the vulnerability.
+Do not repeat the same mistakes in the new patch.
+Try a completely different approach to fix the vulnerability.
+NEVER fix files outside the source directory.
+NEVER do any git operations in or outside the source directory.
+
+Below is the crash log:
+
+<crash_log>
+== ERROR: libFuzzer: deadly signal
+
+Stack traces of all JVM threads:
+Thread[Common-Cleaner,8,InnocuousThreadGroup]
+
+[error occurred during error reporting (), id 0xb, SIGSEGV (0xb) at pc=0x00007fe4aebbefab]
+
+==19== ERROR: libFuzzer: deadly signal
+NOTE: libFuzzer has rudimentary signal handlers.
+      Combine libFuzzer with AddressSanitizer or similar for better crash reports.
+SUMMARY: libFuzzer: deadly signal
+subprocess command returned a non-zero exit status: 77
+INFO:__main__:Running: docker run --privileged --shm-size=2g --platform linux/amd64 --rm -i -e HELPER=True -e ARCHITECTURE=x86_64 -v /home/qqor/crete/packages/python_oss_fuzz/.oss_fuzz/build/out/apache-poi:/out -v /tmp/tmp_up37whq:/testcase -t ghcr.io/aixcc-finals/base-runner:v1.3.0 reproduce POIHSSFFuzzer -runs=100.
+
+</crash_log>

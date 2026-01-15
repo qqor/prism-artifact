@@ -1,0 +1,14 @@
+{
+  "project_name": "apache-poi",
+  "vulnerability_identifier": "apache-poi_poi-full-01_vuln_2",
+  "source_directory": "/home/qqor/aixcc/crete/.cache/official-afc-poi",
+  "llm_usage": {
+    "total_cost": 0.8877374,
+    "prompt_tokens": 661002,
+    "completion_tokens": 36508
+  },
+  "variant": "sound",
+  "diff": "--- a/poi/src/main/java/org/apache/poi/poifs/dev/POIFSDump.java\n+++ b/poi/src/main/java/org/apache/poi/poifs/dev/POIFSDump.java\n@@ -105,13 +105,35 @@\n                 try (DocumentInputStream is = new DocumentInputStream(node)) {\n                    bytes = IOUtils.toByteArray(is);\n                 }\n-                try (OutputStream out = Files.newOutputStream(new File(parent, node.getName().trim()).toPath())) {\n+                // Sanitize entry name to prevent path traversal\n+                String rawName = node.getName().trim();\n+                String safeName = Paths.get(rawName).getFileName().toString();\n+                File outFile = new File(parent, safeName);\n+                // Verify canonical to ensure outFile is within parent\n+                String parentCanon = parent.getCanonicalPath();\n+                String childCanon = outFile.getCanonicalPath();\n+                if (!childCanon.startsWith(parentCanon + File.separator)) {\n+                    throw new IOException(\"Path traversal attempt detected: \" + rawName);\n+                }\n+                if (!Files.isDirectory(outFile.toPath().getParent())) {\n+                    Files.createDirectories(outFile.toPath().getParent());\n+                }\n+                try (OutputStream out = Files.newOutputStream(outFile.toPath())) {\n                     out.write(bytes);\n                 }\n             } else if (entry instanceof DirectoryEntry){\n                 DirectoryEntry dir = (DirectoryEntry)entry;\n-                File file = new File(parent, entry.getName());\n-                if(!file.exists() && !file.mkdirs()) {\n+                // Sanitize entry name to prevent path traversal\n+                String rawName = entry.getName().trim();\n+                String safeName = Paths.get(rawName).getFileName().toString();\n+                File file = new File(parent, safeName);\n+                // Verify canonical to ensure file is within parent\n+                String parentCanon = parent.getCanonicalPath();\n+                String childCanon = file.getCanonicalPath();\n+                if (!childCanon.startsWith(parentCanon + File.separator)) {\n+                    throw new IOException(\"Path traversal attempt detected: \" + rawName);\n+                }\n+                if (!file.exists() && !file.mkdirs()) {\n                     throw new IOException(\"Could not create directory \" + file);\n                 }\n                 dump(dir, file);\n",
+  "stdout": "",
+  "stderr": ""
+}

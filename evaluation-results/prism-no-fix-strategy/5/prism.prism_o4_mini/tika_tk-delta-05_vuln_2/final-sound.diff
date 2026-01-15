@@ -1,0 +1,49 @@
+--- a/tika-app/src/main/java/org/apache/tika/cli/TikaCLI.java
++++ b/tika-app/src/main/java/org/apache/tika/cli/TikaCLI.java
+@@ -17,6 +17,10 @@
+ package org.apache.tika.cli;
+ 
+ import static java.nio.charset.StandardCharsets.UTF_8;
++
++import java.nio.file.Path;
++import java.nio.file.Files;
++import java.io.IOException;
+ 
+ import java.io.BufferedReader;
+ import java.io.File;
+@@ -1157,15 +1161,26 @@
+             } catch (IllegalArgumentException e) {
+                 LOG.warn("couldn't url decode name {}", normalizedName);
+             }
+-            File outputFile = new File(extractDir, normalizedName);
+-            //if file already exists, prepend uuid
+-            if (outputFile.exists()) {
+-                String fileName = FilenameUtils.getName(normalizedName);
+-                outputFile = new File(extractDir, UUID
+-                        .randomUUID()
+-                        .toString() + "-" + fileName);
+-            }
+-            return outputFile;
++    // use Path to resolve and prevent path traversal
++    Path base = extractDir.toPath().toAbsolutePath().normalize();
++    Path targetPath = base.resolve(normalizedName).normalize();
++    if (!targetPath.startsWith(base)) {
++        throw new SecurityException("File path traversal attempt: " + normalizedName);
++    }
++    // ensure parent directories exist
++    try {
++        if (targetPath.getParent() != null) {
++            Files.createDirectories(targetPath.getParent());
++        }
++    } catch (IOException e) {
++        LOG.warn("Unable to create directories for {}", targetPath.getParent(), e);
++    }
++    File outputFile = targetPath.toFile();
++    if (outputFile.exists()) {
++        String fileName = FilenameUtils.getName(normalizedName);
++        outputFile = new File(extractDir, UUID.randomUUID() + "-" + fileName);
++    }
++    return outputFile;
+         }
+ 
+         private String getExtension(MediaType contentType) {

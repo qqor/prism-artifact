@@ -1,0 +1,129 @@
+I tried to fix a AddressSanitizer: heap-use-after-free vulnerability causing the crash log in the <crash_log> below.
+I failed to fix the vulnerability with the following patches:
+
+```diff
+diff --git a/src/shared/condition.c b/src/shared/condition.c
+index 67894f9319..6d3f75dcc7 100644
+--- a/src/shared/condition.c
++++ b/src/shared/condition.c
+@@ -97,10 +97,14 @@ Condition* condition_free(Condition *c) {
+ }
+ 
+ Condition* condition_free_list_type(Condition *head, ConditionType type) {
+-        LIST_FOREACH(conditions, c, head)
++        Condition *c, *next;
++
++        LIST_FOREACH_WITH_NEXT(conditions, c, next, head) {
+                 if (type < 0 || c->type == type) {
++                        LIST_REMOVE(conditions, head, c);
+                         condition_free(c);
+                 }
++        }
+ 
+         assert(type >= 0 || !head);
+         return head;
+
+```
+
+Explain why the patches failed and provide a new patch to fix the vulnerability.
+Do not repeat the same mistakes in the new patch.
+Try a completely different approach to fix the vulnerability.
+NEVER fix files outside the source directory.
+NEVER do any git operations in or outside the source directory.
+
+Below is the crash log:
+
+<crash_log>
+==ERROR: AddressSanitizer: heap-use-after-free on address 0x5030000001d0 at pc 0x7f9e31fb4384 bp 0x7ffe59d894e0 sp 0x7ffe59d894d8
+READ of size 8 at 0x5030000001d0 thread T0
+SCARINESS: 51 (8-byte-read-heap-use-after-free)
+    #0 0x7f9e31fb4383 in condition_free_list_type /work/build/../../src/systemd/src/shared/condition.c:100:9
+    #1 0x55ae4e663e19 in condition_free_list /work/build/../../src/systemd/src/shared/condition.h:80:16
+    #2 0x55ae4e663a53 in link_config_free /work/build/../../src/systemd/src/udev/net/link-config.c:64:9
+    #3 0x55ae4e64e19a in link_config_freep /work/build/../../src/systemd/src/udev/net/link-config.c:84:1
+    #4 0x55ae4e64e000 in link_load_one /work/build/../../src/systemd/src/udev/net/link-config.c:324:1
+    #5 0x55ae4e64ad68 in LLVMFuzzerTestOneInput /work/build/../../src/systemd/src/udev/net/fuzz-link-parser.c:25:16
+    #6 0x55ae4e6cc250 in fuzzer::Fuzzer::ExecuteCallback(unsigned char const*, unsigned long) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:614:13
+    #7 0x55ae4e6b74c5 in fuzzer::RunOneTest(fuzzer::Fuzzer*, char const*, unsigned long) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerDriver.cpp:327:6
+    #8 0x55ae4e6bcf5f in fuzzer::FuzzerDriver(int*, char***, int (*)(unsigned char const*, unsigned long)) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerDriver.cpp:862:9
+    #9 0x55ae4e6e8202 in main /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerMain.cpp:20:10
+    #10 0x7f9e316c8082 in __libc_start_main (/lib/x86_64-linux-gnu/libc.so.6+0x24082) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #11 0x55ae4e57221d in _start (/out/fuzz-link-parser+0x7f21d)
+
+DEDUP_TOKEN: condition_free_list_type--condition_free_list--link_config_free
+0x5030000001d0 is located 16 bytes inside of 32-byte region [0x5030000001c0,0x5030000001e0)
+freed by thread T0 here:
+    #0 0x55ae4e60af96 in free /src/llvm-project/compiler-rt/lib/asan/asan_malloc_linux.cpp:52:3
+    #1 0x7f9e31fb42b0 in condition_free /work/build/../../src/systemd/src/shared/condition.c:96:16
+    #2 0x7f9e31fb4464 in condition_free_list_type /work/build/../../src/systemd/src/shared/condition.c:102:25
+    #3 0x7f9e322288af in config_parse_net_condition /work/build/../../src/systemd/src/shared/net-condition.c:205:25
+    #4 0x7f9e31fed70d in next_assignment /work/build/../../src/systemd/src/shared/conf-parser.c:159:24
+    #5 0x7f9e31fd33e0 in parse_line /work/build/../../src/systemd/src/shared/conf-parser.c:269:16
+    #6 0x7f9e31fd11af in config_parse /work/build/../../src/systemd/src/shared/conf-parser.c:412:21
+    #7 0x7f9e31fd611e in config_parse_many_files /work/build/../../src/systemd/src/shared/conf-parser.c:564:21
+    #8 0x7f9e31fd4318 in config_parse_many /work/build/../../src/systemd/src/shared/conf-parser.c:627:13
+    #9 0x55ae4e64cce4 in link_load_one /work/build/../../src/systemd/src/udev/net/link-config.c:273:13
+    #10 0x55ae4e64ad68 in LLVMFuzzerTestOneInput /work/build/../../src/systemd/src/udev/net/fuzz-link-parser.c:25:16
+    #11 0x55ae4e6cc250 in fuzzer::Fuzzer::ExecuteCallback(unsigned char const*, unsigned long) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:614:13
+    #12 0x55ae4e6b74c5 in fuzzer::RunOneTest(fuzzer::Fuzzer*, char const*, unsigned long) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerDriver.cpp:327:6
+    #13 0x55ae4e6bcf5f in fuzzer::FuzzerDriver(int*, char***, int (*)(unsigned char const*, unsigned long)) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerDriver.cpp:862:9
+    #14 0x55ae4e6e8202 in main /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerMain.cpp:20:10
+    #15 0x7f9e316c8082 in __libc_start_main (/lib/x86_64-linux-gnu/libc.so.6+0x24082) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+
+DEDUP_TOKEN: __interceptor_free--condition_free--condition_free_list_type
+previously allocated by thread T0 here:
+    #0 0x55ae4e60b22f in malloc /src/llvm-project/compiler-rt/lib/asan/asan_malloc_linux.cpp:68:3
+    #1 0x7f9e31fb419c in malloc_multiply /work/build/../../src/systemd/src/basic/alloc-util.h:119:16
+    #2 0x7f9e31fb3ec4 in condition_new /work/build/../../src/systemd/src/shared/condition.c:73:13
+    #3 0x7f9e322289c2 in config_parse_net_condition /work/build/../../src/systemd/src/shared/net-condition.c:213:13
+    #4 0x7f9e31fed70d in next_assignment /work/build/../../src/systemd/src/shared/conf-parser.c:159:24
+    #5 0x7f9e31fd33e0 in parse_line /work/build/../../src/systemd/src/shared/conf-parser.c:269:16
+    #6 0x7f9e31fd11af in config_parse /work/build/../../src/systemd/src/shared/conf-parser.c:412:21
+    #7 0x7f9e31fd611e in config_parse_many_files /work/build/../../src/systemd/src/shared/conf-parser.c:564:21
+    #8 0x7f9e31fd4318 in config_parse_many /work/build/../../src/systemd/src/shared/conf-parser.c:627:13
+    #9 0x55ae4e64cce4 in link_load_one /work/build/../../src/systemd/src/udev/net/link-config.c:273:13
+    #10 0x55ae4e64ad68 in LLVMFuzzerTestOneInput /work/build/../../src/systemd/src/udev/net/fuzz-link-parser.c:25:16
+    #11 0x55ae4e6cc250 in fuzzer::Fuzzer::ExecuteCallback(unsigned char const*, unsigned long) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:614:13
+    #12 0x55ae4e6b74c5 in fuzzer::RunOneTest(fuzzer::Fuzzer*, char const*, unsigned long) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerDriver.cpp:327:6
+    #13 0x55ae4e6bcf5f in fuzzer::FuzzerDriver(int*, char***, int (*)(unsigned char const*, unsigned long)) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerDriver.cpp:862:9
+    #14 0x55ae4e6e8202 in main /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerMain.cpp:20:10
+    #15 0x7f9e316c8082 in __libc_start_main (/lib/x86_64-linux-gnu/libc.so.6+0x24082) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+
+DEDUP_TOKEN: __interceptor_malloc--malloc_multiply--condition_new
+SUMMARY: AddressSanitizer: heap-use-after-free /work/build/../../src/systemd/src/shared/condition.c:100:9 in condition_free_list_type
+Shadow bytes around the buggy address:
+  0x502fffffff00: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+  0x502fffffff80: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+  0x503000000000: fa fa 00 00 00 fa fa fa 00 00 00 fa fa fa 00 00
+  0x503000000080: 00 fa fa fa 00 00 00 00 fa fa 00 00 00 fa fa fa
+  0x503000000100: fd fd fd fd fa fa fd fd fd fd fa fa fd fd fd fd
+=>0x503000000180: fa fa fd fd fd fd fa fa fd fd[fd]fd fa fa fd fd
+  0x503000000200: fd fd fa fa 00 00 00 05 fa fa fa fa fa fa fa fa
+  0x503000000280: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa
+  0x503000000300: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa
+  0x503000000380: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa
+  0x503000000400: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa
+Shadow byte legend (one shadow byte represents 8 application bytes):
+  Addressable:           00
+  Partially addressable: 01 02 03 04 05 06 07 
+  Heap left redzone:       fa
+  Freed heap region:       fd
+  Stack left redzone:      f1
+  Stack mid redzone:       f2
+  Stack right redzone:     f3
+  Stack after return:      f5
+  Stack use after scope:   f8
+  Global redzone:          f9
+  Global init order:       f6
+  Poisoned by user:        f7
+  Container overflow:      fc
+  Array cookie:            ac
+  Intra object redzone:    bb
+  ASan internal:           fe
+  Left alloca redzone:     ca
+  Right alloca redzone:    cb
+==18==ABORTING
+subprocess command returned a non-zero exit status: 1
+INFO:__main__:Running: docker run --privileged --shm-size=2g --platform linux/amd64 --rm -i -e HELPER=True -e ARCHITECTURE=x86_64 -v /home/qqor/crete/packages/python_oss_fuzz/.oss_fuzz/build/out/systemd:/out -v /tmp/tmpv4urpkm3:/testcase -t ghcr.io/aixcc-finals/base-runner:v1.3.0 reproduce fuzz-link-parser -runs=100.
+
+</crash_log>

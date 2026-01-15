@@ -1,0 +1,41 @@
+--- a/fontbox/src/main/java/org/apache/fontbox/type1/Type1Parser.java
++++ b/fontbox/src/main/java/org/apache/fontbox/type1/Type1Parser.java
+@@ -44,6 +44,9 @@
+     private static final int EEXEC_KEY = 55665;
+     private static final int CHARSTRING_KEY = 4330;
+ 
++    private static final int MAX_ENCODING_FETCH = 100000;
++    private int encodingInvocationCount;
++
+     // state
+     private Type1Lexer lexer;
+     private Type1Font font;
+@@ -191,6 +194,8 @@
+ 
+     private void readEncoding() throws IOException
+     {
++        // reset guard counter for this invocation
++        encodingInvocationCount = 0;
+         if (lexer.peekKind(Token.NAME))
+         {
+             String name = lexer.nextToken().getText();
+@@ -219,6 +224,9 @@
+                             || lexer.peekToken().getText().equals("readonly")
+                             || lexer.peekToken().getText().equals("def"))))
+             {
++                if (++encodingInvocationCount > MAX_ENCODING_FETCH) {
++                    throw new IOException("Exceeded max encoding fetch in parser");
++                }
+                 lexer.nextToken();
+             }
+             
+@@ -226,6 +234,9 @@
+             while (lexer.peekKind(Token.NAME) &&
+                     lexer.peekToken().getText().equals("dup"))
+             {
++                if (++encodingInvocationCount > MAX_ENCODING_FETCH) {
++                    throw new IOException("Exceeded max encoding fetch in parser");
++                }
+                 read(Token.NAME, "dup");
+                 int code = read(Token.INTEGER).intValue();
+                 String name = read(Token.LITERAL).getText();

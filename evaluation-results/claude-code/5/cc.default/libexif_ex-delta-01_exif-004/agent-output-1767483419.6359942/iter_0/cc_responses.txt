@@ -1,0 +1,40 @@
+
+================================================================================
+Response 1
+================================================================================
+Now I understand the bug. Looking at line 131, there's a `memcpy` that copies `dsize` bytes from `buf + dofs`, but the check at line 120 only verifies that `dofs <= buf_size`, not that `dofs + dsize <= buf_size`. This means the copy can read past the end of the buffer.
+
+The issue is:
+1. Line 120 checks `if (dofs > buf_size)` - but this doesn't account for the size of the data being copied
+2. Line 131 does `memcpy(d->entries[i].data, buf + dofs, dsize)` - which can read past the buffer if `dofs + dsize > buf_size`
+
+The fix needs to check that `dofs + dsize <= buf_size` before the memcpy. Let me create the patch:
+
+================================================================================
+Response 2
+================================================================================
+The patch has been applied. Here's a summary of the fix:
+
+## Bug Analysis
+
+The heap-buffer-overflow occurred in `exif_mnote_data_apple_load()` at line 131 during a `memcpy()` operation. The issue was in the bounds check at line 120:
+
+**Original code:**
+```c
+if (dofs > buf_size) {
+```
+
+This check only verified that the data offset (`dofs`) was within the buffer, but did NOT verify that `dofs + dsize` (the end of the data to be copied) was within the buffer. This allowed `memcpy(d->entries[i].data, buf + dofs, dsize)` to read past the end of the allocated buffer.
+
+## The Fix
+
+**Fixed code:**
+```c
+if (dofs > buf_size || dsize > buf_size - dofs) {
+```
+
+The fix adds an additional check: `dsize > buf_size - dofs`. This ensures that:
+1. `dofs` is within bounds (first condition)
+2. There are enough bytes remaining in the buffer to copy `dsize` bytes starting at `dofs` (second condition)
+
+The expression `dsize > buf_size - dofs` is written this way (instead of `dofs + dsize > buf_size`) to avoid potential integer overflow issues when adding `dofs + dsize`.

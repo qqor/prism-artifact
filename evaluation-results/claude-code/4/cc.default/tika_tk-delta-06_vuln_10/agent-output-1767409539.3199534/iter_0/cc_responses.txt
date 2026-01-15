@@ -1,0 +1,33 @@
+
+================================================================================
+Response 1
+================================================================================
+Now I can see the issue. Looking at the crash log, the timeout is occurring in `CellFormatter.format()` at line 68. The problem is in the nested loops at lines 67-75 in `CellFormatter.java`:
+
+```java
+for (int i = (int)(Math.pow(10, denomLength) - 1d); i > 0; i--) {
+    for (int i2 = (int)(Math.pow(10, denomLength) - 1d); i2 >= 0; i2--) {
+```
+
+When `denomLength` is large (up to 20 as allowed by the regex pattern `#{1,20}`), this creates an O(n²) loop where n can be up to 10^20 - 1, causing the timeout. The regex limits the format to 20 characters of `#`, which means `denomLength` can be up to 20, leading to iterations up to (10^20)^2 which is astronomically large.
+
+The fix is to limit the `denomLength` to a reasonable value to prevent excessive computation. Let me apply a patch:
+
+================================================================================
+Response 2
+================================================================================
+The patch has been applied. Here's a summary of the fix:
+
+## Bug Fix Summary
+
+**Problem:** The `CellFormatter.format()` method in `CellFormatter.java` had a nested loop that could cause a timeout when processing CSV cells with fraction format patterns. The regex pattern allowed `denomLength` to be up to 20 characters, which would create nested loops iterating up to (10^20 - 1)² times, causing the 25-second timeout.
+
+**Root Cause:** Lines 67-74 contained nested loops:
+```java
+for (int i = (int)(Math.pow(10, denomLength) - 1d); i > 0; i--) {
+    for (int i2 = (int)(Math.pow(10, denomLength) - 1d); i2 >= 0; i2--) {
+```
+
+When `denomLength` is large (e.g., 20), this causes O(n²) iterations where n = 10^denomLength - 1.
+
+**Fix:** Added a limit check before the loops to cap `denomLength` at 4, which allows denominators up to 9999 (sufficient precision for most fractional representations) while keeping the loop iterations manageable at a maximum of ~100 million iterations (9999² ≈ 10^8) instead of potentially 10^40 iterations.

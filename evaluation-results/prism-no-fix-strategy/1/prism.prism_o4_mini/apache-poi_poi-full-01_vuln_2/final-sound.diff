@@ -1,0 +1,41 @@
+--- a/poi/src/main/java/org/apache/poi/poifs/dev/POIFSDump.java
++++ b/poi/src/main/java/org/apache/poi/poifs/dev/POIFSDump.java
+@@ -105,13 +105,35 @@
+                 try (DocumentInputStream is = new DocumentInputStream(node)) {
+                    bytes = IOUtils.toByteArray(is);
+                 }
+-                try (OutputStream out = Files.newOutputStream(new File(parent, node.getName().trim()).toPath())) {
++                // Sanitize entry name to prevent path traversal
++                String rawName = node.getName().trim();
++                String safeName = Paths.get(rawName).getFileName().toString();
++                File outFile = new File(parent, safeName);
++                // Verify canonical to ensure outFile is within parent
++                String parentCanon = parent.getCanonicalPath();
++                String childCanon = outFile.getCanonicalPath();
++                if (!childCanon.startsWith(parentCanon + File.separator)) {
++                    throw new IOException("Path traversal attempt detected: " + rawName);
++                }
++                if (!Files.isDirectory(outFile.toPath().getParent())) {
++                    Files.createDirectories(outFile.toPath().getParent());
++                }
++                try (OutputStream out = Files.newOutputStream(outFile.toPath())) {
+                     out.write(bytes);
+                 }
+             } else if (entry instanceof DirectoryEntry){
+                 DirectoryEntry dir = (DirectoryEntry)entry;
+-                File file = new File(parent, entry.getName());
+-                if(!file.exists() && !file.mkdirs()) {
++                // Sanitize entry name to prevent path traversal
++                String rawName = entry.getName().trim();
++                String safeName = Paths.get(rawName).getFileName().toString();
++                File file = new File(parent, safeName);
++                // Verify canonical to ensure file is within parent
++                String parentCanon = parent.getCanonicalPath();
++                String childCanon = file.getCanonicalPath();
++                if (!childCanon.startsWith(parentCanon + File.separator)) {
++                    throw new IOException("Path traversal attempt detected: " + rawName);
++                }
++                if (!file.exists() && !file.mkdirs()) {
+                     throw new IOException("Could not create directory " + file);
+                 }
+                 dump(dir, file);

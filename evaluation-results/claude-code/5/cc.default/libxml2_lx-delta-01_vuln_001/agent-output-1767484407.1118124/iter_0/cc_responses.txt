@@ -1,0 +1,38 @@
+
+================================================================================
+Response 1
+================================================================================
+Now I can see the issue. Looking at line 3577-3587, the code checks if `extraSize > buffer_size` before reallocating, but this check is flawed. The issue is that the buffer needs to have room for `used + extraSize` bytes, but the check only verifies that `extraSize > buffer_size`, which doesn't account for the already-used portion of the buffer.
+
+Let me verify by examining the logic more closely:
+
+1. `chunkSize = in - chunk;` - the size of the current chunk to copy
+2. `extraSize = chunkSize + replSize;` - total extra bytes needed
+3. The check is `if (extraSize > buffer_size)` - but this should be `if (used + extraSize > buffer_size)`
+
+The buffer is initially allocated with `buffer_size = 500` (line 3334-3335), and then data is added to it with `used` tracking how much is already in the buffer. The problem is that when checking if reallocation is needed, the code only checks if `extraSize > buffer_size` instead of checking if `used + extraSize > buffer_size`.
+
+Let me create a patch to fix this:
+
+================================================================================
+Response 2
+================================================================================
+The patch has been applied. Here's a summary of the fix:
+
+## Summary of the Fix
+
+**Bug:** Heap-buffer-overflow in `htmlSecureComment` function at line 3591 in `HTMLparser.c`
+
+**Root Cause:** The buffer reallocation check on line 3577 was incorrect. The original code checked:
+```c
+if (extraSize > buffer_size)
+```
+
+This only compared the size of new data to be added (`extraSize`) against the total buffer size (`buffer_size`), without accounting for the data already in the buffer (`used`).
+
+**Fix:** Changed the condition to properly check if there's enough room for both the existing data and the new data:
+```c
+if (used + extraSize > buffer_size)
+```
+
+**Why this caused a heap-buffer-overflow:** When the buffer already had a significant amount of data (`used` bytes), and new data (`extraSize`) was being added, the combined size (`used + extraSize`) could exceed `buffer_size` without triggering a reallocation. This caused the subsequent `memcpy` operations at lines 3591 and 3597 to write beyond the allocated buffer.

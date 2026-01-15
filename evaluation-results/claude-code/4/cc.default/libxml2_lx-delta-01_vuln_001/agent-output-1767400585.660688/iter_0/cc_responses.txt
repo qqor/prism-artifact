@@ -1,0 +1,40 @@
+
+================================================================================
+Response 1
+================================================================================
+Now I can see the issue. Looking at the code:
+
+1. At line 3335, a buffer of size `buffer_size = 500` is allocated with `buffer = xmlMalloc(buffer_size + 1)` (501 bytes).
+2. At line 3577, there's a check `if (extraSize > buffer_size)` but this only checks if `extraSize` exceeds the buffer size, not if `used + extraSize` exceeds it.
+3. At line 3591, `memcpy(buffer + used, chunk, chunkSize)` writes to the buffer at offset `used`, but the check on line 3577 doesn't account for the existing `used` bytes in the buffer.
+
+The bug is that the condition at line 3577 should be checking `used + extraSize > buffer_size` instead of just `extraSize > buffer_size`. This causes a heap-buffer-overflow when the total data to be written exceeds the buffer capacity.
+
+Let me create a patch to fix this:
+
+================================================================================
+Response 2
+================================================================================
+The patch has been applied. Let me explain the fix:
+
+## Bug Analysis
+
+The heap-buffer-overflow occurred in the `htmlSecureComment` function in `HTMLparser.c` at line 3591.
+
+**Root Cause:** The condition at line 3577 was checking if `extraSize > buffer_size`, but this is incorrect because:
+- `buffer_size` represents the total allocated buffer size
+- `used` represents how many bytes have already been written to the buffer
+- `extraSize` represents how many new bytes need to be written
+
+The check should verify that the **total** bytes needed (`used + extraSize`) fits within `buffer_size`, not just the `extraSize` alone.
+
+**The Fix:** Changed the condition from:
+```c
+if (extraSize > buffer_size)
+```
+to:
+```c
+if (used + extraSize > buffer_size)
+```
+
+This ensures that the buffer is reallocated whenever the total amount of data to be stored (`used + extraSize`) exceeds the current buffer capacity, preventing the heap-buffer-overflow that occurred when writing at `buffer + used`.

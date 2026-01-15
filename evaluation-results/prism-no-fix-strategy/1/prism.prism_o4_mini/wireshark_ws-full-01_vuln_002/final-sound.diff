@@ -1,0 +1,71 @@
+--- a/epan/dissectors/packet-telnet.c
++++ b/epan/dissectors/packet-telnet.c
+@@ -187,7 +187,8 @@
+ #define TN_EOR   239
+ #define TN_ABORT 238
+ #define TN_SUSP  237
+-#define TN_EOF   236
++#define TN_EOF                 236
++#define TN_NAWS                31
+ #define TN_ARE     1
+ 
+ static const value_string cmd_vals[] = {
+@@ -633,11 +634,10 @@
+ }
+ 
+ static void
+-dissect_linemode_subopt(packet_info *pinfo, const char *optname _U_, tvbuff_t *tvb _U_, int offset _U_,
+-                    int len _U_, proto_tree *tree _U_, proto_item *item _U_)
+-{
+-  if ( hf_telnet_naws_subopt_set )
+-    wmem_free(pinfo->pool, hf_naws_data);
++dissect_linemode_subopt(packet_info *pinfo _U_, const char *optname _U_, tvbuff_t *tvb _U_, int offset _U_,
++                        int len _U_, proto_tree *tree _U_, proto_item *item _U_)
++{
++  /* defer freeing of NAWS data until protocol cleanup */
+ 
+   return;
+ }
+@@ -2090,14 +2090,20 @@
+         break;
+       }
+ 
+-      /* We have a dissector for this suboption's parameters; call it. */
+-      if (iac_data > 0) {
+-        /* Data is escaped, we have to unescape it. */
+-        unescaped_tvb = unescape_and_tvbuffify_telnet_option(pinfo, tvb, start_offset, subneg_len);
+-        (*opt->dissect)(pinfo, opt->name, unescaped_tvb, 0, subneg_len - iac_data, option_tree, option_item);
+-      } else {
+-        (*opt->dissect)(pinfo, opt->name, tvb, start_offset, subneg_len, option_tree, option_item);
+-      }
++ /*
++  We have a dissector for this suboption's parameters; call it.
++ */
++  if (opt_byte != TN_NAWS && opt->dissect) {
++    if (iac_data > 0) {
++      /* Data is escaped, we have to unescape it. */
++      unescaped_tvb = unescape_and_tvbuffify_telnet_option(pinfo, tvb, start_offset, subneg_len);
++      (*opt->dissect)(pinfo, opt->name, unescaped_tvb, 0, subneg_len - iac_data, option_tree, option_item);
++    } else {
++      (*opt->dissect)(pinfo, opt->name, tvb, start_offset, subneg_len, option_tree, option_item);
++    }
++  } else {
++    /* defer freeing of NAWS data until protocol cleanup */
++  }
+     } else {
+       /* We don't have a dissector for them; just show them as data. */
+       if (iac_data > 0) {
+@@ -2206,9 +2212,11 @@
+        If this subopt is set then a method for storing the data in a given window
+        is necessary.
+     */
+-   if ( hf_telnet_naws_subopt_set ) {
++  if (hf_telnet_naws_subopt_set && hf_naws_data) {
+     int start_offset = hf_telnet_width * hf_telnet_line;
+-    tvb_get_raw_bytes_as_stringz(tvb, offset, (linelen < hf_telnet_width) ? linelen : hf_telnet_width, hf_naws_data + start_offset);
++    tvb_get_raw_bytes_as_stringz(tvb, offset,
++                                (linelen < hf_telnet_width) ? linelen : hf_telnet_width,
++                                hf_naws_data + start_offset);
+     hf_telnet_line = (hf_telnet_line + 1) % hf_telnet_height;
+   }
+ 

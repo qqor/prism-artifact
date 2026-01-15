@@ -1,0 +1,38 @@
+--- a/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-text-module/src/main/java/org/apache/tika/parser/csv/CellFormatter.java
++++ b/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-text-module/src/main/java/org/apache/tika/parser/csv/CellFormatter.java
+@@ -36,6 +36,8 @@
+             Pattern.compile("([+-])?(\\d{0,20}(?:\\.\\d{0,20})?) " +
+             "&fraction_format=\"(?:(#{1,20}) )?(#{1,20})/(#{1,20})\"");
+ 
++    private static final int MAX_DENOM_LENGTH = 3;
++
+     private final Matcher fractionFormatMatcher = FRACTION_FORMAT.matcher("");
+     String format(String cell) {
+         if (cell == null) {
+@@ -64,12 +66,22 @@
+         double minVal = 1.0;
+         double currDenom = Math.pow(10, denomLength) - 1d;
+         double currNum = 0;
+-        for (int i = (int)(Math.pow(10, denomLength) - 1d); i > 0; i--) {
+-            for (int i2 = (int)(Math.pow(10, denomLength) - 1d); i2 >= 0; i2--) {
+-                if (minVal >= Math.abs((double)i2 / (double)i - decPart)) {
++        if (denomLength > MAX_DENOM_LENGTH) {
++            // too expensive to compute; skip fraction formatting
++            return cell;
++        }
++        int max = (int)(Math.pow(10, denomLength) - 1d);
++        outer:
++        for (int i = max; i > 0; i--) {
++            for (int i2 = max; i2 >= 0; i2--) {
++                double diff = Math.abs((double) i2 / (double) i - decPart);
++                if (diff <= minVal) {
+                     currDenom = i;
+                     currNum = i2;
+-                    minVal = Math.abs((double) i2 / (double) i - decPart);
++                    minVal = diff;
++                    if (minVal == 0) {
++                        break outer;
++                    }
+                 }
+             }
+         }

@@ -1,0 +1,97 @@
+--- a/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java
++++ b/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java
+@@ -219,9 +219,9 @@
+      * Since they are parsed into long values, maximum length of each is the same as Long.MAX_VALUE which is 19 digits.
+      * </p>
+      */
+-    private static final Pattern PAX_EXTENDED_HEADER_FILE_TIMES_PATTERN = Pattern.compile(
+-            "(-?(?:\\d{1,19}|(?:.|\\d)*))(?:\\.\\d{1,19})?");
+-
++    // Dead code: regex-based validation removed to prevent ReDoS
++    // private static final Pattern PAX_EXTENDED_HEADER_FILE_TIMES_PATTERN = Pattern.compile(
++    //         "(-?(?:\\d{1,19}|(?:.|\\d)*))(?:\\.\\d{1,19})?";
+     private static FileTime fileTimeFromOptionalSeconds(final long seconds) {
+         return seconds <= 0 ? null : FileTimes.fromUnixTime(seconds);
+     }
+@@ -268,29 +268,65 @@
+     }
+ 
+     private static Instant parseInstantFromDecimalSeconds(final String key,
+-                                                          final String value) throws IOException {
+-
+-        // Validate field values to prevent denial of service attacks with BigDecimal values (see JDK-6560193)
+-        Matcher fileTimesMatcher = PAX_EXTENDED_HEADER_FILE_TIMES_PATTERN.matcher(value);
+-        if (! fileTimesMatcher.matches()) {
+-            throw new IOException(
+-                    "Corrupted PAX header. Time field value is invalid '" + value + "'");
+-        }
+-        //As with the check above, exponents should not be allowed.
++            final String value)
++        throws IOException
++    {
++        // Manual validation to prevent ReDoS and enforce original constraints
+         if (value.contains("e") || value.contains("E")) {
+-            throw new IOException(
+-                    "Corrupted PAX header. Time field value is invalid '" + value + "'");
+-        }
+-
++            throw new IOException("Corrupted PAX header. Time field value is invalid '" + value + "'");
++        }
++        int len = value.length();
++        if (len == 0) {
++            throw new IOException("Corrupted PAX header. Time field value is invalid '" + value + "'");
++        }
++        int pos = 0;
++        char first = value.charAt(0);
++        if (first == '-' || first == '+') {
++            pos++;
++            if (pos >= len) {
++                throw new IOException("Corrupted PAX header. Time field value is invalid '" + value + "'");
++            }
++        }
++        int intDigits = 0;
++        int fracDigits = 0;
++        boolean decimalSeen = false;
++        for (; pos < len; pos++) {
++            char c = value.charAt(pos);
++            if (c == '.') {
++                if (decimalSeen) {
++                    throw new IOException("Corrupted PAX header. Time field value is invalid '" + value + "'");
++                }
++                decimalSeen = true;
++                continue;
++            }
++            if (c < '0' || c > '9') {
++                throw new IOException("Corrupted PAX header. Time field value is invalid '" + value + "'");
++            }
++            if (!decimalSeen) {
++                if (++intDigits > 19) {
++                    throw new IOException("Corrupted PAX header. Time field value is invalid '" + value + "'");
++                }
++            } else {
++                if (++fracDigits > 19) {
++                    throw new IOException("Corrupted PAX header. Time field value is invalid '" + value + "'");
++                }
++            }
++        }
++        if (intDigits == 0 && fracDigits == 0) {
++            throw new IOException("Corrupted PAX header. Time field value is invalid '" + value + "'");
++        }
++        // Parse numeric value
+         final BigDecimal epochSeconds = new BigDecimal(value);
+         final long seconds = epochSeconds.longValue();
+-        final long nanos = epochSeconds.remainder(BigDecimal.ONE).movePointRight(9).longValue();
++        final long nanos = epochSeconds.remainder(BigDecimal.ONE)
++            .movePointRight(9)
++            .longValue();
+         try {
+             return Instant.ofEpochSecond(seconds, nanos);
+         } catch (DateTimeException | ArithmeticException e) {
+-            // DateTimeException: Thrown if the instant exceeds the maximum or minimum instant.
+-            // ArithmeticException: Thrown if numeric overflow occurs.
+             throw new IOException("Corrupted PAX header. Time field value is invalid '" + value + "'", e);
++        }
++    }
+         }
+     }
+ 

@@ -1,0 +1,44 @@
+
+================================================================================
+Response 1
+================================================================================
+Let me read the relevant source files to understand the OOM issue:
+
+================================================================================
+Response 2
+================================================================================
+Now I understand the issue. Looking at the stack trace:
+1. `MAPIAttribute.create()` at line 175 calls `StringUtil.getFromUnicodeLE(mpdata, 0, (mplen/2)-1)`
+2. The `mplen` variable is read directly from the input stream at line 167 without proper validation for maximum size
+3. A malicious input can specify a very large `mplen` value, causing allocation of a huge byte array and subsequently the OOM error
+
+Looking at line 167-175 of `MAPIAttribute.java`:
+```java
+int mplen = LittleEndian.readInt(inp);
+if (mplen < 0) {
+    throw new IOException("Did not expect negative value: " + mplen);
+}
+byte[] mpdata = new byte[mplen];
+if (IOUtils.readFully(inp, mpdata) < 0) {
+    throw new IOException("Not enough data to read " + mplen + " bytes for attribute name");
+}
+name = StringUtil.getFromUnicodeLE(mpdata, 0, (mplen/2)-1);
+```
+
+The fix should use `IOUtils.safelyAllocate()` instead of directly creating a `new byte[mplen]` to bound the allocation size. Let me apply the fix:
+
+================================================================================
+Response 3
+================================================================================
+The patch has been applied. The fix changes line 171 from:
+```java
+byte[] mpdata = new byte[mplen];
+```
+to:
+```java
+byte[] mpdata = IOUtils.safelyAllocate(mplen, MAX_RECORD_LENGTH);
+```
+
+This uses the `IOUtils.safelyAllocate()` method which will throw an exception if `mplen` exceeds the `MAX_RECORD_LENGTH` (1,000,000 bytes) limit, preventing the Out of Memory condition caused by malicious input that specifies an extremely large length value.
+
+The fix is consistent with how other byte array allocations are handled in the same file (see line 198 which already uses `IOUtils.safelyAllocate(len, MAX_RECORD_LENGTH)`).

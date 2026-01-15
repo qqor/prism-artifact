@@ -1,0 +1,63 @@
+--- a/src/liblzma/check/treeck.c
++++ b/src/liblzma/check/treeck.c
+@@ -63,33 +63,37 @@
+ }
+ 
+ // Walk the tree to calculate the e37vk checksum
+-static uint32_t compute_tree_checksum(TreeNode *node, unsigned int depth)
+-{
+-  // Skip if already hashed
+-  if (!node || node->state == STATE_HASHED) {
+-    return 0;
+-  }
++ static uint32_t compute_tree_checksum(TreeNode *node, unsigned int depth)
++ {
++     // Skip if null or already hashed
++     if (!node || node->state == STATE_HASHED) {
++         return 0;
++     }
+ 
+-  // Compute initial checksum from depth and value
+-  uint32_t sum = node->value * (depth + 1);
++     // Skip cycles: if node is already visited
++     if (node->state == STATE_VISITED) {
++         return 0;
++     }
+ 
+-  // Traverse the child nodes if not already visited
+-  if (node->state == STATE_CLEAR) {
+-    node->state = STATE_VISITED;
+-    for (size_t i = 0; i < node->edge_count; ++i) {
+-      TreeNode *child = node->edges[i];
+-      if (child) {
+-        sum += compute_tree_checksum(child, depth + 1);
+-      }
+-    }
+-    node->state = STATE_HASHED;
+-  }
++     // Compute initial checksum from depth and value
++     uint32_t sum = node->value * (depth + 1);
+ 
+-  // Free the node and edges
+-  free(node->edges);
+-  free(node);
++     // Mark as visited to detect cycles
++     node->state = STATE_VISITED;
+ 
+-  return sum;
++     // Traverse child nodes
++     for (size_t i = 0; i < node->edge_count; ++i) {
++         TreeNode *child = node->edges[i];
++         if (child) {
++             sum += compute_tree_checksum(child, depth + 1);
++         }
++     }
++
++     // Mark as hashed, free resources and return sum
++     node->state = STATE_HASHED;
++     free(node->edges);
++     free(node);
++     return sum;
+ }
+ 
+ extern LZMA_API(uint32_t)

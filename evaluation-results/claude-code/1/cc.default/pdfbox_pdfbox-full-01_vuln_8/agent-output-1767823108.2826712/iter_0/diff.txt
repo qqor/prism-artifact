@@ -1,0 +1,72 @@
+diff --git a/pdfbox/src/main/java/org/apache/pdfbox/filter/CCITTFaxDecoderStream.java b/pdfbox/src/main/java/org/apache/pdfbox/filter/CCITTFaxDecoderStream.java
+index 5f01e4ce8..b42179ac8 100644
+--- a/pdfbox/src/main/java/org/apache/pdfbox/filter/CCITTFaxDecoderStream.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/filter/CCITTFaxDecoderStream.java
+@@ -182,11 +182,25 @@ final class CCITTFaxDecoderStream extends FilterInputStream {
+         int index = 0;
+         changesCurrentRowCount = 0;
+ 
++        // Maximum iterations to prevent infinite loops with malformed input
++        int maxModeIterations = columns * 10 + 1000;
++        int modeIterations = 0;
++
+         mode: while (index < columns) {
++            if (++modeIterations > maxModeIterations) {
++                throw new IOException("CCITT decode2D exceeded maximum iterations, possible malformed stream");
++            }
+             // read mode
+             Node n = codeTree.root;
+ 
++            // Maximum iterations for inner loop to prevent infinite loops
++            int maxInnerIterations = 100;
++            int innerIterations = 0;
++
+             while (true) {
++                if (++innerIterations > maxInnerIterations) {
++                    throw new IOException("CCITT decode2D inner loop exceeded maximum iterations, possible malformed stream");
++                }
+                 n = n.walk(readBit());
+ 
+                 if (n == null) {
+@@ -272,11 +286,26 @@ final class CCITTFaxDecoderStream extends FilterInputStream {
+         if (optionByteAligned) {
+             resetBuffer();
+         }
++
++        // Maximum iterations to prevent infinite loops with malformed input
++        int maxOuterIterations = columns * 10 + 1000;
++        int outerIterations = 0;
++
+         eof: while (true) {
++            if (++outerIterations > maxOuterIterations) {
++                throw new IOException("CCITT decodeRowType4 exceeded maximum iterations, possible malformed stream");
++            }
+             // read till next EOL code
+             Node n = eolOnlyTree.root;
+ 
++            // Maximum iterations for inner loop
++            int maxInnerIterations = 100;
++            int innerIterations = 0;
++
+             while (true) {
++                if (++innerIterations > maxInnerIterations) {
++                    throw new IOException("CCITT decodeRowType4 inner loop exceeded maximum iterations, possible malformed stream");
++                }
+                 n = n.walk(readBit());
+ 
+                 if (n == null) {
+@@ -376,7 +405,14 @@ final class CCITTFaxDecoderStream extends FilterInputStream {
+ 
+         Node n = tree.root;
+ 
++        // Maximum iterations to prevent infinite loops with malformed input
++        int maxIterations = columns + 1000;
++        int iterations = 0;
++
+         while (true) {
++            if (++iterations > maxIterations) {
++                throw new IOException("CCITT decodeRun exceeded maximum iterations, possible malformed stream");
++            }
+             boolean bit = readBit();
+             n = n.walk(bit);
+ 

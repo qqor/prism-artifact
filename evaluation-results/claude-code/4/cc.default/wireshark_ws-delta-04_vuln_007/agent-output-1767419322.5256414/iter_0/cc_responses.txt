@@ -1,0 +1,55 @@
+
+================================================================================
+Response 1
+================================================================================
+Now I can see the issue. Looking at the crash log and the code, the bug is in the `json_string_unescape` function at line 361. The problem is in the handling of `\U` escape sequences with surrogate pairs.
+
+Looking at lines 353-378, when processing a lead surrogate followed by `\U` for the trailing surrogate, the loop at lines 359-368 doesn't have a bounds check for `read_index < string_length`:
+
+```c
+else if (current_character == 'U') {
+    uint16_t lead_surrogate = code_point;
+    uint16_t trail_surrogate = 0;
+
+    read_index++;
+
+    for (int i = 0; i < 8; i++)
+    {
+        current_character = string[read_index];  // Line 361 - no bounds check!
+        read_index++;
+
+        int nibble = ws_xton(current_character);
+
+        trail_surrogate <<= 4;
+        trail_surrogate |= nibble;
+    }
+    ...
+}
+```
+
+This is different from the `\u` case (lines 319-341) which does have the bounds check. The fix needs to add the same bounds check to the `\U` case.
+
+Let me create the patch:
+
+================================================================================
+Response 2
+================================================================================
+The patch has been applied. Let me summarize what the fix does:
+
+## Summary
+
+The heap-buffer-overflow bug was in the `json_string_unescape` function in `packet-json.c` at line 361. 
+
+### Root Cause
+When processing a JSON string with Unicode escape sequences, the code handles surrogate pairs (used for characters outside the Basic Multilingual Plane). When a lead surrogate is followed by `\U` (uppercase) to specify the trail surrogate, the loop that reads the 8 hex digits was missing bounds checking, unlike similar loops elsewhere in the function.
+
+The test case `{\012  \"surrogates\": \"\\U0000d83d\\U0000\"\012}` triggered this bug because:
+1. `\U0000d83d` is a lead surrogate (0xD83D)
+2. `\U0000` is incomplete - it needs 8 hex digits but only has 4 before the string ends
+3. The loop tried to read beyond the string buffer
+
+### The Fix
+Added bounds checking and invalid character validation to the `\U` escape sequence handler for surrogate pairs (lines 359-381), making it consistent with the existing `\u` handler. The fix:
+1. Checks `read_index < string_length` before each character read
+2. Validates the nibble value (checks for invalid hex digits)
+3. Sets `is_valid_unicode_character = false` and breaks out of the loop if either check fails

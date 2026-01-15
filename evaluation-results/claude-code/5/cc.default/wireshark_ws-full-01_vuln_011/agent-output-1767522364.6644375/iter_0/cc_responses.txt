@@ -1,0 +1,53 @@
+
+================================================================================
+Response 1
+================================================================================
+Let me search for the file location:
+
+================================================================================
+Response 2
+================================================================================
+Let me read around lines 580-600 where the `aim_get_buddyname` function is located, and around line 1976 where the crash occurs:
+
+================================================================================
+Response 3
+================================================================================
+Now I can see the issue. In the `aim_get_buddyname` function (lines 581-594), the code:
+1. Allocates a 256-byte buffer on line 586
+2. Gets `buddyname_length` from the network data on line 588
+3. Copies `buddyname_length` bytes into the 256-byte buffer on line 591
+
+The bug is that `buddyname_length` can be larger than 256 (it's a `uint16_t`, so up to 65535), causing a buffer overflow that triggers the ABRT from the fortify check.
+
+Let me also look at line 1976 to see the context of the call:
+
+================================================================================
+Response 4
+================================================================================
+Now I understand the bug. The fix needs to ensure that the `buddyname_length` does not exceed 256 (the allocated buffer size) before calling `memcpy`. Let me create the patch:
+
+================================================================================
+Response 5
+================================================================================
+The patch has been applied. Here's a summary of the fix:
+
+## Bug Analysis
+
+The crash was caused by a buffer overflow in the `aim_get_buddyname` function at line 591 of `packet-aim.c`. The function:
+
+1. Allocates a fixed 256-byte buffer for `*name`
+2. Reads `buddyname_length` from network data as a `uint16_t` (can be 0-65535)
+3. Copies `buddyname_length` bytes into the 256-byte buffer without bounds checking
+
+When `buddyname_length` exceeded 256, the `memcpy` triggered a `__fortify_fail` due to the buffer overflow, causing the `ABRT` signal.
+
+## Fix Applied
+
+Added a bounds check before the `memcpy` to limit `buddyname_length` to 255 bytes maximum:
+
+```c
+if (buddyname_length > 255)
+    buddyname_length = 255;
+```
+
+This ensures the copy operation never exceeds the allocated 256-byte buffer size (255 bytes + 1 for null terminator safety).

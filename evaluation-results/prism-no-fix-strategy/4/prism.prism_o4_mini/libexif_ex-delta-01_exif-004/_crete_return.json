@@ -1,0 +1,14 @@
+{
+  "project_name": "libexif",
+  "vulnerability_identifier": "libexif_ex-delta-01_exif-004",
+  "source_directory": "/home/qqor/aixcc/crete/.cache/official-afc-libexif",
+  "llm_usage": {
+    "total_cost": 0.5752043,
+    "prompt_tokens": 413861,
+    "completion_tokens": 27263
+  },
+  "variant": "sound",
+  "diff": "--- a/libexif/exif-loader.c\n+++ b/libexif/exif-loader.c\n@@ -105,7 +105,8 @@\n \tif (!l || !i) \n \t\treturn NULL;\n \n-\td = exif_mem_alloc (l->mem, i);\n+    /* allocate extra byte to avoid off-by-one overflow */\n+    d = exif_mem_alloc (l->mem, i + 1);\n \tif (d) \n \t\treturn d;\n \n\n--- a/libexif/apple/exif-mnote-data-apple.c\n+++ b/libexif/apple/exif-mnote-data-apple.c\n@@ -123,12 +123,22 @@\n \t\tcontinue;\n \t}\n         ofs += 12;\n-        d->entries[i].data = exif_mem_alloc(md->mem, dsize);\n+        /* guard against reading beyond the maker-note buffer */\n+        if (dofs > buf_size || dofs + dsize > buf_size) {\n+            exif_log (md->log, EXIF_LOG_CODE_CORRUPT_DATA,\n+                      \"ExifMnoteDataApple\",\n+                      \"MakerNote entry overflow (offset %u + size %u > buf %u)\",\n+                      dofs, dsize, buf_size);\n+            continue;\n+        }\n+        d->entries[i].data = exif_mem_alloc (md->mem, dsize);\n         if (!d->entries[i].data) {\n-            EXIF_LOG_NO_MEMORY(md->log, \"ExifMnoteApple\", dsize);\n+            EXIF_LOG_NO_MEMORY (md->log,\n+                               \"ExifMnoteDataApple\",\n+                               dsize);\n             continue;\n         }\n-        memcpy(d->entries[i].data, buf + dofs, dsize);\n+        memcpy (d->entries[i].data, buf + dofs, dsize);\n         d->entries[i].size = dsize;\n     }\n     d->count = tcount;\n",
+  "stdout": "",
+  "stderr": ""
+}

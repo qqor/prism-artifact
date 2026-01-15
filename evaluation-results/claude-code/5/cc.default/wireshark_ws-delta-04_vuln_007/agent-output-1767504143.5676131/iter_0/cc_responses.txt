@@ -1,0 +1,54 @@
+
+================================================================================
+Response 1
+================================================================================
+Let me find the source file location:
+
+================================================================================
+Response 2
+================================================================================
+Now I need to analyze the crash. Looking at the crash log, the issue is in `json_string_unescape` at line 361:29. The error occurs when processing `\U0000d83d\U0000` - a leading surrogate followed by an incomplete trailing surrogate.
+
+Looking at lines 353-378, I can see the problem. When processing `\U` followed by a leading surrogate that needs a trailing surrogate, the code handles the case where the next escape is also `\U` (lines 353-378). However, the loop at lines 359-368 doesn't check if we're still within the string bounds before reading `string[read_index]`:
+
+```c
+else if (current_character == 'U') {
+    uint16_t lead_surrogate = code_point;
+    uint16_t trail_surrogate = 0;
+
+    read_index++;
+
+    for (int i = 0; i < 8; i++)
+    {
+        current_character = string[read_index];  // LINE 361 - No bounds check!
+        read_index++;
+
+        int nibble = ws_xton(current_character);
+
+        trail_surrogate <<= 4;
+        trail_surrogate |= nibble;
+    }
+    ...
+}
+```
+
+The crash input `\U0000d83d\U0000` contains a `\U0000d83d` (lead surrogate) followed by `\U0000` which only has 4 hex digits instead of 8. The loop tries to read 8 characters but the string only has 4 more characters after `\U`, causing a heap-buffer-overflow.
+
+The fix should add bounds checking in the loop to prevent reading beyond the string length:
+
+================================================================================
+Response 3
+================================================================================
+The patch has been applied. The fix adds:
+
+1. **Bounds checking** before reading from the string: `if (!(read_index < string_length))` - This prevents reading past the end of the string buffer.
+
+2. **Validation of hex digits**: `if (nibble < 0)` - This checks if `ws_xton()` returned a valid hex digit. If not (negative value means invalid), it marks the character as invalid and breaks out of the loop.
+
+These are the same safety checks that exist in the similar code blocks for handling `\u` escapes (lines 319-341, 472-494) but were missing from the `\U` handling block for surrogate pairs (lines 353-378).
+
+The bug was that when parsing a JSON string like `"\U0000d83d\U0000"`:
+- `\U0000d83d` is recognized as a lead surrogate (0xD83D)
+- The code then looks for a trail surrogate starting with `\U`
+- It finds `\U0000` which only has 4 hex digits
+- The loop tried to read 8 characters without bounds checking, causing a heap-buffer-overflow

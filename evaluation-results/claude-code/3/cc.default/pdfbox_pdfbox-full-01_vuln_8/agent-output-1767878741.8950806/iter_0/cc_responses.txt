@@ -1,0 +1,114 @@
+
+================================================================================
+Response 1
+================================================================================
+I can see this is an Apache PDFBox project. The crash is related to a PDFExtractTextFuzzer timeout. Let me search for text extraction related files and look for potential infinite loop or performance issues.
+
+================================================================================
+Response 2
+================================================================================
+Let me search for text extraction related classes in the pdfbox directory and look for potential loop or recursion issues:
+
+================================================================================
+Response 3
+================================================================================
+Let me look at the PDFTextStripper.java and PDFStreamEngine.java which are the main text extraction classes:
+
+================================================================================
+Response 4
+================================================================================
+Let me look for the DrawObject operator which handles form XObjects and can cause recursion:
+
+================================================================================
+Response 5
+================================================================================
+Let me look at the PDF parser and stream parsers for potential infinite loop issues:
+
+================================================================================
+Response 6
+================================================================================
+Let me search for potential infinite loop issues more specifically - looking for loops that could hang indefinitely:
+
+================================================================================
+Response 7
+================================================================================
+Let me look at the CCITTFaxDecoderStream.java more closely since it has multiple `while (true)` loops and is related to image processing (which the crash log mentions):
+
+================================================================================
+Response 8
+================================================================================
+I see a potential issue in `decodeRowType4()` at line 275-290. The two nested `while (true)` loops read bits looking for an EOL code, but there's no safeguard against infinite looping if the stream contains invalid data that never matches the expected patterns. Let me also check the BaseParser.java for similar issues:
+
+================================================================================
+Response 9
+================================================================================
+The problem is in the `CCITTFaxDecoderStream.java` file. In `decodeRowType4()` (lines 271-298), there are nested `while (true)` loops that search for EOL codes. The issue is that if the stream has invalid/malformed data, the inner loop at line 279 (`while (true)`) can result in reading bits indefinitely because when `n.walk(readBit())` returns `null`, it just continues to the outer loop label `eof` at line 283 (`continue eof;`), and the outer loop at line 275 also has no termination condition other than breaking out from the inner loop.
+
+The `readBit()` function (lines 409-425) throws an `EOFException` when the stream is exhausted, but if the underlying stream has infinite data (or just keeps returning valid bytes that never form a valid EOL code pattern), the loops will continue indefinitely causing a timeout.
+
+Let me also check if there are other similar issues:
+
+================================================================================
+Response 10
+================================================================================
+Now I understand the issue. The problem is in `CCITTFaxDecoderStream.java` in the `decodeRowType4()` method. The nested `while (true)` loops at lines 275-290 have no maximum iteration count to prevent infinite loops when encountering malformed data.
+
+Let me create a fix that adds a maximum iteration counter to prevent infinite looping:
+
+================================================================================
+Response 11
+================================================================================
+Now let me also check and fix the other `while (true)` loops in the same file that could also cause infinite loops. Let me look at the `decode2D()` and `decodeRun()` methods:
+
+================================================================================
+Response 12
+================================================================================
+Now let me add similar protection to `decode2D()` method which also has a `while (true)` loop at line 189:
+
+================================================================================
+Response 13
+================================================================================
+Now let me also fix the `decodeRun()` method which has another `while (true)` loop:
+
+================================================================================
+Response 14
+================================================================================
+Now let me add the same protection to `decodeRun()`:
+
+================================================================================
+Response 15
+================================================================================
+The patch has been applied successfully to all three `while (true)` loops in `CCITTFaxDecoderStream.java` that could cause infinite loops:
+
+1. **`decodeRowType4()`** (lines 284-286): Added iteration limit to the EOL searching loop
+2. **`decode2D()`** (lines 193-195): Added iteration limit to the mode reading loop  
+3. **`decodeRun()`** (lines 397-399): Added iteration limit to the run decoding loop
+
+Let me verify the changes are correct by reading the modified file:
+
+================================================================================
+Response 16
+================================================================================
+The patch has been successfully applied to `CCITTFaxDecoderStream.java`. 
+
+Here's a summary of the fix:
+
+## Summary
+
+The timeout bug was caused by `while (true)` loops in `CCITTFaxDecoderStream.java` that could loop indefinitely when processing malformed CCITT fax compressed data in PDF files. When a fuzzer generates invalid input data, these loops would never terminate because:
+
+1. **`decodeRowType4()`**: The nested loops searching for EOL (End of Line) codes would continue indefinitely if the input stream contained data that never matched a valid EOL pattern.
+
+2. **`decode2D()`**: The inner loop reading mode codes would continue indefinitely if null nodes were encountered but no valid leaf nodes were found.
+
+3. **`decodeRun()`**: The loop decoding run lengths would continue indefinitely if the data never matched any valid Huffman code.
+
+## Fix Applied
+
+Added iteration limits to all three `while (true)` loops:
+
+- **Maximum iterations**: `Math.max(columns * 16, 65536)` for EOL search and 2D decoding, and `Math.max(columns * 13, 65536)` for run decoding
+- When the limit is exceeded, an `IOException` is thrown with a descriptive message
+- The limits are based on reasonable upper bounds for valid CCITT fax data (e.g., 13-bit maximum code length for Huffman codes)
+
+This ensures that malformed input data will cause the decoder to fail gracefully with an exception rather than hanging indefinitely.

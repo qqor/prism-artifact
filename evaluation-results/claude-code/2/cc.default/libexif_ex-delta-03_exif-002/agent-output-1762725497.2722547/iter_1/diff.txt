@@ -1,0 +1,38 @@
+diff --git a/libexif/exif-data.c b/libexif/exif-data.c
+index f3f6dbc..e93b3e6 100644
+--- a/libexif/exif-data.c
++++ b/libexif/exif-data.c
+@@ -167,6 +167,13 @@ exif_data_load_data_entry (ExifData *data, ExifEntry *entry,
+ {
+ 	unsigned int s, doff;
+ 
++	/* Check that we can read the 12-byte entry structure */
++	if (CHECKOVERFLOW(offset, size, 12)) {
++		exif_log (data->priv->log, EXIF_LOG_CODE_DEBUG, "ExifData",
++				  "Entry structure goes past end of buffer (%u + 12 > %u)", offset, size);
++		return 0;
++	}
++
+ 	entry->tag        = exif_get_short (d + offset + 0, data->priv->order);
+ 	entry->format     = exif_get_short (d + offset + 2, data->priv->order);
+ 	entry->components = exif_get_long  (d + offset + 4, data->priv->order);
+@@ -194,16 +201,10 @@ exif_data_load_data_entry (ExifData *data, ExifEntry *entry,
+ 	else
+ 		doff = offset + 8;
+ 
+-	/* Sanity checks */
+-	if (doff >= size) {
+-		exif_log (data->priv->log, EXIF_LOG_CODE_DEBUG, "ExifData",
+-				  "Tag starts past end of buffer (%u > %u)", doff, size);
+-		return 0;
+-	}
+-
+-	if (s > size - doff) {
++	/* Sanity checks - use CHECKOVERFLOW to properly handle all edge cases */
++	if (CHECKOVERFLOW(doff, size, s)) {
+ 		exif_log (data->priv->log, EXIF_LOG_CODE_DEBUG, "ExifData",
+-				  "Tag data goes past end of buffer (%u > %u)", doff+s, size);
++				  "Tag data goes past end of buffer (%u + %u > %u)", doff, s, size);
+ 		return 0;
+ 	}
+ 

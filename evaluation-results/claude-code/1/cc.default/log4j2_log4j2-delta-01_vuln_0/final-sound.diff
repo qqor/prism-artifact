@@ -1,0 +1,48 @@
+diff --git a/core/src/main/java/org/apache/logging/log4j/core/lookup/JndiLookup.java b/core/src/main/java/org/apache/logging/log4j/core/lookup/JndiLookup.java
+index 90e082a9f..da5821ed4 100644
+--- a/core/src/main/java/org/apache/logging/log4j/core/lookup/JndiLookup.java
++++ b/core/src/main/java/org/apache/logging/log4j/core/lookup/JndiLookup.java
+@@ -55,6 +55,11 @@ public class JndiLookup implements StrLookup {
+             return null;
+         }
+ 
++        // Security fix: Block remote JNDI lookups to prevent RCE
++        if (!isAllowedJndiProtocol(key)) {
++            return null;
++        }
++
+         try {
+             InitialContext ctx = new InitialContext();
+             return (String) ctx.lookup(convertJndiName(key));
+@@ -63,6 +68,31 @@ public class JndiLookup implements StrLookup {
+         }
+     }
+ 
++    /**
++     * Validate that the JNDI name uses only allowed protocols.
++     * Only local java: protocol is allowed to prevent remote code execution.
++     * @param jndiName The name of the resource.
++     * @return true if the protocol is allowed, false otherwise.
++     */
++    private boolean isAllowedJndiProtocol(String jndiName) {
++        if (jndiName == null) {
++            return false;
++        }
++
++        String lowerCaseName = jndiName.toLowerCase();
++
++        // Block dangerous remote protocols
++        if (lowerCaseName.startsWith("ldap:") || lowerCaseName.startsWith("ldaps:") ||
++            lowerCaseName.startsWith("rmi:") || lowerCaseName.startsWith("dns:") ||
++            lowerCaseName.startsWith("iiop:") || lowerCaseName.startsWith("corba:") ||
++            lowerCaseName.startsWith("nds:") || lowerCaseName.startsWith("nis:")) {
++            return false;
++        }
++
++        // Only allow java: protocol or names without protocol (which get java:comp/env/ prefix)
++        return lowerCaseName.startsWith("java:") || jndiName.indexOf(':') == -1;
++    }
++
+     /**
+      * Convert the given JNDI name to the actual JNDI name to use.
+      * Default implementation applies the "java:comp/env/" prefix

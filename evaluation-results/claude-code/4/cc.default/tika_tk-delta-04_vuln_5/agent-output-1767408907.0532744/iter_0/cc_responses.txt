@@ -1,0 +1,51 @@
+
+================================================================================
+Response 1
+================================================================================
+Now I can see the issue. The path traversal vulnerability is in `FileSystemEmitter.java`. The `emit` method at line 146 uses `basePath.resolve(path)` without validating that the resolved path stays within the `basePath` directory. This allows a malicious `path` containing `..` sequences to escape the intended output directory.
+
+Let me look at the `emit` method at line 77 as well to ensure both methods are protected:
+
+================================================================================
+Response 2
+================================================================================
+Now let me fix the second `emit` method that handles streams (line 146-165 in the original), which is the one directly mentioned in the stack trace:
+
+================================================================================
+Response 3
+================================================================================
+The patch has been applied. Let me verify the complete fixed file:
+
+================================================================================
+Response 4
+================================================================================
+The patch has been successfully applied to fix the file path traversal vulnerability in `FileSystemEmitter.java`. Here's a summary of the changes:
+
+## Summary of Fix
+
+**File Modified:** `/home/qqor/crete/.cache/official-afc-tika/tika-pipes/tika-emitters/tika-emitter-fs/src/main/java/org/apache/tika/pipes/emitter/fs/FileSystemEmitter.java`
+
+**Vulnerability:** The `FileSystemEmitter.emit()` methods were vulnerable to path traversal attacks. A malicious path like `input.bin/../../../jazzer-traversal` could escape the intended `basePath` directory and write files to arbitrary locations on the filesystem.
+
+**Fix Applied:**
+
+1. **First `emit` method (lines 86-90):** Added path normalization and validation when `basePath` is set:
+   ```java
+   output = basePath.resolve(emitKey).normalize();
+   if (!output.startsWith(basePath.normalize())) {
+       throw new TikaEmitterException("Path traversal detected: emitKey attempts to escape basePath");
+   }
+   ```
+
+2. **Second `emit` method (lines 150-153):** Added the same path traversal protection:
+   ```java
+   Path target = basePath.resolve(path).normalize();
+   if (!target.startsWith(basePath.normalize())) {
+       throw new TikaEmitterException("Path traversal detected: path attempts to escape basePath");
+   }
+   ```
+
+**How it works:**
+- `normalize()` resolves any `.` and `..` path components
+- `startsWith(basePath.normalize())` verifies the final resolved path is still within the allowed `basePath` directory
+- If path traversal is detected, a `TikaEmitterException` is thrown instead of writing the file

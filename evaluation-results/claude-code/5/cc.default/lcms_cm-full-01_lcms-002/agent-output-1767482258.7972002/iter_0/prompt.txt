@@ -1,0 +1,69 @@
+Create a patch to fix a AddressSanitizer: stack-buffer-overflow bug given below and apply it to the code.
+NEVER fix files outside the source directory.
+NEVER do any git operations in or outside the source directory.
+
+Below is the crash log:
+
+<crash_log>
+==ERROR: AddressSanitizer: stack-buffer-overflow on address 0x7fca53f51764 at pc 0x557944b07118 bp 0x7ffc40999920 sp 0x7ffc40999918
+READ of size 1 at 0x7fca53f51764 thread T0
+SCARINESS: 27 (1-byte-read-stack-buffer-overflow)
+    #0 0x557944b07117 in UnrollChunkyBytes /src/lcms/src/cmspack.c:130:13
+    #1 0x557944b35ee4 in CachedXFORM /src/lcms/src/cmsxform.c:537:21
+    #2 0x557944b2b804 in cmsDoTransform /src/lcms/src/cmsxform.c:206:5
+    #3 0x557944b48281 in CreateNamedColorDevicelink /src/lcms/src/cmsvirt.c:1103:9
+    #4 0x557944b46b14 in cmsTransform2DeviceLink /src/lcms/src/cmsvirt.c:1210:20
+    #5 0x557944aa9d5d in LLVMFuzzerTestOneInput /src/cms_virtual_profile_fuzzer.c:60:35
+    #6 0x55794495e3a0 in fuzzer::Fuzzer::ExecuteCallback(unsigned char const*, unsigned long) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:614:13
+    #7 0x557944949615 in fuzzer::RunOneTest(fuzzer::Fuzzer*, char const*, unsigned long) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerDriver.cpp:327:6
+    #8 0x55794494f0af in fuzzer::FuzzerDriver(int*, char***, int (*)(unsigned char const*, unsigned long)) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerDriver.cpp:862:9
+    #9 0x55794497a352 in main /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerMain.cpp:20:10
+    #10 0x7fca5465d082 in __libc_start_main (/lib/x86_64-linux-gnu/libc.so.6+0x24082) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #11 0x5579449417fd in _start (/out/cms_virtual_profile_fuzzer+0x6e7fd)
+
+DEDUP_TOKEN: UnrollChunkyBytes--CachedXFORM--cmsDoTransform
+Address 0x7fca53f51764 is located in stack of thread T0 at offset 36 in frame
+    #0 0x557944b47d6f in CreateNamedColorDevicelink /src/lcms/src/cmsvirt.c:1068
+
+DEDUP_TOKEN: CreateNamedColorDevicelink
+  This frame has 1 object(s):
+    [32, 36) 'i' (line 1071) <== Memory access at offset 36 overflows this variable
+HINT: this may be a false positive if your program uses some custom stack unwind mechanism, swapcontext or vfork
+      (longjmp and C++ exceptions *are* supported)
+SUMMARY: AddressSanitizer: stack-buffer-overflow /src/lcms/src/cmspack.c:130:13 in UnrollChunkyBytes
+Shadow bytes around the buggy address:
+  0x7fca53f51480: f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5
+  0x7fca53f51500: f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5
+  0x7fca53f51580: f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5
+  0x7fca53f51600: f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5
+  0x7fca53f51680: f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5
+=>0x7fca53f51700: f5 f5 f5 f5 f5 f5 f5 f5 f1 f1 f1 f1[04]f3 f3 f3
+  0x7fca53f51780: f1 f1 f1 f1 00 00 f3 f3 f5 f5 f5 f5 f5 f5 f5 f5
+  0x7fca53f51800: f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5
+  0x7fca53f51880: f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5
+  0x7fca53f51900: f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5
+  0x7fca53f51980: f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5 f5
+Shadow byte legend (one shadow byte represents 8 application bytes):
+  Addressable:           00
+  Partially addressable: 01 02 03 04 05 06 07 
+  Heap left redzone:       fa
+  Freed heap region:       fd
+  Stack left redzone:      f1
+  Stack mid redzone:       f2
+  Stack right redzone:     f3
+  Stack after return:      f5
+  Stack use after scope:   f8
+  Global redzone:          f9
+  Global init order:       f6
+  Poisoned by user:        f7
+  Container overflow:      fc
+  Array cookie:            ac
+  Intra object redzone:    bb
+  ASan internal:           fe
+  Left alloca redzone:     ca
+  Right alloca redzone:    cb
+==18==ABORTING
+subprocess command returned a non-zero exit status: 1
+INFO:__main__:Running: docker run --privileged --shm-size=2g --platform linux/amd64 --rm -i -e HELPER=True -e ARCHITECTURE=x86_64 -v /home/qqor/crete/packages/python_oss_fuzz/.oss_fuzz/build/out/lcms:/out -v /tmp/tmp1evu53b_:/testcase -t ghcr.io/aixcc-finals/base-runner:v1.3.0 reproduce cms_virtual_profile_fuzzer -runs=100.
+
+</crash_log>

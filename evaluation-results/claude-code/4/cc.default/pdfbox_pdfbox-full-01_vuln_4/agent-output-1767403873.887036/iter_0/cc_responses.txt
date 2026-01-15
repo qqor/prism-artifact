@@ -1,0 +1,26 @@
+
+================================================================================
+Response 1
+================================================================================
+Now I can see the issue. Looking at the crash log, the timeout occurs at `Type1Parser.parseBinary(Type1Parser.java:640)`. The issue is in the while loop at line 640-644 that searches for `/CharStrings` without a proper termination condition:
+
+```java
+while (!(lexer.peekKind(Token.LITERAL)
+        && lexer.peekToken().getText().equals("CharStrings")))
+{
+    lexer.nextToken();
+}
+```
+
+This loop can run indefinitely if `/CharStrings` is never found. The fix should add a check for `lexer.peekToken() == null` to prevent infinite loops.
+
+================================================================================
+Response 2
+================================================================================
+The patch has been applied successfully. The fix adds a null check inside the while loop that searches for the `/CharStrings` token. Without this check, if the lexer reaches the end of the input without finding `/CharStrings`, the loop would run indefinitely causing the 25-second timeout.
+
+**Summary of the fix:**
+
+The bug was in the `parseBinary` method at line 640. The while loop that searches for the `/CharStrings` dictionary had no termination condition if the token was never found. This caused an infinite loop when parsing malformed Type 1 fonts.
+
+The fix adds a null check that throws an `IOException` with a descriptive message (`"/CharStrings token not found"`) when the lexer reaches the end of input, preventing the infinite loop and timeout.

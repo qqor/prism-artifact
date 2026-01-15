@@ -1,0 +1,14 @@
+{
+  "project_name": "tika",
+  "vulnerability_identifier": "tika_tk-delta-04_vuln_5",
+  "source_directory": "/home/qqor/aixcc/crete/.cache/official-afc-tika",
+  "llm_usage": {
+    "total_cost": 1.565113,
+    "prompt_tokens": 1324610,
+    "completion_tokens": 24555
+  },
+  "variant": "sound",
+  "diff": "--- a/tika-pipes/tika-emitters/tika-emitter-fs/src/main/java/org/apache/tika/pipes/emitter/fs/FileSystemEmitter.java\n+++ b/tika-pipes/tika-emitters/tika-emitter-fs/src/main/java/org/apache/tika/pipes/emitter/fs/FileSystemEmitter.java\n@@ -84,9 +84,21 @@\n             emitKey += \".\" + fileExtension;\n         }\n         if (basePath != null) {\n-            output = basePath.resolve(emitKey);\n+            Path realBase = basePath.toRealPath();\n+            Path candidate = realBase.resolve(emitKey).normalize();\n+            Path absCandidate = candidate.toAbsolutePath().normalize();\n+            if (!absCandidate.startsWith(realBase)) {\n+                throw new IOException(\"Invalid output path, potential path traversal: \" + emitKey);\n+            }\n+            output = absCandidate;\n         } else {\n-            output = Paths.get(emitKey);\n+            Path candidate = Paths.get(emitKey).normalize();\n+            for (Path name : candidate) {\n+                if (\"..\".equals(name.toString())) {\n+                    throw new IOException(\"Invalid output path, potential path traversal: \" + emitKey);\n+                }\n+            }\n+            output = candidate;\n         }\n \n         if (!Files.isDirectory(output.getParent())) {\n@@ -144,8 +156,24 @@\n \n     @Override\n     public void emit(String path, InputStream inputStream, Metadata userMetadata, ParseContext parseContext) throws IOException, TikaEmitterException {\n-        Path target = basePath.resolve(path);\n-\n+        Path target;\n+        if (basePath != null) {\n+            Path realBase = basePath.toRealPath();\n+            Path candidate = realBase.resolve(path).normalize();\n+            Path absCandidate = candidate.toAbsolutePath().normalize();\n+            if (!absCandidate.startsWith(realBase)) {\n+                throw new IOException(\"Invalid output path, potential path traversal: \" + path);\n+            }\n+            target = absCandidate;\n+        } else {\n+            Path candidate = Paths.get(path).normalize();\n+            for (Path name : candidate) {\n+                if (\"..\".equals(name.toString())) {\n+                    throw new IOException(\"Invalid output path, potential path traversal: \" + path);\n+                }\n+            }\n+            target = candidate;\n+        }\n         if (!Files.isDirectory(target.getParent())) {\n             Files.createDirectories(target.getParent());\n         }\n",
+  "stdout": "",
+  "stderr": ""
+}

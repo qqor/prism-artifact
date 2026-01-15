@@ -1,0 +1,67 @@
+--- a/xmpbox/src/main/java/org/apache/xmpbox/xml/DomXmpParser.java
++++ b/xmpbox/src/main/java/org/apache/xmpbox/xml/DomXmpParser.java
+@@ -37,6 +37,9 @@
+ import javax.xml.parsers.DocumentBuilder;
+ import javax.xml.parsers.DocumentBuilderFactory;
+ import javax.xml.parsers.ParserConfigurationException;
++import org.xml.sax.EntityResolver;
++import org.xml.sax.InputSource;
++import java.io.StringReader;
+ 
+ import org.apache.xmpbox.XMPMetadata;
+ import org.apache.xmpbox.XmpConstants;
+@@ -76,17 +79,49 @@
+ 
+     public DomXmpParser() throws XmpParsingException
+     {
++        DocumentBuilderFactory dbFactory = DocumentBuilderFactory.newInstance();
++        dbFactory.setNamespaceAware(true);
++
+         try
+         {
+-            DocumentBuilderFactory dbFactory = DocumentBuilderFactory.newInstance();
+-            dbFactory.setNamespaceAware(true);
++            dbFactory.setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true);
++            dbFactory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
++            dbFactory.setFeature("http://xml.org/sax/features/external-general-entities", false);
++            dbFactory.setFeature("http://xml.org/sax/features/external-parameter-entities", false);
++            dbFactory.setAttribute(XMLConstants.ACCESS_EXTERNAL_DTD, "");
++            dbFactory.setAttribute(XMLConstants.ACCESS_EXTERNAL_SCHEMA, "");
++        }
++        catch (ParserConfigurationException e)
++        {
++            throw new XmpParsingException(
++                ErrorType.Configuration,
++                "Failed to configure XML parser for secure processing",
++                e
++            );
++        }
++
++        try
++        {
+             dBuilder = dbFactory.newDocumentBuilder();
+-            nsFinder = new NamespaceFinder();
+         }
+         catch (ParserConfigurationException e)
+         {
+-            throw new XmpParsingException(ErrorType.Configuration, "Failed to initialize", e);
+-        }
++            throw new XmpParsingException(
++                ErrorType.Configuration,
++                "Failed to initialize DocumentBuilder",
++                e
++            );
++        }
++
++        dBuilder.setEntityResolver(new EntityResolver()
++        {
++            @Override
++            public InputSource resolveEntity(String publicId, String systemId)
++            {
++                return new InputSource(new StringReader(""));
++            }
++        });
++        nsFinder = new NamespaceFinder();
+     }
+ 
+     public boolean isStrictParsing()

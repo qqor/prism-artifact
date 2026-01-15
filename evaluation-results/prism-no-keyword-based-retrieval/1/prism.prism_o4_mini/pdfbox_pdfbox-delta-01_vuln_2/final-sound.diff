@@ -1,0 +1,55 @@
+--- a/pdfbox/src/main/java/org/apache/pdfbox/ocr/OCRStreamEngine.java
++++ b/pdfbox/src/main/java/org/apache/pdfbox/ocr/OCRStreamEngine.java
+@@ -42,6 +42,34 @@
+     private int endPage = -1;
+     private long timeoutMillisPerPage = 30000;
+ 
++    /**
++     * Flag to allow overriding the Tesseract executable path via PDF metadata.
++     * Default is false.
++     */
++    private boolean allowMetadataOverride = false;
++
++    /**
++     * Enable or disable use of the PDF's tesseract-path metadata. Default: false.
++     */
++    public void setAllowTesseractPathOverrideFromMetadata(boolean allow) {
++        this.allowMetadataOverride = allow;
++    }
++
++    /**
++     * Validate that the provided Tesseract path is safe and executable.
++     */
++    private String validateTesseractPath(String candidate) throws IOException {
++        // Reject if empty or contains suspicious characters
++        if (!candidate.matches("^[A-Za-z0-9._\\-/\\\\]+$")) {
++            throw new IOException("Tesseract path contains invalid characters: " + candidate);
++        }
++        java.nio.file.Path p = java.nio.file.Paths.get(candidate).toRealPath();
++        if (!java.nio.file.Files.isRegularFile(p) || !java.nio.file.Files.isExecutable(p)) {
++            throw new IOException("Tesseract path is not a valid executable: " + p);
++        }
++        return p.toString();
++    }
++
+     private final PDDocument pdDocument;
+     private Path tmpDir;
+ 
+@@ -155,10 +183,13 @@
+     }
+ 
+     private String runTesseract(Path image) throws IOException {
+-        String actualTessPath = pdDocument.getDocumentInformation()
+-                .getCustomMetadataValue(TESSERACT_PATH_KEY);
+-        if (actualTessPath == null || actualTessPath.isEmpty()) {
+-            actualTessPath = tesseractPath;
++        String actualTessPath = tesseractPath;
++        if (allowMetadataOverride) {
++            String md = pdDocument.getDocumentInformation()
++                    .getCustomMetadataValue(TESSERACT_PATH_KEY);
++            if (md != null && !md.isEmpty()) {
++                actualTessPath = validateTesseractPath(md);
++            }
+         }
+ 
+         Path txt = Paths.get(image.toAbsolutePath().toString());

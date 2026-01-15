@@ -1,0 +1,53 @@
+diff --git a/poi/src/main/java/org/apache/poi/hssf/record/common/ExtRst.java b/poi/src/main/java/org/apache/poi/hssf/record/common/ExtRst.java
+index d798b0cc3..bd30fd666 100644
+--- a/poi/src/main/java/org/apache/poi/hssf/record/common/ExtRst.java
++++ b/poi/src/main/java/org/apache/poi/hssf/record/common/ExtRst.java
+@@ -90,17 +90,19 @@ public class ExtRst implements Comparable<ExtRst>, GenericRecord {
+         }
+ 
+         // Carry on reading in as normal
+-        short stringDataSize = in.readShort();
++        // Read as unsigned to avoid issues with negative sizes
++        int stringDataSize = in.readUShort();
+ 
+         formattingFontIndex = in.readShort();
+         formattingOptions   = in.readShort();
+ 
+         // RPHSSub
+         numberOfRuns = in.readUShort();
+-        short length1 = in.readShort();
++        // Read length as unsigned to avoid issues with negative lengths
++        int length1 = in.readUShort();
+         // No really. Someone clearly forgot to read
+         //  the docs on their datastructure...
+-        short length2 = in.readShort();
++        int length2 = in.readUShort();
+         // And sometimes they write out garbage :(
+         if(length1 == 0 && length2 > 0) {
+             length2 = 0;
+@@ -111,10 +113,25 @@ public class ExtRst implements Comparable<ExtRst>, GenericRecord {
+                             length1 + " vs " + length2
+             );
+         }
++        // Validate length1 before attempting to read phoneticText
++        // Each character takes 2 bytes, and we need at least 4 (Phs) + 6 (RPHSSub header) = 10 bytes for structure
++        if (length1 < 0 || (length1 * 2L) > stringDataSize - 10) {
++            throw new IllegalStateException(
++                    "Invalid phonetic text length: " + length1 + " exceeds available data in stringDataSize: " + stringDataSize
++            );
++        }
+         phoneticText = StringUtil.readUnicodeLE(in, length1);
+ 
+         int runData = stringDataSize - 4 - 6 - (2*phoneticText.length());
++        // Validate runData is non-negative before calculating numRuns
++        if (runData < 0) {
++            throw new IllegalStateException(
++                    "Invalid ExtRst record: runData is negative (" + runData + ")"
++            );
++        }
+         int numRuns = (runData / 6);
++        // Validate numRuns before allocating array
++        IOUtils.safelyAllocateCheck(numRuns, HSSFWorkbook.getMaxRecordLength());
+         phRuns = new PhRun[numRuns];
+         for(int i=0; i<phRuns.length; i++) {
+             phRuns[i] = new PhRun(in);

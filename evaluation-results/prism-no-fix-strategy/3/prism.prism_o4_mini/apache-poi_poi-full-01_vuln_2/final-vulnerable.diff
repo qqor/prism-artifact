@@ -1,0 +1,47 @@
+--- a/poi/src/main/java/org/apache/poi/poifs/dev/POIFSDump.java
++++ b/poi/src/main/java/org/apache/poi/poifs/dev/POIFSDump.java
+@@ -22,6 +22,7 @@
+ import java.io.OutputStream;
+ import java.nio.ByteBuffer;
+ import java.nio.file.Files;
++import java.nio.file.Path;
+ import java.nio.file.Paths;
+ import java.util.Iterator;
+ 
+@@ -72,16 +73,21 @@
+                 File dumpDir =
+                         Paths.get(filename).getParent()
+                                 .resolve(filenameWithoutPath + "_dump").toFile();
+-                File file = new File(dumpDir, root.getName());
+-                if (!file.exists() && !file.mkdirs()) {
+-                    throw new IOException("Could not create directory " + file);
++                // Sanitize root directory name to prevent path traversal
++                String rootName = root.getName().trim();
++                Path rootPath = dumpDir.toPath().resolve(rootName).normalize();
++                if (!rootPath.startsWith(dumpDir.toPath())) {
++                    throw new IOException("Invalid root directory name: " + rootName);
+                 }
+-    
+-                dump(root, file);
++                File rootDir = rootPath.toFile();
++                if (!rootDir.exists() && !rootDir.mkdirs()) {
++                    throw new IOException("Could not create directory " + rootDir);
++                }
++                dump(root, rootDir);
+     
+                 if (dumpProps) {
+                     HeaderBlock header = fs.getHeaderBlock();
+-                    dump(fs, header.getPropertyStart(), "properties", file);
++                    dump(fs, header.getPropertyStart(), "properties", rootDir);
+                 }
+                 if (dumpMini) {
+                     PropertyTable props = fs.getPropertyTable();
+@@ -89,7 +95,7 @@
+                     if (startBlock == POIFSConstants.END_OF_CHAIN) {
+                         System.err.println("No Mini Stream in file");
+                     } else {
+-                        dump(fs, startBlock, "mini-stream", file);
++                        dump(fs, startBlock, "mini-stream", rootDir);
+                     }
+                 }
+             }

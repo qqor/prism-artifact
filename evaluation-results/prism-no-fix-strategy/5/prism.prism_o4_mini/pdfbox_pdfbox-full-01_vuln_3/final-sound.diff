@@ -1,0 +1,33 @@
+--- a/fontbox/src/main/java/org/apache/fontbox/type1/Type1Parser.java
++++ b/fontbox/src/main/java/org/apache/fontbox/type1/Type1Parser.java
+@@ -214,13 +214,23 @@
+             // 0 1 255 {1 index exch /.notdef put } for
+             // we have to check "readonly" and "def" too
+             // as some fonts don't provide any dup-values, see PDFBOX-2134
+-            while (!(lexer.peekKind(Token.NAME)
+-                    && (lexer.peekToken().getText().equals("dup")
+-                            || lexer.peekToken().getText().equals("readonly")
+-                            || lexer.peekToken().getText().equals("def"))))
+-            {
+-                lexer.nextToken();
+-            }
++        // fuzzer timeout guard
++        int maxTokens = 100000;
++        int tokenCount = 0;
++        while (true) {
++            // break when we hit dup/readonly/def
++            if (lexer.peekKind(Token.NAME)
++                && (lexer.peekToken().getText().equals("dup")
++                    || lexer.peekToken().getText().equals("readonly")
++                    || lexer.peekToken().getText().equals("def"))) {
++                break;
++            }
++            // bail out if too many tokens
++            if (++tokenCount > maxTokens) {
++                throw new IOException("Exceeded ASCII parsing token limit: " + maxTokens);
++            }
++            lexer.nextToken();
++        }
+             
+             Map<Integer, String> codeToName = new HashMap<>();
+             while (lexer.peekKind(Token.NAME) &&
