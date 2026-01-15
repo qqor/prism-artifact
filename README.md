@@ -48,7 +48,7 @@ uv run benchmark --module apps.prism.prism_claude_sonnet_4_5 ./scripts/benchmark
 
 ### Evaluation Results
 
-Evaluation results are provided in `Prism Evaluation.xlsx`, containing data from 5 runs of each baseline. The spreadsheet includes 4 sheets:
+Evaluation results summaries are provided in `evaluation-results/Prism Evaluation.xlsx`, containing data from 5 runs of each baseline. The spreadsheet includes 4 sheets:
 
 - **Sheets 1-3**: Results corresponding to each research question (RQ1, RQ2, RQ3)
 - **Sheet 4**: Vulnerability type mappings (provided due to inconsistent naming in the original dataset)
