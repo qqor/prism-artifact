@@ -1,0 +1,55 @@
+diff --git a/encoding.c b/encoding.c
+index adecdcc6..ab6ee11a 100644
+--- a/encoding.c
++++ b/encoding.c
+@@ -1518,9 +1518,26 @@ xmlEncOutputChunk(xmlCharEncodingHandler *handler, unsigned char *out,
+         xmlCharEncConvFunc conv =
+             (xmlCharEncConvFunc) (void (*)(void)) handler->output;
+ 
+-        ret = conv(out, outlen, in, inlen, handler->outputCtxt);
+-        if (ret > 0)
+-            ret = XML_ENC_ERR_SUCCESS;
++        /* Rationale: Use a temporary buffer sized for worst-case and then copy safely */
++        int count = (*inlen + 3) / 4;
++        int required = count * 4 + 1;
++        unsigned char *temp = xmlMalloc(required);
++        if (temp == NULL) {
++            *outlen = 0;
++            *inlen = 0;
++            return(XML_ENC_ERR_INTERNAL);
++        }
++        ret = conv(temp, &required, in, inlen, handler->outputCtxt);
++        if (ret > 0) {
++            if (required <= *outlen) {
++                memcpy(out, temp, required);
++                *outlen = required;
++                ret = XML_ENC_ERR_SUCCESS;
++            } else {
++                ret = XML_ENC_ERR_INTERNAL;
++            }
++        }
++        xmlFree(temp);
+     }
+     else {
+         *outlen = 0;
+@@ -1583,7 +1600,8 @@ xmlCharEncInput(xmlParserInputBufferPtr input, size_t *sizeOut)
+     dataIn = xmlBufContent(in);
+     totalIn = 0;
+ 
+-    while (1) {
++    /* Rationale: After adding data, explicitly append a '\0' terminator within bounds to avoid any write beyond allocated memory */
++while (1) {
+         size_t availOut;
+         int completeOut, completeIn;
+         int c_out, c_in;
+@@ -1618,6 +1636,10 @@ xmlCharEncInput(xmlParserInputBufferPtr input, size_t *sizeOut)
+         totalOut += c_out;
+         maxOut -= c_out;
+         xmlBufAddLen(out, c_out);
++        /* append terminator safely */
++        if (xmlBufAvail(out) > 0) {
++            *xmlBufEnd(out) = '\0';
++        }
+ 
+         if ((ret != XML_ENC_ERR_SUCCESS) && (ret != XML_ENC_ERR_SPACE)) {
+             input->error = xmlEncConvertError(ret);

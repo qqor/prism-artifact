@@ -1,0 +1,30 @@
+diff --git a/epan/dissectors/packet-telnet.c b/epan/dissectors/packet-telnet.c
+index 9f003e3e61..b67bb16eb5 100644
+--- a/epan/dissectors/packet-telnet.c
++++ b/epan/dissectors/packet-telnet.c
+@@ -2206,11 +2206,20 @@ telnet_add_text(proto_tree *tree, tvbuff_t *tvb, int offset, int len)
+        If this subopt is set then a method for storing the data in a given window
+        is necessary.
+     */
+-   if ( hf_telnet_naws_subopt_set ) {
+-    int start_offset = hf_telnet_width * hf_telnet_line;
+-    tvb_get_raw_bytes_as_stringz(tvb, offset, (linelen < hf_telnet_width) ? linelen : hf_telnet_width, hf_naws_data + start_offset);
+-    hf_telnet_line = (hf_telnet_line + 1) % hf_telnet_height;
+-  }
++// FIXED: Use tvb_memcpy into a local buffer, avoiding any freed hf_naws_data
++    if (hf_telnet_naws_subopt_set) {
++        int start_offset = hf_telnet_width * hf_telnet_line;
++        int copy_len = (linelen < hf_telnet_width) ? linelen : hf_telnet_width;
++        /* Allocate and copy into a local buffer */
++        char naws_local[copy_len + 1];
++        tvb_memcpy(tvb, offset, copy_len, naws_local);
++        naws_local[copy_len] = '\0';
++        /* Only write back if hf_naws_data is still available */
++        if (hf_naws_data) {
++            memcpy(hf_naws_data + start_offset, naws_local, copy_len);
++            hf_telnet_line = (hf_telnet_line + 1) % hf_telnet_height;
++        }
++    }
+ 
+     /*
+      * In Telnet, CR NUL is the way you send a CR by itself in the

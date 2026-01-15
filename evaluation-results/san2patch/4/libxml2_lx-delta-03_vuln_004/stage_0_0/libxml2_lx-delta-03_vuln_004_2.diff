@@ -1,0 +1,44 @@
+diff --git a/encoding.c b/encoding.c
+index adecdcc6..48fd84c6 100644
+--- a/encoding.c
++++ b/encoding.c
+@@ -1518,6 +1518,19 @@ xmlEncOutputChunk(xmlCharEncodingHandler *handler, unsigned char *out,
+         xmlCharEncConvFunc conv =
+             (xmlCharEncConvFunc) (void (*)(void)) handler->output;
+ 
++        /* Rationale: Expand output buffer to avoid overflow for worst-case size */
++        int required = ((*inlen + 3) / 4) * 4 + 1;
++        if (*outlen < required) {
++            unsigned char *newout = xmlRealloc(out, required);
++            if (newout == NULL) {
++                *outlen = 0;
++                *inlen = 0;
++                return(XML_ENC_ERR_INTERNAL);
++            }
++            out = newout;
++            *outlen = required;
++        }
++
+         ret = conv(out, outlen, in, inlen, handler->outputCtxt);
+         if (ret > 0)
+             ret = XML_ENC_ERR_SUCCESS;
+@@ -1583,7 +1596,8 @@ xmlCharEncInput(xmlParserInputBufferPtr input, size_t *sizeOut)
+     dataIn = xmlBufContent(in);
+     totalIn = 0;
+ 
+-    while (1) {
++    /* Rationale: Reserve one byte in availOut to always leave room for a terminator and avoid off-by-one */
++while (1) {
+         size_t availOut;
+         int completeOut, completeIn;
+         int c_out, c_in;
+@@ -1591,6 +1605,9 @@ xmlCharEncInput(xmlParserInputBufferPtr input, size_t *sizeOut)
+         availOut = xmlBufAvail(out);
+         if (availOut > INT_MAX / 2)
+             availOut = INT_MAX / 2;
++        /* Reserve one byte for safety */
++        if (availOut > 0)
++            availOut--;
+ 
+         if (availOut < maxOut) {
+             c_out = availOut;

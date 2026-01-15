@@ -1,0 +1,40 @@
+diff --git a/src/libsystemd/sd-journal/catalog.c b/src/libsystemd/sd-journal/catalog.c
+index a8d65ea4bf..4ef58dd995 100644
+--- a/src/libsystemd/sd-journal/catalog.c
++++ b/src/libsystemd/sd-journal/catalog.c
+@@ -149,7 +149,8 @@ static int finish_item(
+                 OrderedHashmap *h,
+                 sd_id128_t id,
+                 const char *language,
+-                char *payload, size_t payload_size) {
++// FIXME: Crash CWE-787: Out-of-bounds Write
++                 char *payload, size_t payload_size) {
+ 
+         _cleanup_free_ CatalogItem *i = NULL;
+         _cleanup_free_ char *combined = NULL;
+@@ -179,6 +180,13 @@ static int finish_item(
+                 combined = combine_entries(payload, prev);
+                 if (!combined)
+                         return log_oom();
++                /* Rationale: ensure combined buffer has room for NUL terminator */
++                size_t len = strlen(combined);
++                char *tmp = realloc(combined, len + 2);
++                if (!tmp)
++                        return log_oom();
++                combined = tmp;
++                combined[len] = '\0';
+ 
+                 r = ordered_hashmap_update(h, i, combined);
+                 if (r < 0)
+@@ -188,9 +196,10 @@ static int finish_item(
+                 free(prev);
+         } else {
+                 /* A new item */
+-                combined = memdup(payload, payload_size + 1);
++                combined = memdup(payload, payload_size + 2);
+                 if (!combined)
+                         return log_oom();
++                combined[payload_size] = '\0';
+ 
+                 r = ordered_hashmap_put(h, i, combined);
+                 if (r < 0)

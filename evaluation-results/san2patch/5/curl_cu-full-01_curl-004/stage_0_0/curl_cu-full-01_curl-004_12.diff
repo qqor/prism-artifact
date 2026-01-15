@@ -1,0 +1,49 @@
+diff --git a/lib/mprintf.c b/lib/mprintf.c
+index 35e40e302..4321970d7 100644
+--- a/lib/mprintf.c
++++ b/lib/mprintf.c
+@@ -871,10 +871,13 @@ number:
+           OUTCHAR(' ');
+       break;
+ 
+-    case FORMAT_STRING: {
++      case FORMAT_STRING: {
+       const char *str;
+       size_t len;
+ 
++      /* Rationale: define safe output macro to prevent overruns */
++#define SAFE_OUTCHAR(c) do { if((out) < (buf) + (max) - 1) *(out)++ = (c); } while(0)
++
+       str = (char *)iptr->val.str;
+       if(!str) {
+         /* Write null string if there is space.  */
+@@ -899,20 +902,24 @@ number:
+       width -= (len > INT_MAX) ? INT_MAX : (int)len;
+ 
+       if(flags & FLAGS_ALT)
+-        OUTCHAR('"');
++        SAFE_OUTCHAR('"');
+ 
+       if(!(flags & FLAGS_LEFT))
+         while(width-- > 0)
+-          OUTCHAR(' ');
++          SAFE_OUTCHAR(' ');
+ 
+       for(; len && *str; len--)
+-        OUTCHAR(*str++);
++        SAFE_OUTCHAR(*str++);
+       if(flags & FLAGS_LEFT)
+         while(width-- > 0)
+-          OUTCHAR(' ');
++          SAFE_OUTCHAR(' ');
+ 
+       if(flags & FLAGS_ALT)
+-        OUTCHAR('"');
++        SAFE_OUTCHAR('"');
++
++      /* Rationale: ensure final null-terminator safely */
++      SAFE_OUTCHAR('\0');
++#undef SAFE_OUTCHAR
+       break;
+     }
+ 

@@ -1,0 +1,39 @@
+diff --git a/lib/mprintf.c b/lib/mprintf.c
+index 35e40e302..45cc0edd1 100644
+--- a/lib/mprintf.c
++++ b/lib/mprintf.c
+@@ -871,7 +871,7 @@ number:
+           OUTCHAR(' ');
+       break;
+ 
+-    case FORMAT_STRING: {
++      case FORMAT_STRING: {
+       const char *str;
+       size_t len;
+ 
+@@ -905,6 +905,13 @@ number:
+         while(width-- > 0)
+           OUTCHAR(' ');
+ 
++      // Rationale: clamp length to available buffer space
++      {
++        size_t avail = (buf + max - 1 > out) ? (size_t)((buf + max - 1) - out) : 0;
++        if(len > avail)
++          len = avail;
++      }
++
+       for(; len && *str; len--)
+         OUTCHAR(*str++);
+       if(flags & FLAGS_LEFT)
+@@ -913,6 +920,11 @@ number:
+ 
+       if(flags & FLAGS_ALT)
+         OUTCHAR('"');
++
++      // Rationale: clamp out and null-terminate to prevent overflow
++      if(out >= buf + max)
++        out = buf + max - 1;
++      *out = '\0';
+       break;
+     }
+ 

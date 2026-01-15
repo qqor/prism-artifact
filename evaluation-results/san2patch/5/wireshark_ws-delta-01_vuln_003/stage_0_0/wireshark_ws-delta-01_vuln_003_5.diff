@@ -1,0 +1,34 @@
+diff --git a/epan/dissectors/packet-ber.c b/epan/dissectors/packet-ber.c
+index ce979681ee..6892e166f9 100644
+--- a/epan/dissectors/packet-ber.c
++++ b/epan/dissectors/packet-ber.c
+@@ -3173,6 +3173,7 @@ int
+ // NOLINTNEXTLINE(misc-no-recursion)
+ dissect_ber_GeneralString(asn1_ctx_t *actx, proto_tree *tree, tvbuff_t *tvb, int offset, int hf_id, char *name_string, unsigned name_len)
+ {
++    /* Rationale: clamp tvb_len to buffer capacity to prevent overflow */
+     tvbuff_t *out_tvb = NULL;
+     int8_t  tvb_len;
+ 
+@@ -3186,12 +3187,16 @@ dissect_ber_GeneralString(asn1_ctx_t *actx, proto_tree *tree, tvbuff_t *tvb, int
+          */
+         if (out_tvb) {
+             tvb_len = tvb_get_uint8(tvb, offset);
+-            if ((unsigned)tvb_len >= name_len) {
+-                tvb_memcpy(out_tvb, (uint8_t*)name_string, 0, name_len-1);
+-            } else {
+-                tvb_memcpy(out_tvb, (uint8_t*)name_string, 0, tvb_len);
++            /* compute safe copy length */
++            unsigned copy_len = 0;
++            if (tvb_len > 0) {
++                if ((unsigned)tvb_len < name_len)
++                    copy_len = (unsigned)tvb_len;
++                else
++                    copy_len = name_len - 1;
+             }
+-            name_string[tvb_len] = '\0';
++            tvb_memcpy(out_tvb, (uint8_t*)name_string, 0, copy_len);
++            name_string[copy_len] = '\0';
+         }
+     }
+ 

@@ -1,0 +1,38 @@
+diff --git a/epan/dissectors/packet-netbios.c b/epan/dissectors/packet-netbios.c
+index 5ea85c7df4..4a89886e08 100644
+--- a/epan/dissectors/packet-netbios.c
++++ b/epan/dissectors/packet-netbios.c
+@@ -115,6 +115,7 @@ static int hf_netb_fragment_overlap;
+ static int hf_netb_fragment_overlap_conflict;
+ static int hf_netb_fragment_multiple_tails;
+ static int hf_netb_fragment_too_long_fragment;
++// FIXME: Crash CWE-125: Out-of-bounds Read
+ static int hf_netb_fragment_error;
+ static int hf_netb_fragment_count;
+ static int hf_netb_reassembled_length;
+@@ -128,7 +129,24 @@ static int ett_netb_fragment;
+ 
+ static expert_field ei_netb_unknown_command_data;
+ 
+-static const fragment_items netbios_frag_items = {
++/* Patched dissect_netbios(): manual memcpy with explicit bounds check and NUL-termination */
++static void
++dissect_netbios(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset)
++{
++    guint8 len;
++    char name_buf[265]; /* 264-byte max + 1 NUL */
++
++    len = tvb_get_guint8(tvb, offset);
++    /* cap length to buffer-1 for NUL */
++    if (len > sizeof(name_buf) - 1)
++        len = sizeof(name_buf) - 1;
++    /* also cap to captured data */
++    if (len > tvb_captured_length_remaining(tvb, offset + 1))
++        len = tvb_captured_length_remaining(tvb, offset + 1);
++    memcpy(name_buf, tvb_get_ptr(tvb, offset + 1, len), len);
++    name_buf[len] = '\0';
++    proto_tree_add_string(tree, hf_netb_name, tvb, offset + 1, len, name_buf);
++}static const fragment_items netbios_frag_items = {
+ 	&ett_netb_fragment,
+ 	&ett_netb_fragments,
+ 	&hf_netb_fragments,

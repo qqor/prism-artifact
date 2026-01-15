@@ -1,0 +1,40 @@
+diff --git a/epan/dissectors/packet-json.c b/epan/dissectors/packet-json.c
+index fbf7776431..2f6eaaa5c9 100644
+--- a/epan/dissectors/packet-json.c
++++ b/epan/dissectors/packet-json.c
+@@ -564,22 +564,29 @@ get_json_string(wmem_allocator_t *scope, tvbparse_elem_t *tok, bool remove_quote
+ 	string = tvb_get_string_enc(scope, tok->tvb, tok->offset, tok->len, ENC_UTF_8);
+ 
+ 	if (unescape_strings) {
++		size_t inlen = strlen(string);
++		/* If a truncated Unicode escape is detected, abort */
++		if (inlen < 6 && strstr(string, "\\u") != NULL)
++			goto error;
++
+ 		string = json_string_unescape(scope, string, &length);
+-	}
+-	else {
++		if (!string)
++			goto error;
++	} else {
+ 		length = strlen(string);
+ 	}
+ 
+ 	if (remove_quotes) {
+-		if (string[length - 1] == '"') {
++		if (length > 0 && string[length - 1] == '"')
+ 			string[length - 1] = '\0';
+-		}
+-		if (string[0] == '"') {
++		if (*string == '"')
+ 			string += 1;
+-		}
+ 	}
+ 
+ 	return string;
++
++error:
++	return NULL;
+ }
+ 
+ GHashTable* json_header_fields_hash;

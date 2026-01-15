@@ -1,0 +1,46 @@
+diff --git a/encoding.c b/encoding.c
+index adecdcc6..1cab3b7f 100644
+--- a/encoding.c
++++ b/encoding.c
+@@ -1518,6 +1518,15 @@ xmlEncOutputChunk(xmlCharEncodingHandler *handler, unsigned char *out,
+         xmlCharEncConvFunc conv =
+             (xmlCharEncConvFunc) (void (*)(void)) handler->output;
+ 
++        /* Rationale: Prevent buffer overflow by ensuring output buffer is
++           large enough for worst-case UTF-32 to UTF-8 expansion plus terminator */
++        int required = ((*inlen + 3) / 4) * 4 + 1;
++        if (*outlen < required) {
++            *outlen = 0;
++            *inlen = 0;
++            return(XML_ENC_ERR_INTERNAL);
++        }
++
+         ret = conv(out, outlen, in, inlen, handler->outputCtxt);
+         if (ret > 0)
+             ret = XML_ENC_ERR_SUCCESS;
+@@ -1583,7 +1592,8 @@ xmlCharEncInput(xmlParserInputBufferPtr input, size_t *sizeOut)
+     dataIn = xmlBufContent(in);
+     totalIn = 0;
+ 
+-    while (1) {
++    /* Rationale: Before writing, ensure there is always at least one extra byte in the buffer to avoid off-by-one overflow */
++while (1) {
+         size_t availOut;
+         int completeOut, completeIn;
+         int c_out, c_in;
+@@ -1608,6 +1618,15 @@ xmlCharEncInput(xmlParserInputBufferPtr input, size_t *sizeOut)
+             completeIn = 1;
+         }
+ 
++        /* Ensure at least one byte extra for safe writing */
++        if (xmlBufAvail(out) <= (size_t)c_out) {
++            size_t need = (size_t)c_out + 1 - xmlBufAvail(out);
++            if (xmlBufGrow(out, (int)need) < 0) {
++                input->error = XML_ERR_NO_MEMORY;
++                return(XML_ENC_ERR_MEMORY);
++            }
++        }
++
+         ret = xmlEncInputChunk(input->encoder, xmlBufEnd(out), &c_out,
+                                dataIn, &c_in);
+ 

@@ -1,0 +1,34 @@
+diff --git a/libexif/exif-data.c b/libexif/exif-data.c
+index f3f6dbc..87ca78e 100644
+--- a/libexif/exif-data.c
++++ b/libexif/exif-data.c
+@@ -537,9 +537,20 @@ exif_data_load_data_content (ExifData *data, ExifIfd ifd,
+ 	}
+ }
+ 
++// Rationale: Ensure both pointers are within the valid EXIF data buffer before reading
+ static int
+ cmp_func (const unsigned char *p1, const unsigned char *p2, ExifByteOrder o)
+ {
++	extern const unsigned char *exif_data_end;
++
++	if (p1 == NULL || p2 == NULL)
++		return 0;
++
++	// Prevent out-of-bounds read of two bytes
++	if (p1 + sizeof(ExifShort) > exif_data_end ||
++	    p2 + sizeof(ExifShort) > exif_data_end)
++		return 0;
++
+ 	ExifShort tag1 = exif_get_short (p1, o);
+ 	ExifShort tag2 = exif_get_short (p2, o);
+ 
+@@ -558,7 +569,7 @@ cmp_func_motorola (const void *elem1, const void *elem2)
+ {
+ 	return cmp_func ((const unsigned char *) elem1,
+ 			 (const unsigned char *) elem2, EXIF_BYTE_ORDER_MOTOROLA);
+-}
++}}
+ 
+ static void
+ exif_data_save_data_content (ExifData *data, ExifContent *ifd,

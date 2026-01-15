@@ -1,0 +1,24 @@
+diff --git a/epan/dissectors/packet-aim.c b/epan/dissectors/packet-aim.c
+index ec79a79475..dcfef2f47d 100644
+--- a/epan/dissectors/packet-aim.c
++++ b/epan/dissectors/packet-aim.c
+@@ -1650,10 +1650,18 @@ dissect_aim(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
+ 		 * packet, not a non-AIM packet
+ 		 */
+ 		return 0;
++	// FIXME: Crash CWE-787: Out-of-bounds Write
++ 	}
++
++	/* Clamp the buffer to a safe maximum */
++	{
++		const guint32 safe_len = G_MIN(tvb_reported_length(tvb), (guint32)2048);
++		tvbuff_t *tvb_safe = tvb_new_subset(tvb, 0, safe_len, safe_len);
++		tvb = tvb_safe;
+ 	}
+ 
+ 	tcp_dissect_pdus(tvb, pinfo, tree, aim_desegment, 6, get_aim_pdu_len,
+-			 dissect_aim_pdu, data);
++		 dissect_aim_pdu, data);
+ 	return tvb_reported_length(tvb);
+ }
+ 

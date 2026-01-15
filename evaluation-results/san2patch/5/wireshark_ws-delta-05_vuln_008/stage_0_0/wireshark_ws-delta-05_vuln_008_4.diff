@@ -1,0 +1,36 @@
+diff --git a/epan/dissectors/packet-netbios.c b/epan/dissectors/packet-netbios.c
+index 5ea85c7df4..ceb73903a5 100644
+--- a/epan/dissectors/packet-netbios.c
++++ b/epan/dissectors/packet-netbios.c
+@@ -115,6 +115,7 @@ static int hf_netb_fragment_overlap;
+ static int hf_netb_fragment_overlap_conflict;
+ static int hf_netb_fragment_multiple_tails;
+ static int hf_netb_fragment_too_long_fragment;
++// FIXME: Crash CWE-125: Out-of-bounds Read
+ static int hf_netb_fragment_error;
+ static int hf_netb_fragment_count;
+ static int hf_netb_reassembled_length;
+@@ -128,7 +129,22 @@ static int ett_netb_fragment;
+ 
+ static expert_field ei_netb_unknown_command_data;
+ 
+-static const fragment_items netbios_frag_items = {
++/* Patched dissect_netbios(): use g_strndup on raw pointer for simplicity */
++static void
++dissect_netbios(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset)
++{
++    guint8 len;
++    const gchar *ptr;
++    gchar *name;
++
++    len = tvb_get_guint8(tvb, offset);
++    /* ensure ptr length is safe */
++    ptr = (const gchar *)tvb_get_ptr(tvb, offset + 1, 
++        MIN((gint)len, (gint)tvb_captured_length_remaining(tvb, offset + 1)));
++    name = g_strndup(ptr, len);
++    proto_tree_add_string(tree, hf_netb_name, tvb, offset + 1, len, name);
++    g_free(name);
++}static const fragment_items netbios_frag_items = {
+ 	&ett_netb_fragment,
+ 	&ett_netb_fragments,
+ 	&hf_netb_fragments,

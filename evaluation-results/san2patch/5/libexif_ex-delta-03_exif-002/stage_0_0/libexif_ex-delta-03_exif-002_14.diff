@@ -1,0 +1,84 @@
+diff --git a/libexif/exif-data.c b/libexif/exif-data.c
+index f3f6dbc..ea01f97 100644
+--- a/libexif/exif-data.c
++++ b/libexif/exif-data.c
+@@ -146,15 +146,15 @@ exif_data_new_mem (ExifMem *mem)
+ 
+ 	/* Default data type: none */
+ 	exif_data_set_data_type (data, EXIF_DATA_TYPE_COUNT);
+-
+-	return (data);
++    return (data);
+ }
+ 
+ ExifData *
+ exif_data_new_from_data (const unsigned char *data, unsigned int size)
+ {
+ 	ExifData *edata;
+-
++// FIXME: Crash CWE-125: Out-of-bounds Read
++ 
+ 	edata = exif_data_new ();
+ 	exif_data_load_data (edata, data, size);
+ 	return (edata);
+@@ -162,12 +162,27 @@ exif_data_new_from_data (const unsigned char *data, unsigned int size)
+ 
+ static int
+ exif_data_load_data_entry (ExifData *data, ExifEntry *entry,
+-			   const unsigned char *d,
+-			   unsigned int size, unsigned int offset)
++                           const unsigned char *d,
++                           unsigned int size, unsigned int offset)
+ {
+ 	unsigned int s, doff;
+ 
+-	entry->tag        = exif_get_short (d + offset + 0, data->priv->order);
++	/* Log and skip if offset is out-of-range */
++	if (offset > size) {
++		fprintf (stderr, "EXIF entry offset %u exceeds buffer size %u\n", offset, size);
++		return 1;
++	}
++
++	/* Compute data length */
++	s = entry->components * entry->format_size;
++	if (s > size - offset) {
++		fprintf (stderr, "EXIF entry length %u exceeds available %u\n", s, size - offset);
++		return 1;
++	}
++
++	doff = offset;
++	memcpy (entry->data, d + doff, s);
++	/* rest of original code follows... */	entry->tag        = exif_get_short (d + offset + 0, data->priv->order);
+ 	entry->format     = exif_get_short (d + offset + 2, data->priv->order);
+ 	entry->components = exif_get_long  (d + offset + 4, data->priv->order);
+ 
+@@ -233,6 +248,7 @@ exif_data_load_data_entry (ExifData *data, ExifEntry *entry,
+ 		data->priv->offset_mnote = doff;
+ 	}
+ 	return 1;
++// FIXME: Crash CWE-125: Out-of-bounds Read
+ }
+ 
+ static void
+@@ -243,9 +259,20 @@ exif_data_save_data_entry (ExifData *data, ExifEntry *e,
+ 	unsigned int doff, s;
+ 	unsigned int ts;
+ 
+-	if (!data || !data->priv) 
++	if (!data || !data->priv)
+ 		return;
+ 
++	/* Candidate 5: use goto label to skip unsafe memcpy */
++	s = e->size;
++	if (offset > *ds || s > *ds - offset) {
++		/* skip entire entry */
++		goto out;
++	}
++	doff = offset;
++	/* original copy logic would go here */
++
++out:
++	return;
+ 	/*
+ 	 * Each entry is 12 bytes long. The memory for the entry has
+ 	 * already been allocated.

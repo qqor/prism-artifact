@@ -1,0 +1,37 @@
+diff --git a/lib/mprintf.c b/lib/mprintf.c
+index 35e40e302..8a5647226 100644
+--- a/lib/mprintf.c
++++ b/lib/mprintf.c
+@@ -1090,10 +1090,21 @@ int curl_mvsnprintf(char *buffer, size_t maxlength, const char *format,
+ int curl_msnprintf(char *buffer, size_t maxlength, const char *format, ...)
+ {
+   int retcode;
+-  va_list ap_save; /* argument pointer */
++// FIXME: Crash CWE-787: Out-of-bounds Write
++   va_list ap_save; /* argument pointer */
+   va_start(ap_save, format);
+   retcode = curl_mvsnprintf(buffer, maxlength, format, ap_save);
+   va_end(ap_save);
++  /* Post-condition: guarantee null termination at or before maxlength-1 */
++  if(maxlength > 1) {
++    if(retcode >= (int)maxlength)
++      buffer[maxlength - 1] = '\0';
++    else if(retcode >= 0)
++      buffer[retcode] = '\0';
++  }
++  else if(maxlength == 1) {
++    buffer[0] = '\0';
++  }
+   return retcode;
+ }
+ 
+@@ -1102,8 +1113,7 @@ static int alloc_addbyter(unsigned char outc, void *f)
+ {
+   struct asprintf *infop = f;
+   CURLcode result = Curl_dyn_addn(infop->b, &outc, 1);
+-  if(result) {
+-    infop->merr = result == CURLE_TOO_LARGE ? MERR_TOO_LARGE : MERR_MEM;
++  if(result) {    infop->merr = result == CURLE_TOO_LARGE ? MERR_TOO_LARGE : MERR_MEM;
+     return 1 ; /* fail */
+   }
+   return 0;

@@ -1,0 +1,35 @@
+diff --git a/libexif/apple/exif-mnote-data-apple.c b/libexif/apple/exif-mnote-data-apple.c
+index 83a9cb1..b7ba64c 100644
+--- a/libexif/apple/exif-mnote-data-apple.c
++++ b/libexif/apple/exif-mnote-data-apple.c
+@@ -107,6 +107,12 @@ exif_mnote_data_apple_load(ExifMnoteData *md, const unsigned char *buf, unsigned
+     }
+ 
+     for (i = 0; i < tcount; i++) {
++        /* Ensure at least 12 bytes remain for entry header (tag, format, components, and offset) */
++        if (ofs + 12 > buf_size) {
++            exif_log(md->log, EXIF_LOG_CODE_CORRUPT_DATA,
++                     "ExifMnoteApplet", "Not enough data for entry header (%u vs size %u)", ofs + 12, buf_size);
++            continue;
++        }
+         d->entries[i].tag = exif_get_short(buf + ofs, d->order);
+         d->entries[i].format = exif_get_short(buf + ofs + 2, d->order);
+         d->entries[i].components = exif_get_long(buf + ofs + 4, d->order);
+@@ -117,11 +123,12 @@ exif_mnote_data_apple_load(ExifMnoteData *md, const unsigned char *buf, unsigned
+         } else {
+             dofs = ofs + 8;
+         }
+-	if (dofs > buf_size) {
+-		exif_log (md->log, EXIF_LOG_CODE_CORRUPT_DATA,
+-                                  "ExifMnoteApplet", "Tag size overflow detected (%u vs size %u)", dofs, buf_size);
+-		continue;
+-	}
++        /* Check that data region is within buffer */
++        if (dofs > buf_size || dofs + dsize > buf_size) {
++            exif_log (md->log, EXIF_LOG_CODE_CORRUPT_DATA,
++                      "ExifMnoteApplet", "Tag size overflow detected (%u vs size %u)", dofs + dsize, buf_size);
++            continue;
++        }
+         ofs += 12;
+         d->entries[i].data = exif_mem_alloc(md->mem, dsize);
+         if (!d->entries[i].data) {

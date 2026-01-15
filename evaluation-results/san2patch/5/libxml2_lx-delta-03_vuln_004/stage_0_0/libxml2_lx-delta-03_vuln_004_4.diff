@@ -1,0 +1,29 @@
+diff --git a/encoding.c b/encoding.c
+index adecdcc6..0c000c4b 100644
+--- a/encoding.c
++++ b/encoding.c
+@@ -1592,8 +1592,12 @@ xmlCharEncInput(xmlParserInputBufferPtr input, size_t *sizeOut)
+         if (availOut > INT_MAX / 2)
+             availOut = INT_MAX / 2;
+ 
+-        if (availOut < maxOut) {
+-            c_out = availOut;
++        /* Always leave room for a null terminator by reducing c_out by 1 */
++        if (availOut <= 1) {
++            c_out = 0;
++            completeOut = 0;
++        } else if (availOut - 1 < (size_t)maxOut) {
++            c_out = (int)(availOut - 1);
+             completeOut = 0;
+         } else {
+             c_out = maxOut;
+@@ -1619,6 +1623,9 @@ xmlCharEncInput(xmlParserInputBufferPtr input, size_t *sizeOut)
+         maxOut -= c_out;
+         xmlBufAddLen(out, c_out);
+ 
++        /* After each addition, explicitly append a null */
++        xmlBufAdd(out, 0);
++
+         if ((ret != XML_ENC_ERR_SUCCESS) && (ret != XML_ENC_ERR_SPACE)) {
+             input->error = xmlEncConvertError(ret);
+             return(ret);

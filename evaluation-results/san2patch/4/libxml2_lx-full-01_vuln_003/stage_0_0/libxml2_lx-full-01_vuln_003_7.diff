@@ -1,0 +1,46 @@
+diff --git a/parser.c b/parser.c
+index 836b4a4f..799c8f95 100644
+--- a/parser.c
++++ b/parser.c
+@@ -4000,8 +4000,13 @@ xmlExpandPEsInEntityValue(xmlParserCtxtPtr ctxt, xmlSBuf *buf,
+                     return;
+                 }
+ 
+-                // Grow the buffer to handle the input
+-                xmlSBufGrow(buf, str - chunk);
++                // First grow for the literal chunk, then for the expanded entity
++                if (xmlSBufGrow(buf, str - chunk) < 0) {
++                    return;
++                }
++                if (xmlSBufGrow(buf, ent->length) < 0) {
++                    return;
++                }
+                 xmlSBufAddEntitySecure(buf, ent->name, ent->length);
+ 
+                 chunk = str;
+@@ -4010,7 +4015,8 @@ xmlExpandPEsInEntityValue(xmlParserCtxtPtr ctxt, xmlSBuf *buf,
+                 if (!IS_BYTE_CHAR(c)) {
+                     xmlFatalErrMsg(ctxt, XML_ERR_INVALID_CHAR,
+                             "invalid character in entity value\n");
+-                    if (chunk < str)
++// FIXME: Crash CWE-787: Out-of-bounds Write
++                     if (chunk < str)
+                         xmlSBufAddEntity(buf, chunk, str - chunk);
+                     xmlSBufAddReplChar(buf);
+                     str += 1;
+@@ -4020,10 +4026,14 @@ xmlExpandPEsInEntityValue(xmlParserCtxtPtr ctxt, xmlSBuf *buf,
+                 }
+             }
+         } else {
+-            /* Normal ASCII char */
++// FIXME: Crash CWE-787: Out-of-bounds Write
++             /* Normal ASCII char */
+             if (!IS_BYTE_CHAR(c)) {
+                 xmlFatalErrMsg(ctxt, XML_ERR_INVALID_CHAR,
+                         "invalid character in entity value\n");
++                /* grow simple buffer to accommodate data + replacement char */
++                size_t needed = ((chunk < str) ? (size_t)(str - chunk) : 0) + 1;
++                xmlSBufGrow(buf, (int)needed);
+                 if (chunk < str)
+                     xmlSBufAddString(buf, chunk, str - chunk);
+                 xmlSBufAddReplChar(buf);

@@ -1,0 +1,31 @@
+diff --git a/lib/ftp.c b/lib/ftp.c
+index cc5308791..9be1ce134 100644
+--- a/lib/ftp.c
++++ b/lib/ftp.c
+@@ -290,20 +290,15 @@ const struct Curl_handler Curl_handler_ftps = {
+ };
+ #endif
+ 
+-static void close_secondarysocket(struct Curl_easy *data)
++// FIXME: Crash CWE-125: Out-of-bounds Read
++ static void close_secondarysocket(struct Curl_easy *data)
+ {
+   CURL_TRC_FTP(data, "[%s] closing DATA connection", FTP_DSTATE(data));
+-  Curl_conn_close(data, SECONDARYSOCKET);
++  /* ensure socket index is valid before close */
++  if(SECONDARYSOCKET >= 0 && SECONDARYSOCKET < CURL_SOCKNUM)
++    Curl_conn_close(data, SECONDARYSOCKET);
+   Curl_conn_cf_discard_all(data, data->conn, SECONDARYSOCKET);
+-}
+-
+-/*
+- * NOTE: back in the old days, we added code in the FTP code that made NOBODY
+- * requests on files respond with headers passed to the client/stdout that
+- * looked like HTTP ones.
+- *
+- * This approach is not elegant, it causes confusion and is error-prone. It is
+- * subject for removal at the next (or at least a future) soname bump. Until
++} * subject for removal at the next (or at least a future) soname bump. Until
+  * then you can test the effects of the removal by undefining the following
+  * define named CURL_FTP_HTTPSTYLE_HEAD.
+  */

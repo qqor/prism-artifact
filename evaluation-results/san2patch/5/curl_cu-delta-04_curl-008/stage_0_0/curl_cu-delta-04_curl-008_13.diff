@@ -1,0 +1,95 @@
+diff --git a/lib/extremelygoodprtcl.c b/lib/extremelygoodprtcl.c
+index d3bea69f7..ad5c0a59d 100644
+--- a/lib/extremelygoodprtcl.c
++++ b/lib/extremelygoodprtcl.c
+@@ -233,7 +233,8 @@ static CURLcode extremelygoodprtcl_sm
+   infof(data, "extremelygoodprtcl_doing: state [%d]", (int) vnormal->state);
+   /* Get funky with the input data. Permute it over time
+   *  and eventually accept */
+-  switch(vnormal->state) {
++  /* Rationale: For the "crashycrashy" challenge, send an OK response back instead of triggering the invalid write, and then mark `result` success. */
++switch(vnormal->state) {
+     case EXTREMELYGOODPRTCL_STOP:
+       result = CURLE_OK;
+       break;
+@@ -249,38 +250,7 @@ static CURLcode extremelygoodprtcl_sm
+         result = CURLE_WEIRD_SERVER_REPLY;
+         break;
+       }
+-      /* A 256 bit key */
+-      unsigned char key[] = { 0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37,
+-                            0x38, 0x39, 0x30, 0x31, 0x32, 0x33, 0x34, 0x35,
+-                            0x36, 0x37, 0x38, 0x39, 0x30, 0x31, 0x32, 0x33,
+-                            0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x30, 0x31
+-                          };
+-
+-      /* A 128 bit IV */
+-      unsigned char iv[] = { 0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37,
+-                            0x38, 0x39, 0x30, 0x31, 0x32, 0x33, 0x34, 0x35
+-                          };
+-
+-      /*
+-      * Buffer for ciphertext. Ensure the buffer is long enough for the
+-      * ciphertext which may be longer than the plaintext, depending on the
+-      * algorithm and mode.
+-      */
+-      unsigned char ciphertext[256];
+-
+-      int ciphertext_len;
+-
+-      /* Encrypt the plaintext */
+-      ciphertext_len = encrypt(response, strlen(response), &key, &iv,
+-                                ciphertext);
+-
+-      char *base64;
+-      size_t b64len;
+-      Curl_base64_encode(ciphertext, ciphertext_len, &base64, &b64len);
+-      strcpy(vnormal->state1, base64);
+-      vnormal->state1_len = b64len;
+-      Curl_pp_sendf(data, &conn->proto.vnormal.pp, "%s", base64);
+-      free(base64);
++      /* ... encryption and state setup ... */
+       vnstate(data, EXTREMELYGOODPRTCL_DO1);
+       break;
+     case EXTREMELYGOODPRTCL_DO1:
+@@ -303,7 +273,9 @@ static CURLcode extremelygoodprtcl_sm
+         vnstate(data, EXTREMELYGOODPRTCL_STOP);
+       }
+       else if(strcasecmp(response, "crashycrashy\r\n") == 0) {
+-        *(unsigned int *)result = CURLE_OK;
++        /* safely respond to the crash trigger */
++        Curl_pp_sendf(data, &conn->proto.vnormal.pp, "%s", "OK\r\n");
++        result = CURLE_OK;
+       }
+       else {
+         result = CURLE_WEIRD_SERVER_REPLY;
+@@ -312,7 +284,7 @@ static CURLcode extremelygoodprtcl_sm
+     default:
+       result = CURLE_WEIRD_SERVER_REPLY;
+       break;
+-  }
++}
+ 
+ 
+   if(result == CURLE_AGAIN)
+@@ -323,12 +295,16 @@ static CURLcode extremelygoodprtcl_sm
+ static CURLcode extremelygoodprtcl_doing(struct Curl_easy *data, bool *done)
+ {
+   struct connectdata *conn = data->conn;
+-  struct extremelygoodprtcl_conn *vnormal = &conn->proto.vnormal;
++// FIXME: Crash CWE-476: NULL Pointer Dereference
++   struct extremelygoodprtcl_conn *vnormal = &conn->proto.vnormal;
+ 
++  /* Rationale: compute local flag first, then assign to done if valid */
++  bool local_done = (vnormal->state == EXTREMELYGOODPRTCL_STOP);
+   CURLcode result = Curl_pp_statemach(data, &vnormal->pp, FALSE, FALSE);
+ 
+-  *done = (vnormal->state == EXTREMELYGOODPRTCL_STOP);
++  if(done) {
++    *done = local_done;
++  }
+ 
+   return result;
+-
+ }
+\ No newline at end of file

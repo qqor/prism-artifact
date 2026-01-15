@@ -1,0 +1,36 @@
+diff --git a/epan/dissectors/packet-json.c b/epan/dissectors/packet-json.c
+index fbf7776431..e261341b01 100644
+--- a/epan/dissectors/packet-json.c
++++ b/epan/dissectors/packet-json.c
+@@ -564,19 +564,25 @@ get_json_string(wmem_allocator_t *scope, tvbparse_elem_t *tok, bool remove_quote
+ 	string = tvb_get_string_enc(scope, tok->tvb, tok->offset, tok->len, ENC_UTF_8);
+ 
+ 	if (unescape_strings) {
++		size_t inlen = strlen(string);
++		/* Reject if string ends with a lone backslash or incomplete Unicode escape */
++		if (inlen > 0 && string[inlen - 1] == '\\')
++			return NULL;
++		if (inlen > 1 && string[inlen - 2] == '\\' && (string[inlen - 1] == 'u' || string[inlen - 1] == 'U'))
++			return NULL;
++
+ 		string = json_string_unescape(scope, string, &length);
+-	}
+-	else {
++		if (!string)
++			return NULL;
++	} else {
+ 		length = strlen(string);
+ 	}
+ 
+ 	if (remove_quotes) {
+-		if (string[length - 1] == '"') {
++		if (length > 0 && string[length - 1] == '"')
+ 			string[length - 1] = '\0';
+-		}
+-		if (string[0] == '"') {
++		if (*string == '"')
+ 			string += 1;
+-		}
+ 	}
+ 
+ 	return string;

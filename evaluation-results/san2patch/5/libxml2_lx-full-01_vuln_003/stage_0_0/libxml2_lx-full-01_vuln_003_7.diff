@@ -1,0 +1,36 @@
+diff --git a/parser.c b/parser.c
+index 836b4a4f..453cb262 100644
+--- a/parser.c
++++ b/parser.c
+@@ -760,6 +760,7 @@ xmlSBufGrow(xmlSBuf *buf, unsigned len) {
+ 
+ static void
+ xmlSBufAddEntitySecure(xmlSBuf *buf, const xmlChar *str, unsigned len) {
++    /* Rationale: Dynamically grow buffer capacity to accommodate new data */
+     if (buf->max - buf->size < len) {
+         if (buf->code == XML_ERR_OK)
+             buf->code = XML_ERR_RESOURCE_LIMIT;
+@@ -767,10 +768,13 @@ xmlSBufAddEntitySecure(xmlSBuf *buf, const xmlChar *str, unsigned len) {
+     }
+ 
+     if (buf->cap == 0) {
+-        // Ensure that the buffer is double the necessary size
+-        // This ensures no buffer overflow is possible
++        // Ensure that the buffer is double the necessary size on first use
+         if (xmlSBufGrow(buf, len * 2) < 0)
+             return;
++    } else if (buf->cap - buf->size < len) {
++        // Grow the buffer just enough for the new data
++        if (xmlSBufGrow(buf, len) < 0)
++            return;
+     }
+ 
+     if (len > 0)
+@@ -778,6 +782,7 @@ xmlSBufAddEntitySecure(xmlSBuf *buf, const xmlChar *str, unsigned len) {
+     buf->size += len;
+ }
+ 
++
+ static void
+ xmlSBufAddString(xmlSBuf *buf, const xmlChar *str, unsigned len) {
+     if (buf->max - buf->size < len) {

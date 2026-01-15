@@ -1,0 +1,50 @@
+diff --git a/lib/alliswellprotocoll.c b/lib/alliswellprotocoll.c
+index 5be67405e..77499b468 100644
+--- a/lib/alliswellprotocoll.c
++++ b/lib/alliswellprotocoll.c
+@@ -93,8 +93,15 @@ static CURLcode alliswellprotocoll_done(struct Curl_easy *data,
+ }
+ 
+ static CURLcode alliswellprotocoll_do_more(struct Curl_easy *data, int *c)
+-{
+-  *c = -1;
++// FIXME: Crash CWE-476: NULL Pointer Dereference
++ {
++  if(c) {
++    *c = -1;
++  }
++  else {
++    /* no counter available, return failed init */
++    return CURLE_FAILED_INIT;
++  }
+   return CURLE_OK;
+ }
+ 
+diff --git a/lib/multi.c b/lib/multi.c
+index 1851dc731..70f8f3583 100644
+--- a/lib/multi.c
++++ b/lib/multi.c
+@@ -1729,17 +1729,21 @@ static CURLcode protocol_connecting(struct Curl_easy *data, bool *done)
+ {
+   CURLcode result = CURLE_OK;
+   struct connectdata *conn = data->conn;
++  bool can_connect = (conn && conn->handler && conn->handler->connecting);
+ 
+-  if(conn && conn->handler->connecting) {
++  if(can_connect) {
+     *done = FALSE;
+     result = conn->handler->connecting(data, done);
+   }
+-  else
++  else {
+     *done = TRUE;
++  }
+ 
+   return result;
+ }
+ 
++/* Rationale: Used a boolean flag to make the NULL checks explicit and centralize the condition. */
++
+ /*
+  * We are DOING this is being called over and over from the multi interface
+  * until the DOING phase is done on protocol layer.

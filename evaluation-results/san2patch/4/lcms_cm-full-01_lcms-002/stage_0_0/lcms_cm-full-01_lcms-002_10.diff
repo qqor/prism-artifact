@@ -1,0 +1,72 @@
+diff --git a/src/cmspack.c b/src/cmspack.c
+index 3e9d23f..c962f42 100644
+--- a/src/cmspack.c
++++ b/src/cmspack.c
+@@ -107,11 +107,17 @@ cmsUInt8Number* UnrollChunkyBytes(CMSREGISTER _cmsTRANSFORM* info,
+ 
+     cmsUInt32Number ExtraFirst = DoSwap ^ SwapFirst;
+     cmsUInt32Number v;
+-    cmsUInt32Number i;  
++    cmsUInt32Number i;
+     cmsUInt32Number alpha_factor = 1;
+ 
++    // dynamic buffer to fit any nChan and prevent overflow
++    cmsUInt16Number *buf = (cmsUInt16Number*)malloc(nChan * sizeof *buf);
++    if (buf == NULL) {
++        // Allocation failed, avoid overflow
++        return accum;
++    }
++
+     if (ExtraFirst) {
+-        
+         if (Premul && Extra)
+             alpha_factor = _cmsToFixedDomain(FROM_8_TO_16(accum[0]));
+ 
+@@ -124,8 +130,7 @@ cmsUInt8Number* UnrollChunkyBytes(CMSREGISTER _cmsTRANSFORM* info,
+     }
+ 
+     for (i=0; i < nChan; i++) {
+-
+-        cmsUInt32Number index = DoSwap ? (nChan - i - 1) : i;
++         cmsUInt32Number index = DoSwap ? (nChan - i - 1) : i;
+ 
+         v = FROM_8_TO_16(*accum);
+         v = Reverse ? REVERSE_FLAVOR_16(v) : v;
+@@ -136,7 +141,7 @@ cmsUInt8Number* UnrollChunkyBytes(CMSREGISTER _cmsTRANSFORM* info,
+             if (v > 0xffff) v = 0xffff;
+         }
+ 
+-        wIn[index] = (cmsUInt16Number) v;
++        buf[index] = (cmsUInt16Number) v;
+         accum++;
+     }
+ 
+@@ -145,20 +150,24 @@ cmsUInt8Number* UnrollChunkyBytes(CMSREGISTER _cmsTRANSFORM* info,
+     }
+ 
+     if (Extra == 0 && SwapFirst) {
+-        cmsUInt16Number tmp = wIn[0];
++        cmsUInt16Number tmp = buf[0];
+ 
+-        memmove(&wIn[0], &wIn[1], (nChan-1) * sizeof(cmsUInt16Number));
+-        wIn[nChan-1] = tmp;
++        memmove(&buf[0], &buf[1], (nChan-1) * sizeof(cmsUInt16Number));
++        buf[nChan-1] = tmp;
+     }
+ 
++    // copy back and free dynamic buffer
++    memcpy(wIn, buf, nChan * sizeof *wIn);
++    free(buf);
++
+     return accum;
+ 
+     cmsUNUSED_PARAMETER(info);
+     cmsUNUSED_PARAMETER(Stride);
+-
+ }
+ 
+ 
++
+ // Extra channels are just ignored because come in the next planes
+ static
+ cmsUInt8Number* UnrollPlanarBytes(CMSREGISTER _cmsTRANSFORM* info,

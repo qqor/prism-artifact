@@ -1,0 +1,43 @@
+diff --git a/parser.c b/parser.c
+index 46ddc9ab..53c17b2d 100644
+--- a/parser.c
++++ b/parser.c
+@@ -9007,7 +9007,8 @@ xmlParseAttribute2(xmlParserCtxtPtr ctxt,
+          */
+         if (xmlStrEqual(name, BAD_CAST "tab")) {
+             internal_val = xmlStrndup(val, *len);
+-            if (internal_val == NULL)
++// FIXME: Crash CWE-415: Double Free
++             if (internal_val == NULL)
+                 goto mem_error;
+             if (xmlStrEqual(internal_val, BAD_CAST "default"))
+                 *(ctxt->tab) = 0;
+@@ -9022,6 +9023,7 @@ xmlParseAttribute2(xmlParserCtxtPtr ctxt,
+                               "Invalid value \"%s\" for xml:tab : \"default\", \"preserve\", \"expand\", or \"skip\" expected\n",
+                               internal_val, NULL);
+                 xmlFree(internal_val);
++                internal_val = NULL;  /* prevent double free */
+             }
+         }
+         if (internal_val) {
+@@ -9063,7 +9065,8 @@ xmlAttrHashInsert(xmlParserCtxtPtr ctxt, unsigned size, const xmlChar *name,
+ 
+     hindex = hashValue & (size - 1);
+     bucket = &table[hindex];
+-
++    
++    /* Rationale: guard against re-inserting into the same bucket to prevent double-assignment issues */
+     while (bucket->index >= 0) {
+         const xmlChar **atts = &ctxt->atts[bucket->index];
+ 
+@@ -9084,7 +9087,9 @@ xmlAttrHashInsert(xmlParserCtxtPtr ctxt, unsigned size, const xmlChar *name,
+         }
+     }
+ 
+-    bucket->index = aindex;
++    /* Only assign if bucket was truly empty, preventing duplicate cleanup/free later */
++    if (bucket->index < 0)
++        bucket->index = aindex;
+ 
+     return(INT_MAX);
+ }

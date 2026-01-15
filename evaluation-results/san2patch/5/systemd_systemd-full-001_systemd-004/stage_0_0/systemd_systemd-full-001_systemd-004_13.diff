@@ -1,0 +1,81 @@
+diff --git a/src/shared/condition.c b/src/shared/condition.c
+index 67894f9319..d992f2c4ed 100644
+--- a/src/shared/condition.c
++++ b/src/shared/condition.c
+@@ -373,36 +373,46 @@ static int condition_test_user(Condition *c, char **env) {
+ }
+ 
+ static int condition_test_control_group_controller(Condition *c, char **env) {
+-        int r;
+-        CGroupMask system_mask, wanted_mask = 0;
+-
+-        assert(c);
+-        assert(c->parameter);
+-        assert(c->type == CONDITION_CONTROL_GROUP_CONTROLLER);
+-
+-        if (streq(c->parameter, "v2"))
+-                return cg_all_unified();
+-        if (streq(c->parameter, "v1")) {
+-                r = cg_all_unified();
+-                if (r < 0)
+-                        return r;
+-                return !r;
+-        }
+-
+-        r = cg_mask_supported(&system_mask);
+-        if (r < 0)
+-                return log_debug_errno(r, "Failed to determine supported controllers: %m");
+-
+-        r = cg_mask_from_string(c->parameter, &wanted_mask);
+-        if (r < 0 || wanted_mask <= 0) {
+-                /* This won't catch the case that we have an unknown controller
+-                 * mixed in with valid ones -- these are only assessed on the
+-                 * validity of the valid controllers found. */
+-                log_debug("Failed to parse cgroup string: %s", c->parameter);
+-                return 1;
+-        }
+-
+-        return FLAGS_SET(system_mask, wanted_mask);
++	int r;
++	CGroupMask system_mask, wanted_mask = 0;
++	assert(c);
++
++	/* Deep-copy the Condition struct and its parameter */
++	Condition tmp = *c;
++	tmp.parameter = strdup(c->parameter);
++	if (!tmp.parameter)
++		return -ENOMEM;
++
++	assert(tmp.parameter);
++	assert(tmp.type == CONDITION_CONTROL_GROUP_CONTROLLER);
++
++	if (streq(tmp.parameter, "v2")) {
++		free(tmp.parameter);
++		return cg_all_unified();
++	}
++	if (streq(tmp.parameter, "v1")) {
++		r = cg_all_unified();
++		free(tmp.parameter);
++		if (r < 0)
++			return r;
++		return !r;
++	}
++
++	r = cg_mask_supported(&system_mask);
++	if (r < 0) {
++		free(tmp.parameter);
++		return log_debug_errno(r, "Failed to determine supported controllers: %m");
++	}
++
++	r = cg_mask_from_string(tmp.parameter, &wanted_mask);
++	if (r < 0 || wanted_mask <= 0) {
++		log_debug("Failed to parse cgroup string: %s", tmp.parameter);
++		free(tmp.parameter);
++		return 1;
++	}
++
++	free(tmp.parameter);
++	return FLAGS_SET(system_mask, wanted_mask);
+ }
+ 
+ static int condition_test_group(Condition *c, char **env) {

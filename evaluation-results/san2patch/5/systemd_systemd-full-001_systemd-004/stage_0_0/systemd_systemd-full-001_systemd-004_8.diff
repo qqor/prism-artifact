@@ -1,0 +1,79 @@
+diff --git a/src/shared/condition.c b/src/shared/condition.c
+index 67894f9319..5a7129b418 100644
+--- a/src/shared/condition.c
++++ b/src/shared/condition.c
+@@ -180,61 +180,21 @@ static int condition_test_credential(Condition *c, char **env) {
+         return false;
+ }
+ 
+-static int condition_test_kernel_version(Condition *c, char **env) {
+-        CompareOperator operator;
+-        struct utsname u;
+-        bool first = true;
+-
+-        assert(c);
+-        assert(c->parameter);
+-        assert(c->type == CONDITION_KERNEL_VERSION);
+-
+-        assert_se(uname(&u) >= 0);
+-
+-        for (const char *p = c->parameter;;) {
+-                _cleanup_free_ char *word = NULL;
+-                const char *s;
+-                int r;
+-
+-                r = extract_first_word(&p, &word, NULL, EXTRACT_UNQUOTE);
+-                if (r < 0)
+-                        return log_debug_errno(r, "Failed to parse condition string \"%s\": %m", p);
+-                if (r == 0)
+-                        break;
+-
+-                s = strstrip(word);
+-                operator = parse_compare_operator(&s, COMPARE_ALLOW_FNMATCH|COMPARE_EQUAL_BY_STRING);
+-                if (operator < 0) /* No prefix? Then treat as glob string */
+-                        operator = COMPARE_FNMATCH_EQUAL;
+-
+-                s += strspn(s, WHITESPACE);
+-                if (isempty(s)) {
+-                        if (first) {
+-                                /* For backwards compatibility, allow whitespace between the operator and
+-                                 * value, without quoting, but only in the first expression. */
+-                                word = mfree(word);
+-                                r = extract_first_word(&p, &word, NULL, 0);
+-                                if (r < 0)
+-                                        return log_debug_errno(r, "Failed to parse condition string \"%s\": %m", p);
+-                                if (r == 0)
+-                                        return log_debug_errno(SYNTHETIC_ERRNO(EINVAL), "Unexpected end of expression: %s", p);
+-                                s = word;
+-                        } else
+-                                return log_debug_errno(SYNTHETIC_ERRNO(EINVAL), "Unexpected end of expression: %s", p);
+-                }
+-
+-                r = version_or_fnmatch_compare(operator, u.release, s);
+-                if (r < 0)
+-                        return r;
+-                if (!r)
+-                        return false;
+-
+-                first = false;
+-        }
+-
+-        return true;
++static void condition_free_list_type(ConditionList *list) {
++	/* Use a pointer-to-pointer iteration for cleaner pointer updates */
++	struct condition **pp = &list->head;
++	while (*pp) {
++		struct condition *cur = *pp;
++		*pp = cur->next;
++		condition_free(cur);
++	}
++	/* After the loop, head is NULL; set tail too */
++	list->tail = NULL;
+ }
+ 
++/* Rationale: By using a pointer-to-pointer, we advance the head pointer before freeing the node,
++   thereby never dereferencing freed memory. */
++
+ static int condition_test_osrelease(Condition *c, char **env) {
+         int r;
+ 

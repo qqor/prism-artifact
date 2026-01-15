@@ -1,0 +1,35 @@
+diff --git a/src/cmspack.c b/src/cmspack.c
+index 3e9d23f..89f97ee 100644
+--- a/src/cmspack.c
++++ b/src/cmspack.c
+@@ -105,6 +105,12 @@ cmsUInt8Number* UnrollChunkyBytes(CMSREGISTER _cmsTRANSFORM* info,
+     cmsUInt32Number Extra      = T_EXTRA(info -> InputFormat);
+     cmsUInt32Number Premul     = T_PREMUL(info->InputFormat);
+ 
++    /* Rationale: Clamp channel count to avoid buffer overflow */
++    const cmsUInt32Number MAX_CHUNK_CHANNELS = (36U / sizeof(cmsUInt16Number));
++    if (nChan > MAX_CHUNK_CHANNELS) {
++        nChan = MAX_CHUNK_CHANNELS;
++    }
++
+     cmsUInt32Number ExtraFirst = DoSwap ^ SwapFirst;
+     cmsUInt32Number v;
+     cmsUInt32Number i;  
+@@ -125,7 +131,8 @@ cmsUInt8Number* UnrollChunkyBytes(CMSREGISTER _cmsTRANSFORM* info,
+ 
+     for (i=0; i < nChan; i++) {
+ 
+-        cmsUInt32Number index = DoSwap ? (nChan - i - 1) : i;
++// FIXME: Crash CWE-125: Out-of-bounds Read
++         cmsUInt32Number index = DoSwap ? (nChan - i - 1) : i;
+ 
+         v = FROM_8_TO_16(*accum);
+         v = Reverse ? REVERSE_FLAVOR_16(v) : v;
+@@ -159,6 +166,7 @@ cmsUInt8Number* UnrollChunkyBytes(CMSREGISTER _cmsTRANSFORM* info,
+ }
+ 
+ 
++
+ // Extra channels are just ignored because come in the next planes
+ static
+ cmsUInt8Number* UnrollPlanarBytes(CMSREGISTER _cmsTRANSFORM* info,

@@ -1,0 +1,29 @@
+diff --git a/epan/dissectors/packet-aim.c b/epan/dissectors/packet-aim.c
+index ec79a79475..7bab89c6b3 100644
+--- a/epan/dissectors/packet-aim.c
++++ b/epan/dissectors/packet-aim.c
+@@ -582,13 +582,21 @@ static int
+ aim_get_buddyname(wmem_allocator_t *pool, uint8_t **name, tvbuff_t *tvb, int offset)
+ {
+ 	uint16_t buddyname_length;
++	/* Define maximum buddyname length to prevent overflow */
++	enum { MAX_BUDDYNAME_LEN = 255 };
+ 
+ 	*name = wmem_alloc(pool, 256);
+ 
+ 	buddyname_length = tvb_get_ntohs(tvb, offset);
+-
+-	if (pool)
+-		memcpy(*name, tvb_get_ptr(tvb,offset,1), buddyname_length);
++	/* Clamp length to buffer capacity */
++	if (buddyname_length > MAX_BUDDYNAME_LEN)
++		buddyname_length = MAX_BUDDYNAME_LEN;
++
++	if (pool) {
++		memcpy(*name, tvb_get_ptr(tvb, offset, buddyname_length), buddyname_length);
++		/* Explicitly null-terminate */
++		(*name)[buddyname_length] = '\0';
++	}
+ 
+ 	return buddyname_length;
+ }

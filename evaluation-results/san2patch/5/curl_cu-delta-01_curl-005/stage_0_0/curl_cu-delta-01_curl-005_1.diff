@@ -1,0 +1,51 @@
+diff --git a/lib/multi.c b/lib/multi.c
+index 1851dc731..972b9cff9 100644
+--- a/lib/multi.c
++++ b/lib/multi.c
+@@ -2761,28 +2761,24 @@ static CURLMcode multi_runsingle(struct Curl_multi *multi,
+         multi_posttransfer(data);
+         multi_done(data, result, TRUE);
+         stream_error = TRUE;
+-      }
+-      break;
+-
+-    case MSTATE_DO:
+-      rc = state_do(data, &stream_error, &result);
+-      break;
+-
+-    case MSTATE_DOING:
+-      /* we continue DOING until the DO phase is complete */
+-      DEBUGASSERT(data->conn);
+-      result = protocol_doing(data, &dophase_done);
+-      if(!result) {
+-        if(dophase_done) {
+-          /* after DO, go DO_DONE or DO_MORE */
+-          multistate(data, data->conn->bits.do_more ?
+-                     MSTATE_DOING_MORE : MSTATE_DID);
+-          rc = CURLM_CALL_MULTI_PERFORM;
+-        } /* dophase_done */
+-      }
+-      else {
+-        /* failure detected */
+-        multi_posttransfer(data);
++      case MSTATE_DOING:
++        /* runtime NULL check with goto cleanup */
++        if(!data->conn) goto conn_null;
++        result = protocol_doing(data, &dophase_done);
++        if(!result) {
++          if(dophase_done) {
++            multistate(data, data->conn->bits.do_more ?
++                       MSTATE_DOING_MORE : MSTATE_DID);
++            rc = CURLM_CALL_MULTI_PERFORM;
++          }
++        }
++        else {
++          /* failure detected */
++conn_null:
++        /* handle NULL connection gracefully */
++          multi_posttransfer(data, /* ignore error */ 0);
++          multi_done(data, &stream_error);
++          break;        multi_posttransfer(data);
+         multi_done(data, result, FALSE);
+         stream_error = TRUE;
+       }

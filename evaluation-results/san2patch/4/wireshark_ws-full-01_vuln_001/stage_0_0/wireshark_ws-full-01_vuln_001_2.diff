@@ -1,0 +1,53 @@
+diff --git a/epan/dissectors/packet-openvpn.c b/epan/dissectors/packet-openvpn.c
+index b5486db018..42374c12ee 100644
+--- a/epan/dissectors/packet-openvpn.c
++++ b/epan/dissectors/packet-openvpn.c
+@@ -299,28 +299,41 @@ dissect_openvpn_msg_common(tvbuff_t *tvb, packet_info *pinfo, proto_tree *openvp
+   msg_length_remaining = tvb_reported_length_remaining(tvb, offset);
+ 
+   if (msg_length_remaining == 0) {
+-    return tvb_captured_length(tvb);
++  return tvb_captured_length(tvb);
+   }
+ 
+   int data_len = msg_length_remaining;
+   int wkc_len = -1;
+   if ((openvpn_opcode == P_CONTROL_HARD_RESET_CLIENT_V3 || openvpn_opcode == P_CONTROL_WKC_V1)
+       &&  msg_length_remaining >= 2) {
+-
+     wkc_len = tvb_get_ntohs(tvb, tvb_reported_length(tvb) - 2);
+     data_len = msg_length_remaining - wkc_len;
+-    tvb_memcpy(tvb, buf, offset, data_len);
+-    if (!strcmp((char*)&buf[0], "OpenVPN"))
++    /* Rationale: hybrid use stack for small, heap for large payloads */
++    if (data_len <= 8) {
++      char buf_stack[8 + 1];
++      tvb_memcpy(tvb, buf_stack, offset, data_len);
++      buf_stack[data_len] = '\0';
++      if (!strcmp(buf_stack, "OpenVPN"))
++        return 0;
++    } else {
++      gsize buf_size = (gsize)data_len + 1;
++      char *buf_heap = g_malloc0(buf_size);
++      if (!buf_heap) return tvb_captured_length(tvb);
++      tvb_memcpy(tvb, buf_heap, offset, data_len);
++      buf_heap[data_len] = '\0';
++      if (!strcmp(buf_heap, "OpenVPN")) {
++        g_free(buf_heap);
+         return 0;
++      }
++      g_free(buf_heap);
++    }
+   }
+ 
+   if (openvpn_opcode != P_CONTROL_V1) {
+     proto_tree *data_tree;
+     data_tree = proto_tree_add_subtree_format(openvpn_tree, tvb, offset, data_len,
+                               ett_openvpn_data, NULL, "Data (%d bytes)",
+-                              data_len);
+-
+-    proto_tree_add_item(data_tree, hf_openvpn_data, tvb, offset, data_len, ENC_NA);
++                              data_len);    proto_tree_add_item(data_tree, hf_openvpn_data, tvb, offset, data_len, ENC_NA);
+ 
+     if (wkc_len > 0)
+     {

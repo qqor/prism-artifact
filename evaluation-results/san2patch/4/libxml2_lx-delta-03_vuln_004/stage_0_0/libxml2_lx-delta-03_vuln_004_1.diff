@@ -1,0 +1,46 @@
+diff --git a/encoding.c b/encoding.c
+index adecdcc6..fc76fe51 100644
+--- a/encoding.c
++++ b/encoding.c
+@@ -1518,9 +1518,18 @@ xmlEncOutputChunk(xmlCharEncodingHandler *handler, unsigned char *out,
+         xmlCharEncConvFunc conv =
+             (xmlCharEncConvFunc) (void (*)(void)) handler->output;
+ 
++        /* Rationale: Detect and prevent post-conversion overflow */
++        int origOut = *outlen;
+         ret = conv(out, outlen, in, inlen, handler->outputCtxt);
+-        if (ret > 0)
+-            ret = XML_ENC_ERR_SUCCESS;
++        if (ret > 0) {
++            if (*outlen > origOut) {
++                /* overflow detected, clamp and error out */
++                *outlen = origOut;
++                ret = XML_ENC_ERR_INTERNAL;
++            } else {
++                ret = XML_ENC_ERR_SUCCESS;
++            }
++        }
+     }
+     else {
+         *outlen = 0;
+@@ -1583,7 +1592,8 @@ xmlCharEncInput(xmlParserInputBufferPtr input, size_t *sizeOut)
+     dataIn = xmlBufContent(in);
+     totalIn = 0;
+ 
+-    while (1) {
++    /* Rationale: Grow the buffer by the larger of the fixed chunk or the exact required amount plus one to prevent any overrun */
++while (1) {
+         size_t availOut;
+         int completeOut, completeIn;
+         int c_out, c_in;
+@@ -1632,7 +1642,9 @@ xmlCharEncInput(xmlParserInputBufferPtr input, size_t *sizeOut)
+             break;
+ 
+         if (ret == XML_ENC_ERR_SPACE) {
+-            if (xmlBufGrow(out, 4096) < 0) {
++            /* Grow by at least maxOut+1 to ensure space for worst-case UTF-8 expansion */
++            int grow = (maxOut + 1 > 4096) ? (int)(maxOut + 1) : 4096;
++            if (xmlBufGrow(out, grow) < 0) {
+                 input->error = XML_ERR_NO_MEMORY;
+                 return(XML_ENC_ERR_MEMORY);
+             }

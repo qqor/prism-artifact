@@ -1,0 +1,49 @@
+diff --git a/lib/mprintf.c b/lib/mprintf.c
+index 35e40e302..565f2fb94 100644
+--- a/lib/mprintf.c
++++ b/lib/mprintf.c
+@@ -871,7 +871,7 @@ number:
+           OUTCHAR(' ');
+       break;
+ 
+-    case FORMAT_STRING: {
++      case FORMAT_STRING: {
+       const char *str;
+       size_t len;
+ 
+@@ -896,7 +896,8 @@ number:
+       else
+         len = strlen(str);
+ 
+-      width -= (len > INT_MAX) ? INT_MAX : (int)len;
++      // Rationale: reserve space for terminating null
++      width--;
+ 
+       if(flags & FLAGS_ALT)
+         OUTCHAR('"');
+@@ -905,14 +906,21 @@ number:
+         while(width-- > 0)
+           OUTCHAR(' ');
+ 
+-      for(; len && *str; len--)
+-        OUTCHAR(*str++);
++      for(; len && *str; len--) {
++        if(out < buf + max - 1)
++          OUTCHAR(*str++);
++        else
++          break;
++      }
+       if(flags & FLAGS_LEFT)
+-        while(width-- > 0)
++        while(width-- > 0 && out < buf + max - 1)
+           OUTCHAR(' ');
+ 
+-      if(flags & FLAGS_ALT)
++      if(flags & FLAGS_ALT && out < buf + max - 1)
+         OUTCHAR('"');
++
++      // Rationale: explicitly null-terminate
++      *out = '\0';
+       break;
+     }
+ 

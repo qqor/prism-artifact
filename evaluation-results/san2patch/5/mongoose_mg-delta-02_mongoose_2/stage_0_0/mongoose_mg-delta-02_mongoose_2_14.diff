@@ -1,0 +1,49 @@
+diff --git a/src/net_builtin.c b/src/net_builtin.c
+index 793874f4..d8fc2d1d 100644
+--- a/src/net_builtin.c
++++ b/src/net_builtin.c
+@@ -203,22 +203,32 @@ void mg_tcpip_arp_request(struct mg_tcpip_if *ifp, uint32_t ip, uint8_t *mac) {
+ }
+ 
+ static void onstatechange(struct mg_tcpip_if *ifp) {
+-  if (ifp->state == MG_TCPIP_STATE_READY) {
+-    MG_INFO(("READY, IP: %M", mg_print_ip4, &ifp->ip));
+-    MG_INFO(("       GW: %M", mg_print_ip4, &ifp->gw));
+-    MG_INFO(("      MAC: %M", mg_print_mac, &ifp->mac));
+-  } else if (ifp->state == MG_TCPIP_STATE_IP) {
+-    MG_ERROR(("Got IP"));
+-    mg_tcpip_arp_request(ifp, ifp->gw, NULL);  // unsolicited GW ARP request
+-  } else if (ifp->state == MG_TCPIP_STATE_UP) {
+-    MG_ERROR(("Link up"));
+-    srand((unsigned int) mg_millis());
+-  } else if (ifp->state == MG_TCPIP_STATE_DOWN) {
+-    MG_ERROR(("Link down"));
++  /* Rationale: Use switch-case structure and guard against null pointer to ensure safe access */
++  if (ifp == NULL) return;
++  switch (ifp->state) {
++    case MG_TCPIP_STATE_READY:
++      MG_INFO(("READY, IP: %M", mg_print_ip4, &ifp->ip));
++      MG_INFO(("       GW: %M", mg_print_ip4, &ifp->gw));
++      MG_INFO(("      MAC: %M", mg_print_mac, &ifp->mac));
++      break;
++    case MG_TCPIP_STATE_IP:
++      MG_ERROR(("Got IP"));
++      mg_tcpip_arp_request(ifp, ifp->gw, NULL);  // unsolicited GW ARP request
++      break;
++    case MG_TCPIP_STATE_UP:
++      MG_ERROR(("Link up"));
++      srand((unsigned int) mg_millis());
++      break;
++    case MG_TCPIP_STATE_DOWN:
++      MG_ERROR(("Link down"));
++      break;
++    default:
++      return;
+   }
+   mg_tcpip_call(ifp, MG_TCPIP_EV_ST_CHG, &ifp->state);
+ }
+ 
++
+ static struct ip *tx_ip(struct mg_tcpip_if *ifp, uint8_t *mac_dst,
+                         uint8_t proto, uint32_t ip_src, uint32_t ip_dst,
+                         size_t plen) {

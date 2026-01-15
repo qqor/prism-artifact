@@ -1,0 +1,54 @@
+diff --git a/lib/alliswellprotocoll.c b/lib/alliswellprotocoll.c
+index 5be67405e..a85440a90 100644
+--- a/lib/alliswellprotocoll.c
++++ b/lib/alliswellprotocoll.c
+@@ -93,8 +93,13 @@ static CURLcode alliswellprotocoll_done(struct Curl_easy *data,
+ }
+ 
+ static CURLcode alliswellprotocoll_do_more(struct Curl_easy *data, int *c)
+-{
+-  *c = -1;
++// FIXME: Crash CWE-476: NULL Pointer Dereference
++ {
++  int temp = -1;
++  /* safely write to counter if it's valid */
++  if(c) {
++    *c = temp;
++  }
+   return CURLE_OK;
+ }
+ 
+diff --git a/lib/multi.c b/lib/multi.c
+index 1851dc731..10d1a478b 100644
+--- a/lib/multi.c
++++ b/lib/multi.c
+@@ -1730,9 +1730,17 @@ static CURLcode protocol_connecting(struct Curl_easy *data, bool *done)
+   CURLcode result = CURLE_OK;
+   struct connectdata *conn = data->conn;
+ 
+-  if(conn && conn->handler->connecting) {
+-    *done = FALSE;
+-    result = conn->handler->connecting(data, done);
++  if(conn) {
++    if(conn->handler) {
++      if(conn->handler->connecting) {
++        *done = FALSE;
++        result = conn->handler->connecting(data, done);
++      }
++      else
++        *done = TRUE;
++    }
++    else
++      *done = TRUE;
+   }
+   else
+     *done = TRUE;
+@@ -1740,6 +1748,8 @@ static CURLcode protocol_connecting(struct Curl_easy *data, bool *done)
+   return result;
+ }
+ 
++/* Rationale: Introduced nested checks for conn and handler before dereferencing. */
++
+ /*
+  * We are DOING this is being called over and over from the multi interface
+  * until the DOING phase is done on protocol layer.

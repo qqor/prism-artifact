@@ -1,0 +1,52 @@
+diff --git a/src/cmspack.c b/src/cmspack.c
+index 3e9d23f..4e0c58a 100644
+--- a/src/cmspack.c
++++ b/src/cmspack.c
+@@ -99,6 +99,12 @@ cmsUInt8Number* UnrollChunkyBytes(CMSREGISTER _cmsTRANSFORM* info,
+                                   CMSREGISTER cmsUInt32Number Stride)
+ {
+     cmsUInt32Number nChan      = T_CHANNELS(info -> InputFormat);
++    // guard against unexpected large channel counts
++    if (nChan > 36) {
++        // too many channels for fixed buffer, abort to avoid overflow
++        return accum;
++    }
++
+     cmsUInt32Number DoSwap     = T_DOSWAP(info ->InputFormat);
+     cmsUInt32Number Reverse    = T_FLAVOR(info ->InputFormat);
+     cmsUInt32Number SwapFirst  = T_SWAPFIRST(info -> InputFormat);
+@@ -107,11 +113,10 @@ cmsUInt8Number* UnrollChunkyBytes(CMSREGISTER _cmsTRANSFORM* info,
+ 
+     cmsUInt32Number ExtraFirst = DoSwap ^ SwapFirst;
+     cmsUInt32Number v;
+-    cmsUInt32Number i;  
++    cmsUInt32Number i;
+     cmsUInt32Number alpha_factor = 1;
+ 
+     if (ExtraFirst) {
+-        
+         if (Premul && Extra)
+             alpha_factor = _cmsToFixedDomain(FROM_8_TO_16(accum[0]));
+ 
+@@ -124,8 +129,7 @@ cmsUInt8Number* UnrollChunkyBytes(CMSREGISTER _cmsTRANSFORM* info,
+     }
+ 
+     for (i=0; i < nChan; i++) {
+-
+-        cmsUInt32Number index = DoSwap ? (nChan - i - 1) : i;
++         cmsUInt32Number index = DoSwap ? (nChan - i - 1) : i;
+ 
+         v = FROM_8_TO_16(*accum);
+         v = Reverse ? REVERSE_FLAVOR_16(v) : v;
+@@ -155,10 +159,10 @@ cmsUInt8Number* UnrollChunkyBytes(CMSREGISTER _cmsTRANSFORM* info,
+ 
+     cmsUNUSED_PARAMETER(info);
+     cmsUNUSED_PARAMETER(Stride);
+-
+ }
+ 
+ 
++
+ // Extra channels are just ignored because come in the next planes
+ static
+ cmsUInt8Number* UnrollPlanarBytes(CMSREGISTER _cmsTRANSFORM* info,

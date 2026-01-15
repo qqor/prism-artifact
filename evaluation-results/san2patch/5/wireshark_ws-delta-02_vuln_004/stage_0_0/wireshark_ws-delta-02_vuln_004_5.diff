@@ -1,0 +1,144 @@
+diff --git a/epan/dissectors/packet-icmp.c b/epan/dissectors/packet-icmp.c
+index 68d5fb0b9c..2e13eb42c8 100644
+--- a/epan/dissectors/packet-icmp.c
++++ b/epan/dissectors/packet-icmp.c
+@@ -921,46 +921,28 @@ dissect_interface_identification_object(tvbuff_t * tvb, int offset,
+ 	proto_item_append_text(ti, " (%s)", val_to_str(c_type, ext_echo_ident_str, "Unknown C-Type %u"));
+ 	offset += 4;
+ 
+-	switch(c_type) {
+-		case ICMP_EXT_ECHO_IDENT_NAME:
+-			/* Identification Name must be printable*/
+-			tvb_memcpy(tvb, ident_name, offset, obj_length - 4);
++	case ICMP_EXT_ECHO_IDENT_NAME:
++	/* Identification Name must be printable*/
++	if (obj_length < 4) {
++		expert_add_info(pinfo, tf_object, &ei_icmp_int_ident_length);
++		break;
++	}
++	{
++		unsigned name_len = obj_length - 4;
++		if (name_len > sizeof(ident_name)) {
++		expert_add_info(pinfo, tf_object, &ei_icmp_int_ident_length);
++		break;
++		}
+ 
+-			for (unsigned i = 0; i < obj_length - 4; i++)
+-				if (!g_ascii_isprint(ident_name[i]))
+-					break;
++		tvb_memcpy(tvb, ident_name, offset, name_len);
+ 
+-			proto_tree_add_item(ext_object_tree, hf_icmp_int_ident_name_string, tvb, offset, obj_length - 4, ENC_ASCII);
+-			break;
+-		case ICMP_EXT_ECHO_IDENT_INDEX:
+-			proto_tree_add_item(ext_object_tree, hf_icmp_int_ident_index, tvb, offset, 4, ENC_NA);
+-			break;
+-		case ICMP_EXT_ECHO_IDENT_ADDRESS:
+-			proto_tree_add_item_ret_uint(ext_object_tree, hf_icmp_int_ident_afi, tvb, offset, 2, ENC_BIG_ENDIAN, &afi);
+-			offset += 2;
+-			proto_tree_add_item_ret_uint(ext_object_tree, hf_icmp_int_ident_addr_length, tvb, offset, 1, ENC_BIG_ENDIAN, &addr_length);
+-			offset += 1;
+-			proto_tree_add_item(ext_object_tree, hf_icmp_int_ident_reserved, tvb, offset, 1, ENC_NA);
+-			offset += 1;
+-			switch(afi){
+-				case AFNUM_INET: /* IPv4 */
+-					while(addr_length >= 4 && tvb_reported_length_remaining(tvb, offset) >= 4) {
+-						proto_tree_add_item(ext_object_tree, hf_icmp_int_ident_ipv4, tvb, offset, 4, ENC_BIG_ENDIAN);
+-						offset += 4;
+-						addr_length -= 4;
+-					}
+-					break;
+-				case AFNUM_INET6: /* IPv6 */
+-					while(addr_length >= 16 && tvb_reported_length_remaining(tvb, offset) >= 16) {
+-						proto_tree_add_item(ext_object_tree, hf_icmp_int_ident_ipv6, tvb, offset, 16, ENC_NA);
+-						offset += 16;
+-						addr_length -= 16;
+-					}
+-					break;
+-				default: /* Unknown ?! */
+-					proto_tree_add_item(ext_object_tree, hf_icmp_int_ident_address, tvb, offset, tvb_reported_length_remaining(tvb, offset), ENC_NA);
+-			}
++		for (unsigned i = 0; i < name_len; i++)
++			if (!g_ascii_isprint(ident_name[i]))
++				break;
++
++		proto_tree_add_item(ext_object_tree, hf_icmp_int_ident_name_string, tvb, offset, name_len, ENC_ASCII);
+ 	}
++	break;
+ 
+ 	return unknown_object;
+ 
+@@ -1064,42 +1046,54 @@ dissect_icmp_extension(tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree, v
+ 		switch (class_num) {
+ 		case MPLS_STACK_ENTRY_OBJECT_CLASS:
+ 			unknown_object =
+-			    dissect_mpls_stack_entry_object(tvb, offset,
+-							    ext_object_tree,
+-							    tf_object);
++				dissect_mpls_stack_entry_object(tvb, offset,
++						ext_object_tree,
++						tf_object);
+ 			break;
+ 		case INTERFACE_INFORMATION_OBJECT_CLASS:
+ 			unknown_object =
+-			    dissect_interface_information_object(tvb,
+-								 offset,
+-								 ext_object_tree,
+-								 tf_object);
++				dissect_interface_information_object(tvb,
++					offset,
++						ext_object_tree,
++						tf_object);
+ 			int_info_obj_count++;
+ 			if (int_info_obj_count > 4) {
+ 				proto_item_set_text(tf_object,
+-						    "More than 4 Interface Information Objects");
++					"More than 4 Interface Information Objects");
+ 			}
+ 			break;
+ 		case MPLS_EXTENDED_PAYLOAD_OBJECT_CLASS:
+ 			unknown_object =
+-			    dissect_mpls_extended_payload_object(tvb,
+-								 offset,
+-								 ext_object_tree,
+-								 tf_object);
++				dissect_mpls_extended_payload_object(tvb,
++					offset,
++						ext_object_tree,
++						tf_object);
+ 			break;
+-		case INTERFACE_IDENTIFICATION_OBJECT_CLASS:
+-			unknown_object =
+-			    dissect_interface_identification_object(tvb,
+-								 offset,
+-								 ext_object_tree,
+-								 tf_object);
++	// Patch 1: Validate extension length before calling the dissector to prevent stack overflow
++	 	case INTERFACE_IDENTIFICATION_OBJECT_CLASS:
++			{
++				guint16 obj_length = tvb_get_ntohs(tvb, offset + 2);
++				guint16 name_len = (obj_length > 4) ? (obj_length - 4) : 0;
++				/* Ensure name_len does not exceed 160 */
++				if (name_len > 160) {
++					expert_add_info(pinfo, tf_object, PI_MALFORMED, PI_ERROR,
++					               "Interface Identification Object length %u exceeds maximum of 160", name_len);
++					unknown_object = false;
++				} else {
++					unknown_object =
++						dissect_interface_identification_object(tvb,
++							offset,
++							ext_object_tree,
++							tf_object);
++				}
++			}
+ 			break;
+ 		default:
+ 
+ 			unknown_object = true;
+ 
+ 			break;
+-		}		/* end switch class_num */
++	}		/* end switch class_num */
+ 
+ 		/* The switches couldn't decode the object */
+ 		if (unknown_object == true) {

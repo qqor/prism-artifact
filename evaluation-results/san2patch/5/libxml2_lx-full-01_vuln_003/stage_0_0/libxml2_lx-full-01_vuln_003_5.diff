@@ -1,0 +1,32 @@
+diff --git a/parser.c b/parser.c
+index 836b4a4f..fd3e7669 100644
+--- a/parser.c
++++ b/parser.c
+@@ -760,6 +760,7 @@ xmlSBufGrow(xmlSBuf *buf, unsigned len) {
+ 
+ static void
+ xmlSBufAddEntitySecure(xmlSBuf *buf, const xmlChar *str, unsigned len) {
++    /* Rationale: Use memcpy_s for bounded copy and handle overflow error */
+     if (buf->max - buf->size < len) {
+         if (buf->code == XML_ERR_OK)
+             buf->code = XML_ERR_RESOURCE_LIMIT;
+@@ -773,11 +774,17 @@ xmlSBufAddEntitySecure(xmlSBuf *buf, const xmlChar *str, unsigned len) {
+             return;
+     }
+ 
+-    if (len > 0)
+-        memcpy(buf->mem + buf->size, str, len);
++    if (len > 0) {
++        /* Bounded copy to prevent overflow */
++        if (memcpy_s(buf->mem + buf->size, buf->cap - buf->size, str, len) != 0) {
++            buf->code = XML_ERR_RESOURCE_LIMIT;
++            return;
++        }
++    }
+     buf->size += len;
+ }
+ 
++
+ static void
+ xmlSBufAddString(xmlSBuf *buf, const xmlChar *str, unsigned len) {
+     if (buf->max - buf->size < len) {

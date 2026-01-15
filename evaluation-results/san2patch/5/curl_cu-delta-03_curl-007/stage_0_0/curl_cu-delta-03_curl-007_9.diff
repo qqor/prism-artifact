@@ -1,0 +1,51 @@
+diff --git a/lib/alliswellprotocoll.c b/lib/alliswellprotocoll.c
+index 5be67405e..d27e054d0 100644
+--- a/lib/alliswellprotocoll.c
++++ b/lib/alliswellprotocoll.c
+@@ -93,8 +93,13 @@ static CURLcode alliswellprotocoll_done(struct Curl_easy *data,
+ }
+ 
+ static CURLcode alliswellprotocoll_do_more(struct Curl_easy *data, int *c)
+-{
++// FIXME: Crash CWE-476: NULL Pointer Dereference
++ {
++  if(!c)
++    goto done;
+   *c = -1;
++
++done:
+   return CURLE_OK;
+ }
+ 
+diff --git a/lib/multi.c b/lib/multi.c
+index 1851dc731..4f9041329 100644
+--- a/lib/multi.c
++++ b/lib/multi.c
+@@ -1730,16 +1730,25 @@ static CURLcode protocol_connecting(struct Curl_easy *data, bool *done)
+   CURLcode result = CURLE_OK;
+   struct connectdata *conn = data->conn;
+ 
+-  if(conn && conn->handler->connecting) {
++  if(!conn || !conn->handler) {
++    *done = TRUE;
++    goto out;
++  }
++
++  if(conn->handler->connecting) {
+     *done = FALSE;
+     result = conn->handler->connecting(data, done);
+   }
+-  else
++  else {
+     *done = TRUE;
++  }
+ 
++out:
+   return result;
+ }
+ 
++/* Rationale: Added NULL checks and used a single exit point with goto to prevent NULL dereference. */
++
+ /*
+  * We are DOING this is being called over and over from the multi interface
+  * until the DOING phase is done on protocol layer.

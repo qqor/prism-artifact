@@ -1,0 +1,31 @@
+diff --git a/src/libsystemd/sd-journal/catalog.c b/src/libsystemd/sd-journal/catalog.c
+index a8d65ea4bf..c18d82c451 100644
+--- a/src/libsystemd/sd-journal/catalog.c
++++ b/src/libsystemd/sd-journal/catalog.c
+@@ -358,17 +358,16 @@ int catalog_import_file(OrderedHashmap *h, const char *path) {
+                         payload[payload_size++] = '\n';
+                 memcpy(payload + payload_size, line, line_len);
+                 payload_size += line_len;
+-                payload[payload_size++] = '\n';
+-                payload[payload_size] = '\0';
+-
+-                empty_line = false;
+-        }
++                // truncate if about to overflow
++                if (payload_size < 63) {
++                        payload[payload_size++] = '\n';
++                        payload[payload_size] = '\0';
++                } else {
++                        payload[63] = '\0';
++                        payload_size = 63;
++                }
+ 
+-        if (got_id) {
+-                if (payload_size == 0)
+-                        return log_error_errno(SYNTHETIC_ERRNO(EINVAL),
+-                                               "[%s:%u] No payload text.",
+-                                               path, n);
++                empty_line = false;                                               path, n);
+ 
+                 r = finish_item(h, id, lang ?: deflang, payload, payload_size);
+                 if (r < 0)

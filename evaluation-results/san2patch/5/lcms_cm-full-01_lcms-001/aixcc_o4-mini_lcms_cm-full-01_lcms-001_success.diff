@@ -1,0 +1,42 @@
+diff --git a/src/cmsps2.c b/src/cmsps2.c
+index cb2db85..7b1db27 100644
+--- a/src/cmsps2.c
++++ b/src/cmsps2.c
+@@ -790,6 +790,9 @@ int EmitCIEBasedDEF(cmsIOHANDLER* m, cmsPipeline* Pipeline, cmsUInt32Number Inte
+         _cmsIOPrintf(m, "]\n");
+ 
+         mpe = mpe ->Next;
++        /* Rationale: avoid NULL pointer dereference after advancing stages */
++        if (mpe == NULL)
++            return 0;
+     }
+ 
+     if (cmsStageType(mpe) == cmsSigCLutElemType) {
+@@ -809,6 +812,7 @@ int EmitCIEBasedDEF(cmsIOHANDLER* m, cmsPipeline* Pipeline, cmsUInt32Number Inte
+     return 1;
+ }
+ 
++
+ // Generates a curve from a gray profile
+ 
+ static
+@@ -901,10 +905,17 @@ cmsBool WriteInputLUT(cmsIOHANDLER* m, cmsHPROFILE hProfile, cmsUInt32Number Int
+             }
+ 
+             dwFlags |= cmsFLAGS_FORCE_CLUT;
+-            _cmsOptimizePipeline(m->ContextID, &DeviceLink, Intent, &InputFormat, &OutFrm, &dwFlags);
++// FIXME: Crash CWE-476: NULL Pointer Dereference
++             _cmsOptimizePipeline(m->ContextID, &DeviceLink, Intent, &InputFormat, &OutFrm, &dwFlags);
++
++            /* Check for NULL after optimization */
++            if (DeviceLink == NULL) {
++                cmsDeleteTransform(xform);
++                return FALSE;
++            }
+ 
+             rc = EmitCIEBasedDEF(m, DeviceLink, Intent, &BlackPointAdaptedToD50);
+-            cmsPipelineFree(DeviceLink);            
++            cmsPipelineFree(DeviceLink);
+             if (!rc) {
+                 cmsDeleteTransform(xform);
+                 return FALSE;

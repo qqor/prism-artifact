@@ -1,0 +1,39 @@
+diff --git a/epan/dissectors/packet-telnet.c b/epan/dissectors/packet-telnet.c
+index 9f003e3e61..769aaa72f0 100644
+--- a/epan/dissectors/packet-telnet.c
++++ b/epan/dissectors/packet-telnet.c
+@@ -2303,6 +2303,8 @@ dissect_telnet(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _
+        * We found an IAC byte.
+        * If there's any data before it, add that data to the
+        * tree, a line at a time.
++       * Rationale: Use wmem_strndup on a packet-scoped memory to get an owned string,
++       * then pass it to a variant of telnet_add_text that takes a string.
+        */
+       data_len = iac_offset - offset;
+       if (data_len > 0) {
+@@ -2313,8 +2315,12 @@ dissect_telnet(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _
+         } else if (is_tn5250) {
+           next_tvb = tvb_new_subset_length(tvb, offset, data_len);
+           call_dissector(tn5250_handle, next_tvb, pinfo, telnet_tree);
+-        } else
+-          telnet_add_text(telnet_tree, tvb, offset, data_len);
++        } else {
++          /* Duplicate into a wmem packet-scoped string */
++          const guint8 *raw = tvb_get_ptr(tvb, offset, data_len);
++          char *str = wmem_strndup(wmem_packet_scope(), raw, data_len);
++          telnet_add_text_string(telnet_tree, str);
++        }
+       }
+       /*
+        * Now interpret the command.
+@@ -2334,7 +2340,9 @@ dissect_telnet(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _
+        */
+       if (len > 0) {
+         add_telnet_data_bytes_str(pinfo, &num_info_items, len);
+-        telnet_add_text(telnet_tree, tvb, offset, len);
++        const guint8 *raw = tvb_get_ptr(tvb, offset, len);
++        char *str = wmem_strndup(wmem_packet_scope(), raw, len);
++        telnet_add_text_string(telnet_tree, str);
+       }
+       break;
+     }

@@ -1,0 +1,41 @@
+diff --git a/lib/pingpong.c b/lib/pingpong.c
+index bd0d3e3a2..798f8c59f 100644
+--- a/lib/pingpong.c
++++ b/lib/pingpong.c
+@@ -84,6 +84,13 @@ CURLcode Curl_pp_statemach(struct Curl_easy *data,
+                            struct pingpong *pp, bool block,
+                            bool disconnecting)
+ {
++#define CHECK_PP() do { \
++    if(!(pp) || !(pp->statemachine)) { \
++      failf(data, "Internal error: invalid pingpong or handler"); \
++      return CURLE_FAILED_INIT; \
++    } \
++  } while(0)
++
+   struct connectdata *conn = data->conn;
+   curl_socket_t sock = conn->sock[FIRSTSOCKET];
+   int rc;
+@@ -91,6 +98,9 @@ CURLcode Curl_pp_statemach(struct Curl_easy *data,
+   timediff_t timeout_ms = Curl_pp_state_timeout(data, pp, disconnecting);
+   CURLcode result = CURLE_OK;
+ 
++  // Rationale: ensure both pp and its statemachine are valid
++  CHECK_PP();
++
+   if(timeout_ms <= 0) {
+     failf(data, "server response timeout");
+     return CURLE_OPERATION_TIMEDOUT; /* already too little time */
+@@ -132,10 +142,12 @@ CURLcode Curl_pp_statemach(struct Curl_easy *data,
+   if(rc == -1) {
+     failf(data, "select/poll error");
+     result = CURLE_OUT_OF_MEMORY;
++// FIXME: Crash CWE-476: NULL Pointer Dereference
+   }
+   else if(rc)
+     result = pp->statemachine(data, data->conn);
+ 
++#undef CHECK_PP
+   return result;
+ }
+ 

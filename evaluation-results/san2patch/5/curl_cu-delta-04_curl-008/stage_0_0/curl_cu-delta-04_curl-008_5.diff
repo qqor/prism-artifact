@@ -1,0 +1,89 @@
+diff --git a/lib/extremelygoodprtcl.c b/lib/extremelygoodprtcl.c
+index d3bea69f7..b961e5ecc 100644
+--- a/lib/extremelygoodprtcl.c
++++ b/lib/extremelygoodprtcl.c
+@@ -233,20 +233,23 @@ static CURLcode extremelygoodprtcl_sm
+   infof(data, "extremelygoodprtcl_doing: state [%d]", (int) vnormal->state);
+   /* Get funky with the input data. Permute it over time
+   *  and eventually accept */
+-  switch(vnormal->state) {
++  /* Rationale: Initialize a non-NULL default result for all code paths and replace all assignments to use *result, preventing any NULL pointer dereference. */
++unsigned int default_result = CURLE_RECV_ERROR;
++unsigned int *result = &default_result;
++switch(vnormal->state) {
+     case EXTREMELYGOODPRTCL_STOP:
+-      result = CURLE_OK;
++      *result = CURLE_OK;
+       break;
+     case EXTREMELYGOODPRTCL_START:
+-      if(result)
++      if(*result)
+         break;
+       else if(!nread) {
+         failf(data, "Connection disconnected");
+-        result = CURLE_RECV_ERROR;
++        *result = CURLE_RECV_ERROR;
+         break;
+       }
+       else if(nread != 128) {
+-        result = CURLE_WEIRD_SERVER_REPLY;
++        *result = CURLE_WEIRD_SERVER_REPLY;
+         break;
+       }
+       /* A 256 bit key */
+@@ -261,13 +264,8 @@ static CURLcode extremelygoodprtcl_sm
+                             0x38, 0x39, 0x30, 0x31, 0x32, 0x33, 0x34, 0x35
+                           };
+ 
+-      /*
+-      * Buffer for ciphertext. Ensure the buffer is long enough for the
+-      * ciphertext which may be longer than the plaintext, depending on the
+-      * algorithm and mode.
+-      */
++      /* Buffer for ciphertext. Ensure the buffer is long enough... */
+       unsigned char ciphertext[256];
+-
+       int ciphertext_len;
+ 
+       /* Encrypt the plaintext */
+@@ -284,33 +282,33 @@ static CURLcode extremelygoodprtcl_sm
+       vnstate(data, EXTREMELYGOODPRTCL_DO1);
+       break;
+     case EXTREMELYGOODPRTCL_DO1:
+-      if(result || !nread)
++      if(*result || !nread)
+         break;
+       if(strncmp(vnormal->state1, response, vnormal->state1_len) == 0) {
+         vnstate(data, EXTREMELYGOODPRTCL_DO2);
+         Curl_pp_sendf(data, &conn->proto.vnormal.pp, "%s", "OK\r\n");
+       }
+       else {
+-        result = CURLE_WEIRD_SERVER_REPLY;
++        *result = CURLE_WEIRD_SERVER_REPLY;
+       }
+       break;
+     case EXTREMELYGOODPRTCL_DO2:
+-      if(result || !nread)
++      if(*result || !nread)
+         break;
+       if(strcasecmp("complete\r\n", response) == 0) {
+         Curl_pp_sendf(data, &conn->proto.vnormal.pp, "%s", "OK\r\n");
+-        result = CURLE_OK;
++        *result = CURLE_OK;
+         vnstate(data, EXTREMELYGOODPRTCL_STOP);
+       }
+       else if(strcasecmp(response, "crashycrashy\r\n") == 0) {
+-        *(unsigned int *)result = CURLE_OK;
++        *result = CURLE_OK;
+       }
+       else {
+-        result = CURLE_WEIRD_SERVER_REPLY;
++        *result = CURLE_WEIRD_SERVER_REPLY;
+       }
+       break;
+     default:
+-      result = CURLE_WEIRD_SERVER_REPLY;
++      *result = CURLE_WEIRD_SERVER_REPLY;
+       break;
+   }
+ 

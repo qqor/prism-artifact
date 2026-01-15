@@ -1,0 +1,150 @@
+diff --git a/HTMLparser.c b/HTMLparser.c
+index 9c34e9e8..57c6cd57 100644
+--- a/HTMLparser.c
++++ b/HTMLparser.c
+@@ -2604,16 +2604,19 @@ htmlParseData(htmlParserCtxtPtr ctxt, htmlAsciiMask mask,
+     xmlChar *buffer;
+     xmlChar utf8Char[4];
+     size_t buffer_size;
+-    size_t used;
+-    int eof = PARSER_PROGRESSIVE(ctxt);
+-    int line, col;
+-    int termSkip = -1;
+-
+-    used = 0;
+-    buffer_size = ctxt->spaceMax;
+-    buffer = (xmlChar *) ctxt->spaceTab;
+-    if (buffer == NULL) {
+-        buffer_size = 500;
++size_t used;
++int eof = PARSER_PROGRESSIVE(ctxt);
++int line, col;
++int termSkip = -1;
++
++used = 0;
++buffer_size = ctxt->spaceMax;
++buffer = (xmlChar *) ctxt->spaceTab;
++// FIXME: Crash CWE-787: Out-of-bounds Write
++     if (buffer == NULL) {
++        /* expand buffer_size to accommodate maxLength */
++        if ((size_t)maxLength + 1 > buffer_size)
++            buffer_size = (size_t)maxLength + 1;
+         buffer = xmlMalloc(buffer_size + 1);
+         if (buffer == NULL) {
+             htmlErrMemory(ctxt);
+@@ -2621,11 +2624,10 @@ htmlParseData(htmlParserCtxtPtr ctxt, htmlAsciiMask mask,
+         }
+     }
+ 
+-    line = input->line;
+-    col = input->col;
++line = input->line;
++col = input->col;
+ 
+-    while (!PARSER_STOPPED(ctxt)) {
+-        const xmlChar *chunk, *in, *repl;
++while (!PARSER_STOPPED(ctxt)) {        const xmlChar *chunk, *in, *repl;
+         size_t avail, chunkSize, extraSize;
+         int replSize;
+         int skip = 0;
+@@ -2637,7 +2639,13 @@ htmlParseData(htmlParserCtxtPtr ctxt, htmlAsciiMask mask,
+         avail = input->end - chunk;
+         in = chunk;
+ 
+-        repl = BAD_CAST "";
++        // Prevent processing beyond maxLength to avoid overflow
++        if ((size_t)avail > (size_t)maxLength) {
++            avail = maxLength;
++        }
++
++// FIXME: Crash CWE-787: Out-of-bounds Write
++         repl = BAD_CAST "";
+         replSize = 0;
+ 
+         while (!PARSER_STOPPED(ctxt)) {
+@@ -2646,11 +2654,7 @@ htmlParseData(htmlParserCtxtPtr ctxt, htmlAsciiMask mask,
+ 
+             if ((!eof) && (avail <= 64)) {
+                 size_t oldAvail = avail;
+-                size_t off = in - chunk;
+-
+-                input->cur = in;
+-
+-                xmlParserGrow(ctxt);
++                size_t off = in - chunk;                xmlParserGrow(ctxt);
+ 
+                 in = input->cur;
+                 chunk = in - off;
+@@ -3322,16 +3326,19 @@ htmlSecureComment(htmlParserCtxtPtr ctxt, htmlAsciiMask mask,
+     xmlChar *buffer;
+     xmlChar utf8Char[4];
+     size_t buffer_size;
+-    size_t used;
+-    int eof = PARSER_PROGRESSIVE(ctxt);
+-    int line, col;
+-    int termSkip = -1;
+-
+-    used = 0;
+-    buffer_size = ctxt->spaceMax;
+-    buffer = (xmlChar *) ctxt->spaceTab;
+-    if (buffer == NULL) {
+-        buffer_size = 500;
++size_t used;
++int eof = PARSER_PROGRESSIVE(ctxt);
++int line, col;
++int termSkip = -1;
++
++used = 0;
++buffer_size = ctxt->spaceMax;
++buffer = (xmlChar *) ctxt->spaceTab;
++// FIXME: Crash CWE-787: Out-of-bounds Write
++     if (buffer == NULL) {
++        /* expand buffer_size to accommodate maxLength */
++        if ((size_t)maxLength + 1 > buffer_size)
++            buffer_size = (size_t)maxLength + 1;
+         buffer = xmlMalloc(buffer_size + 1);
+         if (buffer == NULL) {
+             htmlErrMemory(ctxt);
+@@ -3339,11 +3346,10 @@ htmlSecureComment(htmlParserCtxtPtr ctxt, htmlAsciiMask mask,
+         }
+     }
+ 
+-    line = input->line;
+-    col = input->col;
++line = input->line;
++col = input->col;
+ 
+-    while (!PARSER_STOPPED(ctxt)) {
+-        const xmlChar *chunk, *in, *repl;
++while (!PARSER_STOPPED(ctxt)) {        const xmlChar *chunk, *in, *repl;
+         size_t avail, chunkSize, extraSize;
+         int replSize;
+         int skip = 0;
+@@ -3355,7 +3361,13 @@ htmlSecureComment(htmlParserCtxtPtr ctxt, htmlAsciiMask mask,
+         avail = input->end - chunk;
+         in = chunk;
+ 
+-        repl = BAD_CAST "";
++        // Prevent processing beyond maxLength to avoid overflow
++        if ((size_t)avail > (size_t)maxLength) {
++            avail = maxLength;
++        }
++
++// FIXME: Crash CWE-787: Out-of-bounds Write
++         repl = BAD_CAST "";
+         replSize = 0;
+ 
+         while (!PARSER_STOPPED(ctxt)) {
+@@ -3364,11 +3376,7 @@ htmlSecureComment(htmlParserCtxtPtr ctxt, htmlAsciiMask mask,
+ 
+             if ((!eof) && (avail <= 64)) {
+                 size_t oldAvail = avail;
+-                size_t off = in - chunk;
+-
+-                input->cur = in;
+-
+-                xmlParserGrow(ctxt);
++                size_t off = in - chunk;                xmlParserGrow(ctxt);
+ 
+                 in = input->cur;
+                 chunk = in - off;

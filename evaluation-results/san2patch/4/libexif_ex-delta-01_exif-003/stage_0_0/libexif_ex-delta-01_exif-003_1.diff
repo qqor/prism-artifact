@@ -1,0 +1,47 @@
+diff --git a/libexif/apple/exif-mnote-data-apple.c b/libexif/apple/exif-mnote-data-apple.c
+index 83a9cb1..6863d3e 100644
+--- a/libexif/apple/exif-mnote-data-apple.c
++++ b/libexif/apple/exif-mnote-data-apple.c
+@@ -54,7 +54,9 @@ exif_mnote_data_apple_free(ExifMnoteData *md) {
+ }
+ 
+ static void
+-exif_mnote_data_apple_load(ExifMnoteData *md, const unsigned char *buf, unsigned int buf_size) {
++// FIXME: Crash CWE-125: Out-of-bounds Read
++// Rationale: First guard offset, then separately guard data length within buffer
++ exif_mnote_data_apple_load(ExifMnoteData *md, const unsigned char *buf, unsigned int buf_size) {
+     ExifMnoteDataApple *d = (ExifMnoteDataApple *) md;
+     unsigned int tcount, i;
+     unsigned int dsize;
+@@ -92,8 +94,6 @@ exif_mnote_data_apple_load(ExifMnoteData *md, const unsigned char *buf, unsigned
+         return;
+     }
+ 
+-    /* printf("%s(%d): total %d tags\n", __FUNCTION__, __LINE__, tcount); */
+-
+     ofs += 16;
+ 
+     exif_mnote_data_apple_free(md);
+@@ -117,11 +117,17 @@ exif_mnote_data_apple_load(ExifMnoteData *md, const unsigned char *buf, unsigned
+         } else {
+             dofs = ofs + 8;
+         }
+-	if (dofs > buf_size) {
+-		exif_log (md->log, EXIF_LOG_CODE_CORRUPT_DATA,
+-                                  "ExifMnoteApplet", "Tag size overflow detected (%u vs size %u)", dofs, buf_size);
+-		continue;
+-	}
++        if (dofs > buf_size) {
++            exif_log(md->log, EXIF_LOG_CODE_CORRUPT_DATA,
++                     "ExifMnoteApple", "Tag offset %u beyond buffer size %u", dofs, buf_size);
++            continue;
++        }
++        /* Rationale: ensure data length fits from dofs to end of buffer */
++        if (dsize > buf_size - dofs) {
++            exif_log(md->log, EXIF_LOG_CODE_CORRUPT_DATA,
++                     "ExifMnoteApple", "Tag data length %u beyond buffer %u", dsize, buf_size - dofs);
++            continue;
++        }
+         ofs += 12;
+         d->entries[i].data = exif_mem_alloc(md->mem, dsize);
+         if (!d->entries[i].data) {

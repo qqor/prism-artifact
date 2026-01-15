@@ -1,0 +1,46 @@
+diff --git a/src/net_builtin.c b/src/net_builtin.c
+index 793874f4..70a39703 100644
+--- a/src/net_builtin.c
++++ b/src/net_builtin.c
+@@ -380,19 +380,28 @@ static void rx_arp(struct mg_tcpip_if *ifp, struct pkt *pkt) {
+ }
+ 
+ static void rx_icmp(struct mg_tcpip_if *ifp, struct pkt *pkt) {
+-  // MG_DEBUG(("ICMP %d", (int) len));
+-  if (pkt->icmp->type == 8 && pkt->ip != NULL && pkt->ip->dst == ifp->ip) {
+-    size_t hlen = sizeof(struct eth) + sizeof(struct ip) + sizeof(struct icmp);
+-    size_t space = ifp->tx.len - hlen, plen = pkt->pay.len;
+-    if (plen > space) plen = space;
+-    struct ip *ip = tx_ip(ifp, pkt->eth->src, 1, ifp->ip, pkt->ip->src,
+-                          sizeof(struct icmp) + plen);
+-    struct icmp *icmp = (struct icmp *) (ip + 1);
+-    memset(icmp, 0, sizeof(*icmp));        // Set csum to 0
+-    memcpy(icmp + 1, pkt->pay.buf, plen);  // Copy RX payload to TX
+-    icmp->csum = ipcsum(icmp, sizeof(*icmp) + plen);
+-    ether_output(ifp, hlen + plen);
+-  }
++    /* Rationale: Early drop label if packet too small for headers */
++    size_t needed = sizeof(struct eth) + sizeof(struct ip) + sizeof(struct icmp);
++    if (pkt->buf.len < needed) {
++        goto drop;
++    }
++
++    if (pkt->icmp->type == 8 && pkt->ip != NULL && pkt->ip->dst == ifp->ip) {
++        size_t hlen = needed;
++        size_t space = ifp->tx.len - hlen, plen = pkt->pay.len;
++        if (plen > space) plen = space;
++        struct ip *ip = tx_ip(ifp, pkt->eth->src, 1, ifp->ip, pkt->ip->src,
++                              sizeof(struct icmp) + plen);
++        struct icmp *icmp = (struct icmp *) (ip + 1);
++        memset(icmp, 0, sizeof(*icmp));        /* Set csum to 0 */
++        memcpy(icmp + 1, pkt->pay.buf, plen);  /* Copy RX payload to TX */
++        icmp->csum = ipcsum(icmp, sizeof(*icmp) + plen);
++        ether_output(ifp, hlen + plen);
++    }
++
++drop:
++    /* dropped due to insufficient length or not ICMP echo */
++    return;
+ }
+ 
+ static void rx_dhcp_client(struct mg_tcpip_if *ifp, struct pkt *pkt) {

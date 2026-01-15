@@ -1,0 +1,50 @@
+diff --git a/epan/dissectors/packet-ber.c b/epan/dissectors/packet-ber.c
+index ce979681ee..7c2f73a82e 100644
+--- a/epan/dissectors/packet-ber.c
++++ b/epan/dissectors/packet-ber.c
+@@ -3173,29 +3173,22 @@ int
+ // NOLINTNEXTLINE(misc-no-recursion)
+ dissect_ber_GeneralString(asn1_ctx_t *actx, proto_tree *tree, tvbuff_t *tvb, int offset, int hf_id, char *name_string, unsigned name_len)
+ {
+-    tvbuff_t *out_tvb = NULL;
+-    int8_t  tvb_len;
+-
+-    offset = dissect_ber_restricted_string(false, BER_UNI_TAG_GeneralString, actx, tree, tvb, offset, hf_id, (name_string) ? &out_tvb : NULL);
+-
+-    if (name_string) {
+-        /*
+-         * XXX - do we want to just get what's left in the tvbuff
+-         * if the full length isn't available in the tvbuff, or
+-         * do we want to throw an exception?
+-         */
+-        if (out_tvb) {
+-            tvb_len = tvb_get_uint8(tvb, offset);
+-            if ((unsigned)tvb_len >= name_len) {
+-                tvb_memcpy(out_tvb, (uint8_t*)name_string, 0, name_len-1);
+-            } else {
+-                tvb_memcpy(out_tvb, (uint8_t*)name_string, 0, tvb_len);
+-            }
+-            name_string[tvb_len] = '\0';
+-        }
+-    }
+-
+-    return offset;
++	tvbuff_t *out_tvb = NULL;
++	int8_t  tvb_len;
++
++	offset = dissect_ber_restricted_string(false, BER_UNI_TAG_GeneralString, actx, tree, tvb, offset, hf_id, (name_string) ? &out_tvb : NULL);
++
++	if (name_string) {
++		if (out_tvb) {
++			/* Rationale: compute a safe copy length <= name_len-1 to avoid overflow */
++			tvb_len = tvb_get_uint8(tvb, offset);
++			unsigned copy_len = (unsigned)tvb_len < name_len ? (unsigned)tvb_len : name_len - 1;
++			tvb_memcpy(out_tvb, (uint8_t*)name_string, 0, copy_len);
++			name_string[copy_len] = '\0';
++		}
++	}
++
++	return offset;
+ }
+ 
+ /* 8.19 Encoding of a relative or absolute object identifier value.

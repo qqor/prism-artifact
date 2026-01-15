@@ -1,0 +1,36 @@
+diff --git a/libexif/exif-data.c b/libexif/exif-data.c
+index f3f6dbc..20a4a78 100644
+--- a/libexif/exif-data.c
++++ b/libexif/exif-data.c
+@@ -537,13 +537,19 @@ exif_data_load_data_content (ExifData *data, ExifIfd ifd,
+ 	}
+ }
+ 
++// Rationale: Compare raw bytes one at a time to avoid interpreting a multi-byte read
+ static int
+ cmp_func (const unsigned char *p1, const unsigned char *p2, ExifByteOrder o)
+ {
+-	ExifShort tag1 = exif_get_short (p1, o);
+-	ExifShort tag2 = exif_get_short (p2, o);
++	// Compare first byte
++	if (p1[0] < p2[0]) return -1;
++	if (p1[0] > p2[0]) return 1;
+ 
+-	return (tag1 < tag2) ? -1 : (tag1 > tag2) ? 1 : 0;
++	// Compare second byte
++	if (p1[1] < p2[1]) return (o == EXIF_BYTE_ORDER_INTEL) ? -1 : 1;
++	if (p1[1] > p2[1]) return (o == EXIF_BYTE_ORDER_INTEL) ? 1 : -1;
++
++	return 0;
+ }
+ 
+ static int
+@@ -558,7 +564,7 @@ cmp_func_motorola (const void *elem1, const void *elem2)
+ {
+ 	return cmp_func ((const unsigned char *) elem1,
+ 			 (const unsigned char *) elem2, EXIF_BYTE_ORDER_MOTOROLA);
+-}
++}}
+ 
+ static void
+ exif_data_save_data_content (ExifData *data, ExifContent *ifd,

@@ -1,0 +1,44 @@
+diff --git a/epan/dissectors/packet-telnet.c b/epan/dissectors/packet-telnet.c
+index 9f003e3e61..f9b97350f7 100644
+--- a/epan/dissectors/packet-telnet.c
++++ b/epan/dissectors/packet-telnet.c
+@@ -2303,6 +2303,8 @@ dissect_telnet(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _
+        * We found an IAC byte.
+        * If there's any data before it, add that data to the
+        * tree, a line at a time.
++       * Rationale: Duplicate the TVB data into a new real-data tvb so that
++       * tvb_get_raw_bytes_as_stringz works on owned memory and not on a freed buffer.
+        */
+       data_len = iac_offset - offset;
+       if (data_len > 0) {
+@@ -2313,8 +2315,12 @@ dissect_telnet(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _
+         } else if (is_tn5250) {
+           next_tvb = tvb_new_subset_length(tvb, offset, data_len);
+           call_dissector(tn5250_handle, next_tvb, pinfo, telnet_tree);
+-        } else
+-          telnet_add_text(telnet_tree, tvb, offset, data_len);
++        } else {
++          /* Create a real-data copy of the slice */
++          const guint8 *slice = tvb_get_ptr(tvb, offset, data_len);
++          tvbuff_t *owned_tvb = tvb_new_real_data(slice, data_len, data_len);
++          telnet_add_text(telnet_tree, owned_tvb, 0, data_len);
++        }
+       }
+       /*
+        * Now interpret the command.
+@@ -2331,10 +2337,14 @@ dissect_telnet(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _
+        * We found no IAC byte, so what remains in the buffer
+        * is the last of the data in the packet.
+        * Add it to the tree, a line at a time, and then quit.
++       * Rationale: Duplicate the TVB data to avoid use-after-free when
++       * tvb_get_raw_bytes_as_stringz is invoked.
+        */
+       if (len > 0) {
+         add_telnet_data_bytes_str(pinfo, &num_info_items, len);
+-        telnet_add_text(telnet_tree, tvb, offset, len);
++        const guint8 *slice = tvb_get_ptr(tvb, offset, len);
++        tvbuff_t *owned_tvb = tvb_new_real_data(slice, len, len);
++        telnet_add_text(telnet_tree, owned_tvb, 0, len);
+       }
+       break;
+     }

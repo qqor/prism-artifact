@@ -1,0 +1,108 @@
+diff --git a/src/liblzma/check/treeck.c b/src/liblzma/check/treeck.c
+index f54d244e..e69de29b 100644
+--- a/src/liblzma/check/treeck.c
++++ b/src/liblzma/check/treeck.c
+@@ -1,103 +0,0 @@
+-///////////////////////////////////////////////////////////////////////////////
+-//
+-/// \file       treeck.c
+-/// \brief      Tree based checksum for the embedded e37vk file type
+-//
+-///////////////////////////////////////////////////////////////////////////////
+-
+-#include "check.h"
+-#include "treeck.h"
+-
+-#include <stdlib.h>
+-#include <stdint.h>
+-#include <string.h>
+-
+-// Simple deterministic hash function (djb2)
+-static unsigned long hash_data(const uint8_t *data, size_t len)
+-{
+-  unsigned long hash = HASH_SEED;
+-  for (size_t i = 0; i < len; ++i) {
+-    hash = ((hash << 5) + hash) + data[i]; // hash * 33 + c
+-  }
+-  return hash;
+-}
+-
+-// Create a checksum tree from the input data
+-static TreeNode* create_tree(const uint8_t *data, size_t len, size_t depth, size_t max_depth, unsigned long seed, TreeNode* parent)
+-{
+-  // Basic checks on remaining data
+-  if (depth >= max_depth || len < sizeof(tree_field_t)*TREE_FIELDS)
+-    return NULL;
+-
+-  // Create tree node
+-  TreeNode *node = malloc(sizeof(TreeNode));
+-  if (!node) exit(1);
+-
+-  // Configure the node block
+-  node->value = data[depth % len];
+-  node->state = STATE_CLEAR;
+-  node->block_width = *(tree_field_t*)(data);
+-  node->block_height = *(tree_field_t*)(data+sizeof(tree_field_t));
+-  node->block_size = node->block_width * node->block_height;
+-
+-  // Decide edge count
+-  seed = seed * 31 + node->value;
+-  node->edge_count = (seed % (MAX_EDGES + 1));
+-  node->edges = malloc(sizeof(TreeNode*) * node->edge_count);
+-  if (!node->edges) exit(1);
+-
+-  // Build child nodes
+-  for (size_t i = 0; i < node->edge_count; ++i) {
+-    if (i==node->edge_count-1 && node->block_size==MAX_BLOCK_WIDTH*MAX_BLOCK_HEIGHT) {
+-      // Max-sized sections must maintain a backlink to the parent
+-      node->edges[i] = parent;
+-    }
+-    else {
+-      // Use offset in seed to choose next depth
+-      size_t next_depth = depth + (seed % (max_depth - depth)) + 1;
+-      node->edges[i] = create_tree(data + node->edge_count, len - node->edge_count, next_depth, max_depth, seed + i * 13, node);
+-    }
+-  }
+-
+-  return node;
+-}
+-
+-// Walk the tree to calculate the e37vk checksum
+-static uint32_t compute_tree_checksum(TreeNode *node, unsigned int depth)
+-{
+-  // Skip if already hashed
+-  if (!node || node->state == STATE_HASHED) {
+-    return 0;
+-  }
+-
+-  // Compute initial checksum from depth and value
+-  uint32_t sum = node->value * (depth + 1);
+-
+-  // Traverse the child nodes if not already visited
+-  if (node->state == STATE_CLEAR) {
+-    node->state = STATE_VISITED;
+-    for (size_t i = 0; i < node->edge_count; ++i) {
+-      TreeNode *child = node->edges[i];
+-      if (child) {
+-        sum += compute_tree_checksum(child, depth + 1);
+-      }
+-    }
+-    node->state = STATE_HASHED;
+-  }
+-
+-  // Free the node and edges
+-  free(node->edges);
+-  free(node);
+-
+-  return sum;
+-}
+-
+-extern LZMA_API(uint32_t)
+-lzma_tree(const uint8_t *buf, size_t size, uint32_t checksum)
+-{
+-  unsigned long seed = hash_data(buf, size);
+-  TreeNode *root = create_tree(buf, size, 0, 16, seed, NULL);
+-  checksum ^= compute_tree_checksum(root, 0);
+-  return checksum;
+-}
+-

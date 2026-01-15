@@ -1,0 +1,36 @@
+diff --git a/epan/dissectors/packet-irc.c b/epan/dissectors/packet-irc.c
+index 481a619eca..940fc92277 100644
+--- a/epan/dissectors/packet-irc.c
++++ b/epan/dissectors/packet-irc.c
+@@ -1089,7 +1089,8 @@
+      /*
+       * Process the packet data, a line at a time.
+       */
+-     while (tvb_offset_exists(tvb, offset))
++     /* Rationale: Use tvb_get_string_enc to safely allocate and null-terminate the line, avoiding manual memcpy */
++while (tvb_offset_exists(tvb, offset))
+      {
+          /*
+           * Find the end of the line.
+@@ -1106,16 +1107,18 @@
+               */
+              break;
+          }
+- 
++
+          if (linelen != 0)
+          {
++             /* safely extract ASCII string of exact length */
++             char *line_str = tvb_get_string_enc(tvb, offset, linelen, ENC_ASCII);
+              if (pinfo->match_uint == pinfo->destport)
+              {
+-                 dissect_irc_request(irc_tree, tvb, pinfo, offset, linelen);
++                 dissect_irc_request_str(irc_tree, pinfo, line_str);
+              }
+              else
+              {
+-                 dissect_irc_response(irc_tree, tvb, pinfo, offset, linelen);
++                 dissect_irc_response_str(irc_tree, pinfo, line_str);
+              }
+          }
+          offset = next_offset;

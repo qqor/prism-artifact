@@ -1,0 +1,24 @@
+diff --git a/epan/dissectors/packet-telnet.c b/epan/dissectors/packet-telnet.c
+index 9f003e3e61..5a9e3ea830 100644
+--- a/epan/dissectors/packet-telnet.c
++++ b/epan/dissectors/packet-telnet.c
+@@ -2094,8 +2094,18 @@ telnet_sub_option(packet_info *pinfo, proto_tree *option_tree, proto_item *optio
+       if (iac_data > 0) {
+         /* Data is escaped, we have to unescape it. */
+         unescaped_tvb = unescape_and_tvbuffify_telnet_option(pinfo, tvb, start_offset, subneg_len);
+-        (*opt->dissect)(pinfo, opt->name, unescaped_tvb, 0, subneg_len - iac_data, option_tree, option_item);
++        /* Rationale: Always duplicate tvb, even unescaped or raw, to isolate from free */
++        tvbuff_t *dup_tvb;
++        if (iac_data > 0) {
++          dup_tvb = tvb_memdup(unescaped_tvb, 0, subneg_len - iac_data);
++          wmem_simple_free(wmem_packet_scope(), unescaped_tvb);
++        } else {
++          dup_tvb = tvb_memdup(tvb, start_offset, subneg_len);
++        }
++        (*opt->dissect)(pinfo, opt->name, dup_tvb, 0, subneg_len - iac_data, option_tree, option_item);
++        tvb_free(dup_tvb);
+       } else {
++        /* Should not reach here since dup covers both cases */
+         (*opt->dissect)(pinfo, opt->name, tvb, start_offset, subneg_len, option_tree, option_item);
+       }
+     } else {

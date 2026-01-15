@@ -1,0 +1,40 @@
+diff --git a/src/cmspack.c b/src/cmspack.c
+index 3e9d23f..8659e77 100644
+--- a/src/cmspack.c
++++ b/src/cmspack.c
+@@ -105,13 +105,26 @@ cmsUInt8Number* UnrollChunkyBytes(CMSREGISTER _cmsTRANSFORM* info,
+     cmsUInt32Number Extra      = T_EXTRA(info -> InputFormat);
+     cmsUInt32Number Premul     = T_PREMUL(info->InputFormat);
+ 
++    /* Rationale: Compute available payload space and clamp channel count */
++    {
++        cmsUInt8Number* base = accum;
++        cmsUInt32Number offset = 0;
++        /* ExtraFirst not yet known, assume worst-case (no shift) */
++        if (DoSwap ^ SwapFirst)
++            offset = Extra;
++        /* available bytes in 32-byte buffer */
++        cmsUInt32Number available = 32 - offset;
++        if (nChan > available) {
++            nChan = available;
++        }
++    }
++
+     cmsUInt32Number ExtraFirst = DoSwap ^ SwapFirst;
+     cmsUInt32Number v;
+     cmsUInt32Number i;  
+     cmsUInt32Number alpha_factor = 1;
+ 
+     if (ExtraFirst) {
+-        
+         if (Premul && Extra)
+             alpha_factor = _cmsToFixedDomain(FROM_8_TO_16(accum[0]));
+ 
+@@ -124,7 +137,6 @@ cmsUInt8Number* UnrollChunkyBytes(CMSREGISTER _cmsTRANSFORM* info,
+     }
+ 
+     for (i=0; i < nChan; i++) {
+-
+         cmsUInt32Number index = DoSwap ? (nChan - i - 1) : i;
+ 
+         v = FROM_8_TO_16(*accum);

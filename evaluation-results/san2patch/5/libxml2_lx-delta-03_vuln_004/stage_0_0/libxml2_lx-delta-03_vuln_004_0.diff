@@ -1,0 +1,52 @@
+diff --git a/encoding.c b/encoding.c
+index adecdcc6..35a19d00 100644
+--- a/encoding.c
++++ b/encoding.c
+@@ -1585,6 +1585,13 @@ xmlCharEncInput(xmlParserInputBufferPtr input, size_t *sizeOut)
+ 
+     while (1) {
+         size_t availOut;
++        /* Ensure at least one extra byte for a potential null terminator */
++        if (xmlBufAvail(out) < 1) {
++            if (xmlBufGrow(out, 1) < 0) {
++                input->error = XML_ERR_NO_MEMORY;
++                return(XML_ENC_ERR_MEMORY);
++            }
++        }
+         int completeOut, completeIn;
+         int c_out, c_in;
+ 
+@@ -1592,8 +1599,9 @@ xmlCharEncInput(xmlParserInputBufferPtr input, size_t *sizeOut)
+         if (availOut > INT_MAX / 2)
+             availOut = INT_MAX / 2;
+ 
+-        if (availOut < maxOut) {
+-            c_out = availOut;
++        if (availOut < maxOut + 1) /* reserve one for '\0' */ {
++            c_out = (int)(availOut - 1);
++            if (c_out < 0) c_out = 0;
+             completeOut = 0;
+         } else {
+             c_out = maxOut;
+@@ -1617,6 +1625,13 @@ xmlCharEncInput(xmlParserInputBufferPtr input, size_t *sizeOut)
+ 
+         totalOut += c_out;
+         maxOut -= c_out;
++        /* Before adding length, make sure enough room for written data */
++        if (xmlBufAvail(out) < (size_t)c_out + 1) {
++            if (xmlBufGrow(out, (size_t)c_out + 1 - xmlBufAvail(out)) < 0) {
++                input->error = XML_ERR_NO_MEMORY;
++                return(XML_ENC_ERR_MEMORY);
++            }
++        }
+         xmlBufAddLen(out, c_out);
+ 
+         if ((ret != XML_ENC_ERR_SUCCESS) && (ret != XML_ENC_ERR_SPACE)) {
+@@ -1632,6 +1647,7 @@ xmlCharEncInput(xmlParserInputBufferPtr input, size_t *sizeOut)
+             break;
+ 
+         if (ret == XML_ENC_ERR_SPACE) {
++            /* grow by a small chunk if needed */
+             if (xmlBufGrow(out, 4096) < 0) {
+                 input->error = XML_ERR_NO_MEMORY;
+                 return(XML_ENC_ERR_MEMORY);

@@ -1,0 +1,33 @@
+diff --git a/libexif/apple/exif-mnote-data-apple.c b/libexif/apple/exif-mnote-data-apple.c
+index 83a9cb1..bf685f4 100644
+--- a/libexif/apple/exif-mnote-data-apple.c
++++ b/libexif/apple/exif-mnote-data-apple.c
+@@ -54,7 +54,9 @@ exif_mnote_data_apple_free(ExifMnoteData *md) {
+ }
+ 
+ static void
+-exif_mnote_data_apple_load(ExifMnoteData *md, const unsigned char *buf, unsigned int buf_size) {
++// FIXME: Crash CWE-125: Out-of-bounds Read
++// Rationale: Ensure that copying dsize bytes from buf + dofs does not exceed buf_size
++ exif_mnote_data_apple_load(ExifMnoteData *md, const unsigned char *buf, unsigned int buf_size) {
+     ExifMnoteDataApple *d = (ExifMnoteDataApple *) md;
+     unsigned int tcount, i;
+     unsigned int dsize;
+@@ -117,11 +119,12 @@ exif_mnote_data_apple_load(ExifMnoteData *md, const unsigned char *buf, unsigned
+         } else {
+             dofs = ofs + 8;
+         }
+-	if (dofs > buf_size) {
+-		exif_log (md->log, EXIF_LOG_CODE_CORRUPT_DATA,
+-                                  "ExifMnoteApplet", "Tag size overflow detected (%u vs size %u)", dofs, buf_size);
+-		continue;
+-	}
++        /* Rationale: check combined offset and size against buffer size */
++        if (dofs + dsize > buf_size) {
++            exif_log(md->log, EXIF_LOG_CODE_CORRUPT_DATA,
++                      "ExifMnoteApple", "Tag size overflow detected (offset+size %u vs buffer %u)", dofs + dsize, buf_size);
++            continue;
++        }
+         ofs += 12;
+         d->entries[i].data = exif_mem_alloc(md->mem, dsize);
+         if (!d->entries[i].data) {

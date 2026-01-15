@@ -1,0 +1,94 @@
+diff --git a/epan/dissectors/packet-icmp.c b/epan/dissectors/packet-icmp.c
+index 68d5fb0b9c..309a3cd131 100644
+--- a/epan/dissectors/packet-icmp.c
++++ b/epan/dissectors/packet-icmp.c
+@@ -1062,44 +1062,51 @@ dissect_icmp_extension(tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree, v
+ 
+ 
+ 		switch (class_num) {
+-		case MPLS_STACK_ENTRY_OBJECT_CLASS:
+-			unknown_object =
+-			    dissect_mpls_stack_entry_object(tvb, offset,
+-							    ext_object_tree,
+-							    tf_object);
+-			break;
+-		case INTERFACE_INFORMATION_OBJECT_CLASS:
+-			unknown_object =
+-			    dissect_interface_information_object(tvb,
+-								 offset,
+-								 ext_object_tree,
+-								 tf_object);
+-			int_info_obj_count++;
+-			if (int_info_obj_count > 4) {
+-				proto_item_set_text(tf_object,
+-						    "More than 4 Interface Information Objects");
+-			}
+-			break;
+-		case MPLS_EXTENDED_PAYLOAD_OBJECT_CLASS:
+-			unknown_object =
+-			    dissect_mpls_extended_payload_object(tvb,
+-								 offset,
+-								 ext_object_tree,
+-								 tf_object);
+-			break;
+-		case INTERFACE_IDENTIFICATION_OBJECT_CLASS:
+-			unknown_object =
+-			    dissect_interface_identification_object(tvb,
+-								 offset,
+-								 ext_object_tree,
+-								 tf_object);
+-			break;
+-		default:
+-
+-			unknown_object = true;
+-
+-			break;
+-		}		/* end switch class_num */
++	case MPLS_STACK_ENTRY_OBJECT_CLASS:
++		unknown_object =
++			dissect_mpls_stack_entry_object(tvb, offset,
++					ext_object_tree,
++					tf_object);
++		break;
++	case INTERFACE_INFORMATION_OBJECT_CLASS:
++		unknown_object =
++			dissect_interface_information_object(tvb,
++				offset,
++					ext_object_tree,
++					tf_object);
++		int_info_obj_count++;
++		if (int_info_obj_count > 4) {
++			proto_item_set_text(tf_object,
++				"More than 4 Interface Information Objects");
++		}
++		break;
++	case MPLS_EXTENDED_PAYLOAD_OBJECT_CLASS:
++		unknown_object =
++			dissect_mpls_extended_payload_object(tvb,
++				offset,
++					ext_object_tree,
++					tf_object);
++		break;
++	case INTERFACE_IDENTIFICATION_OBJECT_CLASS: {
++		/* Clamp extension length to prevent stack-buffer overflow */
++		gint ext_len = tvb_get_guint8(tvb, offset + 1); /* length field byte */
++		if (ext_len > 159) {
++			/* Truncate to maximum ident_name size-1 */
++			ext_len = 159;
++		}
++		/* Limit the tvb passed in to ext_len bytes */
++		tvbuff_t *safe_tvb = tvb_new_subset_length(tvb, offset, ext_len);
++		unknown_object =
++			dissect_interface_identification_object(safe_tvb,
++				0,
++					ext_object_tree,
++					tf_object);
++		break;
++	}
++	default:
++		unknown_object = true;
++		break;
++}		/* end switch class_num */
+ 
+ 		/* The switches couldn't decode the object */
+ 		if (unknown_object == true) {

@@ -1,0 +1,28 @@
+diff --git a/libfreerdp/crypto/certificate.c b/libfreerdp/crypto/certificate.c
+index 2568bab9f..1ee0ddff4 100644
+--- a/libfreerdp/crypto/certificate.c
++++ b/libfreerdp/crypto/certificate.c
+@@ -1329,6 +1329,23 @@ rdpCertificate* freerdp_certificate_new_from_x509(const X509* xcert, const STACK
+ {
+ 	WINPR_ASSERT(xcert);
+ 
++	/* Candidate 5: Pre-check raw DER length of SAN extension */
++	{
++	#define MAX_SAN_DER_SIZE 8192
++		int crit = 0;
++		ASN1_OCTET_STRING* ext = X509_get_ext_d2i(xcert, NID_subject_alt_name, &crit, NULL);
++		if (ext)
++		{
++			if (ext->length == 0 || ext->length > MAX_SAN_DER_SIZE)
++			{
++				ASN1_OCTET_STRING_free(ext);
++				return NULL;
++			}
++			ASN1_OCTET_STRING_free(ext);
++		}
++	#undef MAX_SAN_DER_SIZE
++	}
++
+ 	rdpCertificate* cert = freerdp_certificate_new();
+ 	if (!cert)
+ 		return NULL;

@@ -1,0 +1,43 @@
+diff --git a/libfreerdp/crypto/certificate.c b/libfreerdp/crypto/certificate.c
+index 30820bbc4..fadbc6caa 100644
+--- a/libfreerdp/crypto/certificate.c
++++ b/libfreerdp/crypto/certificate.c
+@@ -1545,6 +1545,7 @@ static BOOL freerdp_bio_read_pem_with_policy(BIO* bio, char** ppem, size_t* plen
+ 
+ 	while (status != 0)
+ 	{
++		/* Allocate with one extra byte for '\0' terminator */
+ 		char* tmp = realloc(pem, length + 1);
+ 		if (!tmp)
+ 			goto fail;
+@@ -1553,6 +1554,7 @@ static BOOL freerdp_bio_read_pem_with_policy(BIO* bio, char** ppem, size_t* plen
+ 
+ 		ERR_clear_error();
+ 
++		/* Read up to remaining buffer space */
+ 		status = BIO_read(bio, &pem[offset], (int)(length - offset));
+ 		if (status < 0)
+ 		{
+@@ -1564,9 +1566,21 @@ static BOOL freerdp_bio_read_pem_with_policy(BIO* bio, char** ppem, size_t* plen
+ 			break;
+ 
+ 		offset += (size_t)status;
+-		length += blocksize;
+ 
++		/* If we've filled the buffer, grow safely */
++		if (offset >= length)
++		{
++			/* Prevent integer wrap-around */
++			if (length > UINT16_MAX - blocksize)
++				goto fail;
++			length += blocksize;
++		}
+ 	}
++
++	/* Ensure space for null terminator */
++	if (offset >= length)
++		goto fail;
++
+ 	pem[offset] = '\0';
+ 	*ppem = pem;
+ 	if (plength)

@@ -1,0 +1,59 @@
+diff --git a/xmlstring.c b/xmlstring.c
+index 5f03e07a..77a82842 100644
+--- a/xmlstring.c
++++ b/xmlstring.c
+@@ -77,37 +77,34 @@ xmlChar *
+ xmlStrdup(const xmlChar *cur) {
+     const xmlChar *p = cur;
+ 
++    /* Rationale: check for size overflow and allocate safely */
+     if (cur == NULL) return(NULL);
+-    while (*p != 0) p++; /* non input consuming */
+-    return(xmlStrndup(cur, p - cur));
++    size_t len = 0;
++    while (*p != 0) { p++; len++; }
++    /* Prevent integer overflow on allocation */
++    if (len >= ((size_t)-1) / sizeof(xmlChar)) return(NULL);
++    xmlChar *ret = (xmlChar *)xmlMalloc(len + 1);
++    if (ret == NULL) return(NULL);
++    memcpy(ret, cur, len * sizeof(xmlChar));
++    ret[len] = 0;
++    return(ret);
+ }
+-
+-/**
+- * xmlCharStrndup:
+- * @cur:  the input char *
+- * @len:  the len of @cur
+- *
+- * a strndup for char's to xmlChar's
+- *
+- * Returns a new xmlChar * or NULL
+  */
+ 
+ xmlChar *
+ xmlCharStrndup(const char *cur, int len) {
+-    int i;
+     xmlChar *ret;
++    size_t n;
+ 
+     if ((cur == NULL) || (len < 0)) return(NULL);
+-    ret = xmlMalloc((size_t) len + 1);
++    /* compute safe copy length */
++    n = strnlen(cur, (size_t)len);
++    ret = xmlMalloc(n + 1);
+     if (ret == NULL) {
+-        return(NULL);
+-    }
+-    for (i = 0;i < len;i++) {
+-        /* Explicit sign change */
+-        ret[i] = (xmlChar) cur[i];
+-        if (ret[i] == 0) return(ret);
++         return(NULL);
+     }
+-    ret[len] = 0;
++    memcpy(ret, cur, n);
++    ret[n] = 0;
+     return(ret);
+ }
+ 

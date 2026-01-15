@@ -1,0 +1,42 @@
+diff --git a/encoding.c b/encoding.c
+index adecdcc6..0ee9d491 100644
+--- a/encoding.c
++++ b/encoding.c
+@@ -1589,17 +1589,21 @@ xmlCharEncInput(xmlParserInputBufferPtr input, size_t *sizeOut)
+         int c_out, c_in;
+ 
+         availOut = xmlBufAvail(out);
+-        if (availOut > INT_MAX / 2)
+-            availOut = INT_MAX / 2;
+-
+-        if (availOut < maxOut) {
+-            c_out = availOut;
++        /* Adjust c_out to account for worst-case 4-byte UTF-8 per code point and 1 null */
++        if (availOut / 4 < (size_t)maxOut + 1) {
++            c_out = (int)(availOut / 4 - 1);
++            if (c_out < 0) c_out = 0;
+             completeOut = 0;
+-        } else {
++        } else if (availOut >= (size_t)(maxOut * 4 + 1)) {
+             c_out = maxOut;
+             completeOut = 1;
++        } else {
++            c_out = (int)(availOut / 4);
++            completeOut = (c_out == maxOut);
+         }
+ 
++        if (availOut > INT_MAX / 2)
++            availOut = INT_MAX / 2;
+         if (availIn > INT_MAX / 2) {
+             c_in = INT_MAX / 2;
+             completeIn = 0;
+@@ -1632,7 +1636,8 @@ xmlCharEncInput(xmlParserInputBufferPtr input, size_t *sizeOut)
+             break;
+ 
+         if (ret == XML_ENC_ERR_SPACE) {
+-            if (xmlBufGrow(out, 4096) < 0) {
++            /* Increase buffer by 4096 code units worst-case 4 bytes +1 */
++            if (xmlBufGrow(out, 4096 * 4 + 1) < 0) {
+                 input->error = XML_ERR_NO_MEMORY;
+                 return(XML_ENC_ERR_MEMORY);
+             }

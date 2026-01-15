@@ -1,0 +1,114 @@
+diff --git a/epan/dissectors/packet-telnet.c b/epan/dissectors/packet-telnet.c
+index 9f003e3e61..c2dacbdc39 100644
+--- a/epan/dissectors/packet-telnet.c
++++ b/epan/dissectors/packet-telnet.c
+@@ -2132,59 +2132,57 @@ telnet_suboption_name(proto_tree *tree, packet_info *pinfo, tvbuff_t *tvb, int*
+ }
+ 
+ static int
+-telnet_command(packet_info *pinfo, proto_tree *telnet_tree, tvbuff_t *tvb, int start_offset, unsigned *num_info_items)
++ telnet_command(packet_info *pinfo, proto_tree *telnet_tree, tvbuff_t *tvb, int start_offset, unsigned *num_info_items)
+ {
+-  int    offset = start_offset;
+-  unsigned char optcode;
+-  const char* optname;
+-  proto_item *cmd_item, *subopt_item = NULL;
+-  proto_tree *cmd_tree, *subopt_tree = NULL;
+-
+-  offset += 1;  /* skip IAC */
+-  optcode = tvb_get_uint8(tvb, offset);
+-
+-  cmd_tree = proto_tree_add_subtree(telnet_tree, tvb, start_offset, 2, ett_telnet_cmd, &cmd_item, "Command header");
+-  proto_tree_add_item(cmd_tree, hf_telnet_cmd, tvb, offset, 1, ENC_BIG_ENDIAN);
+-  offset++;
+-
+-  switch(optcode) {
+-  case TN_WILL:
+-    telnet_suboption_name(cmd_tree, pinfo, tvb, &offset, &optname, &subopt_tree, &subopt_item, "Will");
+-    break;
+-
+-  case TN_WONT:
+-    telnet_suboption_name(cmd_tree, pinfo, tvb, &offset, &optname, &subopt_tree, &subopt_item, "Won't");
+-    break;
+-
+-  case TN_DO:
+-    telnet_suboption_name(cmd_tree, pinfo, tvb, &offset, &optname, &subopt_tree, &subopt_item, "Do");
+-    break;
+-
+-  case TN_DONT:
+-    telnet_suboption_name(cmd_tree, pinfo, tvb, &offset, &optname, &subopt_tree, &subopt_item, "Don't");
+-    break;
+-
+-  case TN_SB:
+-    telnet_suboption_name(cmd_tree, pinfo, tvb, &offset, &optname, &subopt_tree, &subopt_item, "Suboption");
+-    break;
+-
+-  default:
+-    optname = val_to_str_const(optcode, cmd_vals, "<unknown option>");
+-    break;
+-  }
+-
+-  proto_item_set_text(cmd_item, "%s", optname);
+-  if (optcode != TN_SE) {
+-    add_telnet_info_str(pinfo, num_info_items, optname);
+-  }
+-
+-  if (optcode == TN_SB) {
+-    offset = telnet_sub_option(pinfo, subopt_tree, subopt_item, tvb, start_offset);
+-  }
+-
+-  proto_item_set_len(cmd_item, offset-start_offset);
+-
+-  return offset;
++	int    offset = start_offset;
++	unsigned char optcode;
++	const char* optname;
++	proto_item *cmd_item, *subopt_item = NULL;
++	proto_tree *cmd_tree, *subopt_tree = NULL;
++
++	offset += 1;  /* skip IAC */
++	optcode = tvb_get_uint8(tvb, offset);
++
++	cmd_tree = proto_tree_add_subtree(telnet_tree, tvb, start_offset, 2, ett_telnet_cmd, &cmd_item, "Command header");
++	proto_tree_add_item(cmd_tree, hf_telnet_cmd, tvb, offset, 1, ENC_BIG_ENDIAN);
++	offset++;
++
++	switch(optcode) {
++	case TN_WILL:
++		 telnet_suboption_name(cmd_tree, pinfo, tvb, &offset, &optname, &subopt_tree, &subopt_item, "Will");
++		 break;
++	case TN_WONT:
++		 telnet_suboption_name(cmd_tree, pinfo, tvb, &offset, &optname, &subopt_tree, &subopt_item, "Won't");
++		 break;
++	case TN_DO:
++		 telnet_suboption_name(cmd_tree, pinfo, tvb, &offset, &optname, &subopt_tree, &subopt_item, "Do");
++		 break;
++	case TN_DONT:
++		 telnet_suboption_name(cmd_tree, pinfo, tvb, &offset, &optname, &subopt_tree, &subopt_item, "Don't");
++		 break;
++	case TN_SB:
++		 telnet_suboption_name(cmd_tree, pinfo, tvb, &offset, &optname, &subopt_tree, &subopt_item, "Suboption");
++		 break;
++	default:
++		 optname = val_to_str_const(optcode, cmd_vals, "<unknown option>");
++		 break;
++	}
++
++	proto_item_set_text(cmd_item, "%s", optname);
++
++	/* Defer telnet_sub_option until after proto_item_set_text to ensure format is complete,
++	   but before add_telnet_info_str so tvb_get_raw_bytes_as_stringz internally sees valid data. */
++	if (optcode == TN_SB) {
++		offset = telnet_sub_option(pinfo, subopt_tree, subopt_item, tvb, start_offset);
++	}
++
++	if (optcode != TN_SE) {
++		add_telnet_info_str(pinfo, num_info_items, optname);
++	}
++
++	proto_item_set_len(cmd_item, offset-start_offset);
++
++	return offset;
+ }
+ 
+ static void

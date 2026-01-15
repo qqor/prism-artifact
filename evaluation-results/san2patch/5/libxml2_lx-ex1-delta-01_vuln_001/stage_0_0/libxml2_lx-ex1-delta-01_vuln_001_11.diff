@@ -1,0 +1,69 @@
+diff --git a/HTMLparser.c b/HTMLparser.c
+index 9c34e9e8..79d3fe54 100644
+--- a/HTMLparser.c
++++ b/HTMLparser.c
+@@ -5797,7 +5797,7 @@ htmlCreateFileParserCtxt(const char *filename, const char *encoding)
+  * @userData: if using SAX, this pointer will be provided on callbacks.
+  *
+  * DEPRECATED: Use htmlNewSAXParserCtxt and htmlCtxtReadFile.
+- *
++/*
+  * parse an HTML file and build a tree. Automatic support for ZLIB/Compress
+  * compressed document is provided by default if found at compile-time.
+  * It use the given SAX function block to handle the parsing callback.
+@@ -5810,15 +5810,47 @@ htmlCreateFileParserCtxt(const char *filename, const char *encoding)
+ htmlDocPtr
+ htmlSAXParseFile(const char *filename, const char *encoding, htmlSAXHandlerPtr sax,
+                  void *userData) {
+-    htmlDocPtr ret;
+-    htmlParserCtxtPtr ctxt;
+-    htmlSAXHandlerPtr oldsax = NULL;
++	htmlDocPtr ret;
++	htmlParserCtxtPtr ctxt;
++	htmlSAXHandlerPtr oldsax = NULL;
++
++	/* create the context */
++	ctxt = htmlCreateFileParserCtxt(filename, encoding);
++	if (ctxt == NULL) return(NULL);
++
++	/* if user provided handlers, chain in a safety check for long comments */
++	if (sax != NULL) {
++		oldsax = ctxt->sax;
++		ctxt->sax = oldsax;
++		/* override comment to perform length check */
++		ctxt->sax->comment = safe_htmlSecureComment;
++	}
+ 
+-    ctxt = htmlCreateFileParserCtxt(filename, encoding);
+-    if (ctxt == NULL) return(NULL);
+-    if (sax != NULL) {
+-	oldsax = ctxt->sax;
+-        ctxt->sax = sax;
++	/* do the actual parse */
++	ret = htmlSAXParseDoc(ctxt, filename, encoding, userData);
++
++	/* restore old handler if overridden */
++	if (oldsax)
++		ctxt->sax = oldsax;
++
++	/* free the parser context */
++	htmlFreeParserCtxt(ctxt);
++	return(ret);
++}
++
++/* safe replacement for htmlSecureComment */
++static void
++safe_htmlSecureComment(void *ctx, const xmlChar *value) {
++	size_t len = xmlStrlen(value);
++	/* allocate exactly len+1 bytes */
++	xmlChar *buf = xmlMalloc((len + 1) * sizeof(xmlChar));
++	if (buf == NULL) return;
++	memcpy(buf, value, len);
++	buf[len] = 0;
++	/* invoke default handler to insert comment */
++	htmlSAX2Comment(ctx, buf);
++	xmlFree(buf);
++}        ctxt->sax = sax;
+         ctxt->userData = userData;
+     }
+ 

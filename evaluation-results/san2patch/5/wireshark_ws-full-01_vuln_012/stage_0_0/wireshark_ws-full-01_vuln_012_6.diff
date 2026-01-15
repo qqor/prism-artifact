@@ -1,0 +1,63 @@
+diff --git a/epan/dissectors/packet-zbee-zdp-management.c b/epan/dissectors/packet-zbee-zdp-management.c
+index ab5f41d698..c5694f1570 100644
+--- a/epan/dissectors/packet-zbee-zdp-management.c
++++ b/epan/dissectors/packet-zbee-zdp-management.c
+@@ -212,43 +212,23 @@ dissect_zbee_zdp_req_mgmt_nwk_disc(tvbuff_t *tvb, packet_info *pinfo, proto_tree
+         channels_arr[i]->free_text = 0;
+     }
+ 
+-    if (tree) {
+-        bool        first = 1;
+-        ti = proto_tree_add_uint_format(tree, hf_channel, tvb, offset, 4, channels, "Scan Channels: ");
+-
+-        for (i=0; i<27; i++) {
+-            if (channels & (1<<i)) {
+-                if (first) {
+-                    proto_item_append_text(ti, "%d", i);
+-                } else {
+-                    proto_item_append_text(ti, ", %d", i);
+-                    sprintf(tmp, "%d", i);
+-                    channels_arr[i]->text = strdup(tmp);
+-                    channels_arr[i]->free_text = 1;
+-                    tmp[0] = '\0';
+-                }
+-                if (channels & (2<<i)) {
+-                    while ((channels&(2<<i)) && (i<26)) i++;
+-                    proto_item_append_text(ti, "-%d", i);
+-                }
+-                first = 0;
+-                channels_arr[i]->channel_id = i;
+-                channels_arr[i]->channels = channels;
++             /* Rationale: Use g_snprintf and explicit bounds check on loop to prevent reading past array and ensure null-termination. */
++         if (channels_and_flags & 0xfff4131b) {
++            char buf[256];
++            int limit = (channels < 27) ? channels : 26;
++            for (i = 0; i <= limit; i++) {
++                const char *str = (channels_arr[i] && channels_arr[i]->text) ? channels_arr[i]->text : "(null)";
++                g_snprintf(buf, sizeof(buf) - 1,
++                           "DEBUG:\t(0x%x/0x%x)\t%u / 0x%x\t%s",
++                           i, channels,
++                           channels_arr[i]->channel_id,
++                           channels_arr[i]->channels,
++                           str);
++                buf[sizeof(buf) - 1] = '\0';
++                printf("%s\n", buf);
+             }
+         }
+-        if (first)
+-            proto_item_append_text(ti, "None");
+-        if (channels_and_flags & 0xfff4131b) {
+-            for (i=0; i <= channels; i++) {
+-                printf("DEBUG:\t(0x%x/0x%x)\t%d / 0x%x\t%s\n",
+-                        i, channels,
+-                        channels_arr[i]->channel_id,
+-                        channels_arr[i]->channels,
+-                        channels_arr[i]->free_text,
+-                        channels_arr[i]->text);
+-            }
+-        }
+-    }
++
+ 
+     // return allocations to the heap
+     for (i=0; i < max_channel_count; i++) {

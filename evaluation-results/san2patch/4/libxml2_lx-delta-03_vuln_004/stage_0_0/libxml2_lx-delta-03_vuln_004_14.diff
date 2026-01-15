@@ -1,0 +1,76 @@
+diff --git a/encoding.c b/encoding.c
+index adecdcc6..48d83674 100644
+--- a/encoding.c
++++ b/encoding.c
+@@ -2092,7 +2092,7 @@ latin1ToUTF8(unsigned char* out, int *outlen,
+ done:
+     *outlen = out - outstart;
+     *inlen = in - instart;
+-    return(ret);
++return(ret);
+ }
+ 
+ /**
+@@ -2106,14 +2106,31 @@ done:
+  * block of chars out.
+  *
+  * Returns the number of bytes written or an XML_ENC_ERR code.
+- *
+- * The value of @inlen after return is the number of octets consumed
+- *     if the return value is positive, else unpredictable.
+- * The value of @outlen after return is the number of octets produced.
+  */
+ int
+ isolat1ToUTF8(unsigned char* out, int *outlen,
+-              const unsigned char* in, int *inlen) {
++              const unsigned char *in, int inlen) {
++    int i;
++    int pos = 0;
++
++    for (i = 0; i < inlen; i++) {
++        unsigned char c = in[i];
++        if (c < 0x80) {
++            if (pos >= *outlen) {
++                return(XML_ENC_ERR);
++            }
++            out[pos++] = c;
++        } else {
++            if (pos + 1 >= *outlen) {
++                return(XML_ENC_ERR);
++            }
++            out[pos++] = (unsigned char)(0xC0 | (c >> 6));
++            out[pos++] = (unsigned char)(0x80 | (c & 0x3F));
++        }
++    }
++    *outlen = pos;
++    return pos;
++}              const unsigned char* in, int *inlen) {
+     return(latin1ToUTF8(out, outlen, in, inlen, NULL));
+ }
+ 
+diff --git a/parserInternals.c b/parserInternals.c
+index 88e34b72..4f36ba93 100644
+--- a/parserInternals.c
++++ b/parserInternals.c
+@@ -576,11 +576,19 @@ xmlParserGrow(xmlParserCtxtPtr ctxt) {
+         xmlFatalErr(ctxt, XML_ERR_RESOURCE_LIMIT,
+                     "Buffer size limit exceeded, try XML_PARSE_HUGE\n");
+         xmlHaltParser(ctxt);
+-	return(-1);
++        return(-1);
++    }
++
++    /* Prevent integer overflow in size calculation */
++    if (curEnd > maxLength - INPUT_CHUNK) {
++        xmlFatalErr(ctxt, XML_ERR_RESOURCE_LIMIT,
++                    "Buffer size limit exceeded, try XML_PARSE_HUGE\n");
++        xmlHaltParser(ctxt);
++        return(-1);
+     }
+ 
+     if (curEnd >= INPUT_CHUNK)
+-        return(0);
++         return(0);
+ 
+     ret = xmlParserInputBufferGrow(buf, INPUT_CHUNK);
+     xmlBufUpdateInput(buf->buffer, in, curBase);

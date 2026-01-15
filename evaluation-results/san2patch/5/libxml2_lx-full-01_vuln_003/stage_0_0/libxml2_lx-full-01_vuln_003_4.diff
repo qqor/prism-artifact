@@ -1,0 +1,59 @@
+diff --git a/xmlstring.c b/xmlstring.c
+index 5f03e07a..23f0eb7d 100644
+--- a/xmlstring.c
++++ b/xmlstring.c
+@@ -75,39 +75,33 @@ xmlStrndup(const xmlChar *cur, int len) {
+  */
+ xmlChar *
+ xmlStrdup(const xmlChar *cur) {
+-    const xmlChar *p = cur;
+-
++    /* Rationale: unify duplication with xmlStrndup for clarity and safety */
+     if (cur == NULL) return(NULL);
+-    while (*p != 0) p++; /* non input consuming */
+-    return(xmlStrndup(cur, p - cur));
++    /* xmlStrndup will compute length and add NUL, safe against overflow */
++    return xmlStrndup(cur, xmlStrlen(cur));
+ }
+-
+-/**
+- * xmlCharStrndup:
+- * @cur:  the input char *
+- * @len:  the len of @cur
+- *
+- * a strndup for char's to xmlChar's
+- *
+- * Returns a new xmlChar * or NULL
+  */
+ 
+ xmlChar *
+ xmlCharStrndup(const char *cur, int len) {
+     int i;
+     xmlChar *ret;
++    size_t limit = (size_t)len;
+ 
+     if ((cur == NULL) || (len < 0)) return(NULL);
+-    ret = xmlMalloc((size_t) len + 1);
+-    if (ret == NULL) {
+-        return(NULL);
+-    }
++    /* find actual limit up to terminating NUL */
+     for (i = 0;i < len;i++) {
+-        /* Explicit sign change */
+-        ret[i] = (xmlChar) cur[i];
+-        if (ret[i] == 0) return(ret);
++        if (cur[i] == 0) {
++            limit = (size_t)i;
++            break;
++        }
+     }
+-    ret[len] = 0;
++    ret = xmlMalloc(limit + 1);
++    if (ret == NULL) {
++         return(NULL);
++    }
++    memmove(ret, cur, limit);
++    ret[limit] = 0;
+     return(ret);
+ }
+ 

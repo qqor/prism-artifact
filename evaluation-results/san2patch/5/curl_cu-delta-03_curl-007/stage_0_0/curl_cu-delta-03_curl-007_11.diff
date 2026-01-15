@@ -1,0 +1,25 @@
+diff --git a/lib/pingpong.c b/lib/pingpong.c
+index bd0d3e3a2..d37459982 100644
+--- a/lib/pingpong.c
++++ b/lib/pingpong.c
+@@ -132,9 +132,18 @@ CURLcode Curl_pp_statemach(struct Curl_easy *data,
+   if(rc == -1) {
+     failf(data, "select/poll error");
+     result = CURLE_OUT_OF_MEMORY;
++// FIXME: Crash CWE-476: NULL Pointer Dereference
++  }
++  else if(rc) {
++    // Rationale: check statemachine handler before invoking to avoid NULL deref
++    if(pp && pp->statemachine) {
++      result = pp->statemachine(data, data->conn);
++    }
++    else {
++      failf(data, "Internal error: statemachine handler is NULL");
++      result = CURLE_FAILED_INIT;
++    }
+   }
+-  else if(rc)
+-    result = pp->statemachine(data, data->conn);
+ 
+   return result;
+ }

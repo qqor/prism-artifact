@@ -1,0 +1,91 @@
+diff --git a/src/cmspack.c b/src/cmspack.c
+index 3e9d23f..e83039b 100644
+--- a/src/cmspack.c
++++ b/src/cmspack.c
+@@ -99,6 +99,8 @@ cmsUInt8Number* UnrollChunkyBytes(CMSREGISTER _cmsTRANSFORM* info,
+                                   CMSREGISTER cmsUInt32Number Stride)
+ {
+     cmsUInt32Number nChan      = T_CHANNELS(info -> InputFormat);
++    /* If nChan exceeds remaining bytes, clamp to safe max */
++    if (Stride < nChan) nChan = (cmsUInt32Number)Stride;
+     cmsUInt32Number DoSwap     = T_DOSWAP(info ->InputFormat);
+     cmsUInt32Number Reverse    = T_FLAVOR(info ->InputFormat);
+     cmsUInt32Number SwapFirst  = T_SWAPFIRST(info -> InputFormat);
+@@ -111,7 +113,6 @@ cmsUInt8Number* UnrollChunkyBytes(CMSREGISTER _cmsTRANSFORM* info,
+     cmsUInt32Number alpha_factor = 1;
+ 
+     if (ExtraFirst) {
+-        
+         if (Premul && Extra)
+             alpha_factor = _cmsToFixedDomain(FROM_8_TO_16(accum[0]));
+ 
+@@ -124,10 +125,9 @@ cmsUInt8Number* UnrollChunkyBytes(CMSREGISTER _cmsTRANSFORM* info,
+     }
+ 
+     for (i=0; i < nChan; i++) {
+-
+         cmsUInt32Number index = DoSwap ? (nChan - i - 1) : i;
+ 
+-        v = FROM_8_TO_16(*accum);
++        v = FROM_8_TO_16(*(accum + i));
+         v = Reverse ? REVERSE_FLAVOR_16(v) : v;
+ 
+         if (Premul && alpha_factor > 0)
+@@ -137,8 +137,8 @@ cmsUInt8Number* UnrollChunkyBytes(CMSREGISTER _cmsTRANSFORM* info,
+         }
+ 
+         wIn[index] = (cmsUInt16Number) v;
+-        accum++;
+     }
++    accum += nChan;
+ 
+     if (!ExtraFirst) {
+         accum += Extra;
+@@ -155,10 +155,10 @@ cmsUInt8Number* UnrollChunkyBytes(CMSREGISTER _cmsTRANSFORM* info,
+ 
+     cmsUNUSED_PARAMETER(info);
+     cmsUNUSED_PARAMETER(Stride);
+-
+ }
+ 
+ 
++
+ // Extra channels are just ignored because come in the next planes
+ static
+ cmsUInt8Number* UnrollPlanarBytes(CMSREGISTER _cmsTRANSFORM* info,
+diff --git a/src/cmsxform.c b/src/cmsxform.c
+index 97a556a..27bde8b 100644
+--- a/src/cmsxform.c
++++ b/src/cmsxform.c
+@@ -195,15 +195,23 @@ void CMSEXPORT cmsDoTransform(cmsHTRANSFORM  Transform,
+                               cmsUInt32Number Size)
+ 
+ {
+-    _cmsTRANSFORM* p = (_cmsTRANSFORM*) Transform;
+-    cmsStride stride;
+-
+-    stride.BytesPerLineIn = 0;  // Not used
+-    stride.BytesPerLineOut = 0;
+-    stride.BytesPerPlaneIn = Size * PixelSize(p->InputFormat);
+-    stride.BytesPerPlaneOut = Size * PixelSize(p->OutputFormat);
++	_cmsTRANSFORM* p = (_cmsTRANSFORM*) Transform;
++	cmsStride stride;
++
++	// Rationale: Reject too large Size to prevent stack buffer overflow in downstream code
++	size_t bytesPerPixel = PixelSize(p->InputFormat);
++	if (Size > 1024) {
++	    // arbitrary safety limit; can be tuned
++	    cmsSignalError(p->ContextID, cmsERROR_RANGE, "cmsDoTransform: Size too large");
++	    return;
++	}
++
++	stride.BytesPerLineIn = 0;  // Not used
++	stride.BytesPerLineOut = 0;
++	stride.BytesPerPlaneIn = Size * bytesPerPixel;
++	stride.BytesPerPlaneOut = Size * PixelSize(p->OutputFormat);
+            
+-    p -> xform(p, InputBuffer, OutputBuffer, Size, 1, &stride);
++	p->xform(p, InputBuffer, OutputBuffer, Size, 1, &stride);
+ }
+ 
+ 

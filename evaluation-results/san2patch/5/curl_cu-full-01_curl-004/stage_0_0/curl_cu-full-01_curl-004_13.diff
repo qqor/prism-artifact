@@ -1,0 +1,44 @@
+diff --git a/lib/mprintf.c b/lib/mprintf.c
+index 35e40e302..ed90a9a53 100644
+--- a/lib/mprintf.c
++++ b/lib/mprintf.c
+@@ -871,7 +871,7 @@ number:
+           OUTCHAR(' ');
+       break;
+ 
+-    case FORMAT_STRING: {
++      case FORMAT_STRING: {
+       const char *str;
+       size_t len;
+ 
+@@ -905,14 +905,28 @@ number:
+         while(width-- > 0)
+           OUTCHAR(' ');
+ 
+-      for(; len && *str; len--)
+-        OUTCHAR(*str++);
++      /* Rationale: use memcpy with bounds checking for bulk copy */
++      {
++        size_t avail = (buf + max - 1 > out) ? (size_t)((buf + max - 1) - out) : 0;
++        if(len > avail)
++          len = avail;
++        if(len) {
++          memcpy(out, str, len);
++          out += len;
++        }
++      }
++
+       if(flags & FLAGS_LEFT)
+         while(width-- > 0)
+           OUTCHAR(' ');
+ 
+       if(flags & FLAGS_ALT)
+         OUTCHAR('"');
++
++      /* Rationale: clamp and null-terminate to prevent overflow */
++      if(out >= buf + max)
++        out = buf + max - 1;
++      *out = '\0';
+       break;
+     }
+ 

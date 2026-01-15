@@ -1,0 +1,38 @@
+diff --git a/src/json.c b/src/json.c
+index 2a91900..0ec3ef6 100644
+--- a/src/json.c
++++ b/src/json.c
+@@ -607,20 +607,15 @@ json_value * json_parse_ex (json_settings * settings,
+ 
+                         if (!new_value (&state, &top, &root, &alloc, json_boolean))
+                            goto e_alloc_failure;
+-
+-                        top->u.boolean = 1;
+-
+-                        flags |= flag_next;
+-                        break;
+-
+                      case 'f':
+ 
+-                        if ((end - state.ptr) < 4 || *(++ state.ptr) != 'a' ||
+-                            *(++ state.ptr) != 'l' || *(++ state.ptr) != 's' ||
+-                            *(++ state.ptr) != 'e')
++                        // FIXME: Crash CWE-125: Out-of-bounds Read
++                         if (state.ptr + 5 > end || memcmp(state.ptr, "false", 5) != 0)
+                         {
+                            goto e_unknown_value;
+                         }
++                        /* advance past 'alse' (first 'f' matched by switch) */
++                        state.ptr += 4;
+ 
+                         if (!new_value (&state, &top, &root, &alloc, json_boolean))
+                            goto e_alloc_failure;
+@@ -628,7 +623,7 @@ json_value * json_parse_ex (json_settings * settings,
+                         flags |= flag_next;
+                         break;
+ 
+-                     case 'n':
++                        /* Rationale: Uses memcmp to perform one bounded comparison of the literal "false", simplifying logic and preventing any out-of-bounds reads. */                     case 'n':
+ 
+                         if ((end - state.ptr) < 3 || *(++ state.ptr) != 'u' ||
+                             *(++ state.ptr) != 'l' || *(++ state.ptr) != 'l')

@@ -1,0 +1,47 @@
+diff --git a/lib/alliswellprotocoll.c b/lib/alliswellprotocoll.c
+index 5be67405e..fb1f81441 100644
+--- a/lib/alliswellprotocoll.c
++++ b/lib/alliswellprotocoll.c
+@@ -93,7 +93,12 @@ static CURLcode alliswellprotocoll_done(struct Curl_easy *data,
+ }
+ 
+ static CURLcode alliswellprotocoll_do_more(struct Curl_easy *data, int *c)
+-{
++// FIXME: Crash CWE-476: NULL Pointer Dereference
++ {
++  /* ensure we don't dereference a NULL pointer */
++  if(c == NULL) {
++    return CURLE_BAD_FUNCTION_ARGUMENT;
++  }
+   *c = -1;
+   return CURLE_OK;
+ }
+diff --git a/lib/multi.c b/lib/multi.c
+index 1851dc731..0618a2471 100644
+--- a/lib/multi.c
++++ b/lib/multi.c
+@@ -1730,16 +1730,19 @@ static CURLcode protocol_connecting(struct Curl_easy *data, bool *done)
+   CURLcode result = CURLE_OK;
+   struct connectdata *conn = data->conn;
+ 
+-  if(conn && conn->handler->connecting) {
+-    *done = FALSE;
+-    result = conn->handler->connecting(data, done);
+-  }
+-  else
++  if(!conn || !conn->handler || !conn->handler->connecting) {
+     *done = TRUE;
++    return result;  /* Early exit if handler or connecting not available */
++  }
++
++  *done = FALSE;
++  result = conn->handler->connecting(data, done);
+ 
+   return result;
+ }
+ 
++/* Rationale: Performed early return to simplify flow and avoid NULL pointer dereference. */
++
+ /*
+  * We are DOING this is being called over and over from the multi interface
+  * until the DOING phase is done on protocol layer.

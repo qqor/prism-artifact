@@ -1,0 +1,35 @@
+diff --git a/parser.c b/parser.c
+index 836b4a4f..6dfa0dc1 100644
+--- a/parser.c
++++ b/parser.c
+@@ -760,6 +760,7 @@ xmlSBufGrow(xmlSBuf *buf, unsigned len) {
+ 
+ static void
+ xmlSBufAddEntitySecure(xmlSBuf *buf, const xmlChar *str, unsigned len) {
++    /* Rationale: Copy only up to available space and report if truncated */
+     if (buf->max - buf->size < len) {
+         if (buf->code == XML_ERR_OK)
+             buf->code = XML_ERR_RESOURCE_LIMIT;
+@@ -773,11 +774,19 @@ xmlSBufAddEntitySecure(xmlSBuf *buf, const xmlChar *str, unsigned len) {
+             return;
+     }
+ 
+-    if (len > 0)
+-        memcpy(buf->mem + buf->size, str, len);
+-    buf->size += len;
++    if (len > 0) {
++        unsigned avail = buf->cap - buf->size;
++        unsigned toCopy = (len < avail) ? len : avail;
++        memcpy(buf->mem + buf->size, str, toCopy);
++        buf->size += toCopy;
++        if (toCopy < len) {
++            buf->code = XML_ERR_RESOURCE_LIMIT;
++            return;
++        }
++    }
+ }
+ 
++
+ static void
+ xmlSBufAddString(xmlSBuf *buf, const xmlChar *str, unsigned len) {
+     if (buf->max - buf->size < len) {

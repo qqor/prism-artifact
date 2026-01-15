@@ -1,0 +1,49 @@
+diff --git a/lib/doh.c b/lib/doh.c
+index 8769372e0..ac19ca68e 100644
+--- a/lib/doh.c
++++ b/lib/doh.c
+@@ -1402,30 +1402,34 @@ CURLcode Curl_doh_is_resolved(struct Curl_easy *data,
+ void Curl_doh_close(struct Curl_easy *data)
+ {
+   struct doh_probes *doh = data->req.doh;
+-  if(doh && data->multi) {
++  /* Rationale: Use a local snapshot of doh to detect if the original pointer becomes invalid */
++if(doh && data->multi) {
++    struct dohdata *ctx = doh;
+     struct Curl_easy *probe_data;
+     curl_off_t mid;
+-    size_t slot;
++// FIXME: Crash CWE-416: Use After Free
++     size_t slot;
+     for(slot = 0; slot < DOH_SLOT_COUNT; slot++) {
+-      mid = doh->probe[slot].easy_mid;
++      /* if the original doh was freed, ctx will differ or be NULL */
++      if(!ctx)
++        break;
++      mid = ctx->probe[slot].easy_mid;
+       if(mid < 0)
+         continue;
+-      doh->probe[slot].easy_mid = -1;
++      ctx->probe[slot].easy_mid = -1;
+       /* should have been called before data is removed from multi handle */
+       DEBUGASSERT(data->multi);
+-      probe_data = data->multi ? Curl_multi_get_handle(data->multi, mid) :
+-        NULL;
++      probe_data = Curl_multi_get_handle(data->multi, mid);
+       if(!probe_data) {
+-        DEBUGF(infof(data, "Curl_doh_close: xfer for mid=%"
+-                     FMT_OFF_T " not found!",
+-                     doh->probe[slot].easy_mid));
++        DEBUGF(infof(data, "Curl_doh_close: xfer for mid=%" FMT_OFF_T " not found!",
++                     ctx->probe[slot].easy_mid));
+         continue;
+       }
+       /* data->multi might already be reset at this time */
+       curl_multi_remove_handle(data->multi, probe_data);
+       Curl_close(&probe_data);
+     }
+-  }
++}
+ }
+ 
+ void Curl_doh_cleanup(struct Curl_easy *data)

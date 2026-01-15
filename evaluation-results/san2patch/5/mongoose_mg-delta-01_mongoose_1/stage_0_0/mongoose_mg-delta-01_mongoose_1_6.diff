@@ -1,0 +1,120 @@
+diff --git a/src/fmt.c b/src/fmt.c
+index 8164e1ca..9b97fb7f 100644
+--- a/src/fmt.c
++++ b/src/fmt.c
+@@ -136,72 +136,54 @@ static int xisnan(double x) {
+ }
+ 
+ static size_t mg_dtoa(char *dst, size_t dstlen, double d, int width, bool tz) {
+-  char buf[40];
+-  int i, s = 0, n = 0, e = 0;
+-  double t, mul, saved;
+-  if (d == 0.0) return mg_snprintf(dst, dstlen, "%s", "0");
+-  if (xisinf(d)) return mg_snprintf(dst, dstlen, "%s", d > 0 ? "inf" : "-inf");
+-  if (xisnan(d)) return mg_snprintf(dst, dstlen, "%s", "nan");
+-  if (d < 0.0) d = -d, buf[s++] = '-';
++	char buf[40];
++	int i, s = 0, n = 0, e = 0;
++	double t, mul, saved;
++	if (d == 0.0) return mg_snprintf(dst, dstlen, "%s", "0");
++	if (xisinf(d)) return mg_snprintf(dst, dstlen, "%s", d > 0 ? "inf" : "-inf");
++	if (xisnan(d)) return mg_snprintf(dst, dstlen, "%s", "nan");
++	if (d < 0.0) d = -d, buf[s++] = '-';
+ 
+-  // Round
+-  saved = d;
+-  if (tz) {
+-    mul = 1.0;
+-    while (d >= 10.0 && d / mul >= 10.0) mul *= 10.0;
+-  } else {
+-    mul = 0.1;
+-  }
++	// Round
++	saved = d;
++	if (tz) {
++		mul = 1.0;
++		while (d >= 10.0 && d / mul >= 10.0) mul *= 10.0;
++	} else {
++		mul = 0.1;
++	}
+ 
+-  while (d <= 1.0 && d / mul <= 1.0) mul /= 10.0;
+-  for (i = 0, t = mul * 5; i < width; i++) t /= 10.0;
++	while (d <= 1.0 && d / mul <= 1.0) mul /= 10.0;
++	for (i = 0, t = mul * 5; i < width; i++) t /= 10.0;
++	d += t;
+ 
+-  d += t;
++	// Use snprintf in a temporary pointer to avoid overflow
++	char *p = buf;
++	saved = d; // reuse saved for pointer arithmetic
++	// integer part
++	while (mul >= 1.0 && (p - buf) < (int)sizeof(buf) - 1) {
++		int ch = (int)(d / mul);
++		int w = snprintf(p, sizeof(buf) - (p - buf), "%c", ch + '0');
++		if (w <= 0 || w >= (int)(sizeof(buf) - (p - buf))) break;
++		p += w;
++		d -= ch * mul;
++		mul /= 10.0;
++	}
++	if (p == buf) p += snprintf(p, sizeof(buf) - (p - buf), "0");
++	if ((p - buf) < (int)sizeof(buf) - 1) *p++ = '.';
+ 
+-  // Calculate exponent, and 'mul' for scientific representation
+-  mul = 1.0;
+-  while (d >= 10.0 && d / mul >= 10.0) mul *= 10.0, e++;
+-  while (d < 1.0 && d / mul < 1.0) mul /= 10.0, e--;
+-  // printf(" --> %g %d %g %g\n", saved, e, t, mul);
+-
+-  if (tz && e >= width && width > 1) {
+-    n = (int) mg_dtoa(buf, sizeof(buf), saved / mul, width, tz);
+-    // printf(" --> %.*g %d [%.*s]\n", 10, d / t, e, n, buf);
+-    n += addexp(buf + s + n, e, '+');
+-    return mg_snprintf(dst, dstlen, "%.*s", n, buf);
+-  } else if (tz && e <= -width && width > 1) {
+-    n = (int) mg_dtoa(buf, sizeof(buf), saved / mul, width, tz);
+-    // printf(" --> %.*g %d [%.*s]\n", 10, d / mul, e, n, buf);
+-    n += addexp(buf + s + n, -e, '-');
+-    return mg_snprintf(dst, dstlen, "%.*s", n, buf);
+-  } else {
+-    int targ_width = width;
+-    for (i = 0, t = mul; t >= 1.0 && s + n < (int) sizeof(buf); i++) {
+-      int ch = (int) (d / t);
+-      if (n > 0 || ch > 0) buf[s + n++] = (char) (ch + '0');
+-      d -= ch * t;
+-      t /= 10.0;
+-    }
+-    // printf(" --> [%g] -> %g %g (%d) [%.*s]\n", saved, d, t, n, s + n, buf);
+-    if (n == 0) buf[s++] = '0';
+-    while (t >= 1.0 && n + s < (int) sizeof(buf)) buf[n++] = '0', t /= 10.0;
+-    if (s + n < (int) sizeof(buf)) buf[n + s++] = '.';
+-    // printf(" 1--> [%g] -> [%.*s]\n", saved, s + n, buf);
+-    if (!tz && n > 0) targ_width = width + n;
+-    for (i = 0, t = 0.1; s + n < (int) sizeof(buf) && n < targ_width; i++) {
+-      int ch = (int) (d / t);
+-      buf[s + n++] = (char) (ch + '0');
+-      d -= ch * t;
+-      t /= 10.0;
+-    }
+-  }
++	// fractional part
++	for (i = 0, t = 0.1; (p - buf) < (int)sizeof(buf) - 1 && i < width; i++) {
++		int ch = (int)(d / t);
++		int w = snprintf(p, sizeof(buf) - (p - buf), "%c", ch + '0');
++		if (w <= 0 || w >= (int)(sizeof(buf) - (p - buf))) break;
++		p += w;
++		d -= ch * t;
++		t /= 10.0;
++	}
+ 
+-  while (tz && n > 0 && buf[s + n - 1] == '0') n--;  // Trim trailing zeroes
+-  if (tz && n > 0 && buf[s + n - 1] == '.') n--;           // Trim trailing dot
+-  n += s;
+-  if (n >= (int) sizeof(buf)) n = (int) sizeof(buf) - 1;
+-  buf[n] = '\0';
+-  return mg_snprintf(dst, dstlen, "%s", buf);
++	* (buf + sizeof(buf) - 1) = '\0';
++	return mg_snprintf(dst, dstlen, "%s", buf);
+ }
+ 
+ static size_t mg_lld(char *buf, int64_t val, bool is_signed, bool is_hex) {

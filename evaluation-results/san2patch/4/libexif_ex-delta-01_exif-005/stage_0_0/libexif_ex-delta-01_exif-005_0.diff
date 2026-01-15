@@ -1,0 +1,50 @@
+diff --git a/libexif/exif-utils.c b/libexif/exif-utils.c
+index 3c4e133..066ea9c 100644
+--- a/libexif/exif-utils.c
++++ b/libexif/exif-utils.c
+@@ -91,17 +91,30 @@ exif_get_sshort (const unsigned char *buf, ExifByteOrder order)
+         case EXIF_BYTE_ORDER_MOTOROLA:
+                 return (((unsigned int)buf[0] << 8) | buf[1]);
+         case EXIF_BYTE_ORDER_INTEL:
+-                return (((unsigned int)buf[1] << 8) | buf[0]);
+-        }
++                /* Add explicit length‐check to avoid reading past buf+1 */
++ExifSShort
++exif_get_sshort (const unsigned char *buf, ExifByteOrder order, unsigned int len)
++{
++	/* if the caller didn’t supply two bytes, bail out */
++	if (!buf || len < 2)
++		return 0;
+ 
+-	/* Won't be reached */
++	switch (order) {
++	case EXIF_BYTE_ORDER_MOTOROLA:
++		return (((unsigned int)buf[0] << 8) | buf[1]);
++	case EXIF_BYTE_ORDER_INTEL:
++		return (((unsigned int)buf[1] << 8) | buf[0]);
++	}
++
++	/* Won’t be reached */
+ 	return (0);
+ }
+ 
+ ExifShort
+-exif_get_short (const unsigned char *buf, ExifByteOrder order)
++exif_get_short (const unsigned char *buf, unsigned int len, ExifByteOrder order)
+ {
+-	return (exif_get_sshort (buf, order) & 0xffff);
++	/* enforce at least two bytes before delegating */
++	return (exif_get_sshort (buf, order, len) & 0xffff);
+ }
+ 
+ void
+@@ -111,8 +124,7 @@ exif_set_sshort (unsigned char *b, ExifByteOrder order, ExifSShort value)
+ 	switch (order) {
+ 	case EXIF_BYTE_ORDER_MOTOROLA:
+ 		b[0] = (unsigned char) (value >> 8);
+-		b[1] = (unsigned char) value;
+-		break;
++		b[1] = (unsigned char) value;		break;
+ 	case EXIF_BYTE_ORDER_INTEL:
+ 		b[0] = (unsigned char) value;
+ 		b[1] = (unsigned char) (value >> 8);

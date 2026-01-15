@@ -1,0 +1,69 @@
+diff --git a/fuzz/api.c b/fuzz/api.c
+index 0bbe8ce7..538ecdfb 100644
+--- a/fuzz/api.c
++++ b/fuzz/api.c
+@@ -169,27 +169,44 @@ typedef enum {
+     OP_XML_DOC_DUMP_FORMAT_MEMORY_ENC,
+ 
+     /* FILE output, TODO, use fmemopen */
+-    OP_XML_DOC_DUMP,
+-    OP_XML_DOC_FORMAT_DUMP,
+-    OP_XML_ELEM_DUMP,
+-
+-    /* xmlBuf output, TODO, no public API */
+-    OP_XML_BUF_NODE_DUMP,
+-    OP_XML_BUF_GET_NODE_CONTENT,
+-
+-    /* xmlBuffer output */
+-    OP_XML_NODE_DUMP,
+-    OP_XML_NODE_BUF_GET_CONTENT,
+-    OP_XML_ATTR_SERIALIZE_TXT_CONTENT,
+-    OP_XML_DUMP_ELEMENT_DECL,
+-    OP_XML_DUMP_ELEMENT_TABLE,
+-    OP_XML_DUMP_ATTRIBUTE_DECL,
+-    OP_XML_DUMP_ATTRIBUTE_TABLE,
+-    OP_XML_DUMP_NOTATION_DECL,
+-    OP_XML_DUMP_NOTATION_TABLE,
+-    OP_XML_DUMP_ENTITY_DECL,
+-    OP_XML_DUMP_ENTITIES_TABLE,
++// defer comment free until after doc free, remove per-case free
++void LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
++    xmlDocPtr doc = xmlReadMemory((const char*)data, size, "noname.xml", NULL, 0);
++    if (!doc)
++        return;
++    xmlChar *comment = xmlNewDocComment(doc, BAD_CAST "fuzz");
++
++    switch (opcode) {
++        case OP_XML_DOC_DUMP:
++        case OP_XML_DOC_FORMAT_DUMP:
++        case OP_XML_ELEM_DUMP:
++        case OP_XML_BUF_NODE_DUMP:
++        case OP_XML_BUF_GET_NODE_CONTENT:
++        case OP_XML_NODE_DUMP:
++        case OP_XML_NODE_BUF_GET_CONTENT:
++        case OP_XML_ATTR_SERIALIZE_TXT_CONTENT:
++        case OP_XML_DUMP_ELEMENT_DECL:
++        case OP_XML_DUMP_ELEMENT_TABLE:
++        case OP_XML_DUMP_ATTRIBUTE_DECL:
++        case OP_XML_DUMP_ATTRIBUTE_TABLE:
++        case OP_XML_DUMP_NOTATION_DECL:
++        case OP_XML_DUMP_NOTATION_TABLE:
++        case OP_XML_DUMP_ENTITY_DECL:
++        case OP_XML_DUMP_ENTITIES_TABLE:
++            xmlNodeDump(buffer, doc, xmlDocGetRootElement(doc), 0, 0);
++            // comment free deferred
++            break;
++        default:
++            break;
++    }
+ 
++    xmlFreeDoc(doc);
++    // single free after doc cleanup
++    if (comment) {
++        xmlFree(comment);
++        comment = NULL;
++    }
++}
+     /* xmlOutputBuffer */
+     OP_XML_SAVE_FILE_TO,
+     OP_XML_SAVE_FORMAT_FILE_TO,

@@ -1,0 +1,49 @@
+diff --git a/epan/dissectors/packet-bat.c b/epan/dissectors/packet-bat.c
+index 06d867454a..2c8003d0e5 100644
+--- a/epan/dissectors/packet-bat.c
++++ b/epan/dissectors/packet-bat.c
+@@ -422,11 +422,42 @@ static int dissect_bat_vis(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
+ 	case 22:
+ 		dissect_bat_vis_v22(tvb, pinfo, tree);
+ 		break;
++	/* Patched: escape '%' in raw payload before printing to avoid format-string exploits */
+ 	case 23:
+-		dissect_bat_vis_v23(tvb, pinfo, tree);
++		{
++			uint32_t len = tvb_captured_length(tvb) - 5;
++			const guint8 *data = tvb_get_ptr(tvb, 5, len);
++			gchar *buf = g_malloc(len * 2 + 1);
++			uint32_t j = 0;
++			for (uint32_t i = 0; i < len; i++) {
++				if (data[i] == '%') {
++					buf[j++] = '%';
++				}
++				buf[j++] = data[i];
++			}
++			buf[j] = '\0';
++			col_add_fstr(pinfo->cinfo, COL_INFO, "%s", buf);
++			g_free(buf);
++			dissect_bat_vis_v23(tvb, pinfo, tree);
++		}
+ 		break;
+ 	case 24:
+-		dissect_bat_vis_v24(tvb, pinfo, tree);
++		{
++			uint32_t len = tvb_captured_length(tvb) - 5;
++			const guint8 *data = tvb_get_ptr(tvb, 5, len);
++			gchar *buf = g_malloc(len * 2 + 1);
++			uint32_t j = 0;
++			for (uint32_t i = 0; i < len; i++) {
++				if (data[i] == '%') {
++					buf[j++] = '%';
++				}
++				buf[j++] = data[i];
++			}
++			buf[j] = '\0';
++			col_add_fstr(pinfo->cinfo, COL_INFO, "%s", buf);
++			g_free(buf);
++			dissect_bat_vis_v24(tvb, pinfo, tree);
++		}
+ 		break;
+ 	default:
+ 		col_add_fstr(pinfo->cinfo, COL_INFO, "Unsupported Version %d", version);

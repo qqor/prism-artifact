@@ -1,0 +1,44 @@
+diff --git a/lib/ftp.c b/lib/ftp.c
+index cc5308791..fb0efa23f 100644
+--- a/lib/ftp.c
++++ b/lib/ftp.c
+@@ -3104,16 +3104,29 @@ static CURLcode ftp_statemachine(struct Curl_easy *data,
+ static CURLcode ftp_multi_statemach(struct Curl_easy *data,
+                                     bool *done)
+ {
+-  struct connectdata *conn = data->conn;
+-  struct ftp_conn *ftpc = &conn->proto.ftpc;
+-  CURLcode result = Curl_pp_statemach(data, &ftpc->pp, FALSE, FALSE);
+-
+-  /* Check for the state outside of the Curl_socket_check() return code checks
+-     since at times we are in fact already in this state when this function
+-     gets called. */
+-  *done = (ftpc->state == FTP_STOP);
+-
+-  return result;
++	struct connectdata *conn = data->conn;
++	struct ftp_conn *ftpc = &conn->proto.ftpc;
++	CURLcode result;
++
++	/* Early bounds check to avoid out-of-bounds read in MDTM handler */
++	if(ftpc->state == FTP_MDTM_RESP) {
++		unsigned sec = (unsigned)ftpc->mdtm_time.tm_sec;
++		size_t n = sizeof Curl_seconds / sizeof Curl_seconds[0];
++		if(sec >= n) {
++			failf(data, "Bad MDTM seconds: %u >= %zu", sec, n);
++			return CURLE_MALFORMAT;
++		}
++	}
++
++	result = Curl_pp_statemach(data, &ftpc->pp, FALSE, FALSE);
++// FIXME: Crash CWE-125: Out-of-bounds Read
++
++	/* Check for the state outside of the Curl_socket_check() return code checks
++	   since at times we are in fact already in this state when this function
++	   gets called. */
++	*done = (ftpc->state == FTP_STOP);
++
++	return result;
+ }
+ 
+ static CURLcode ftp_block_statemach(struct Curl_easy *data,

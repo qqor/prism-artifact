@@ -1,0 +1,42 @@
+diff --git a/src/json.c b/src/json.c
+index 2a91900..a64ccd3 100644
+--- a/src/json.c
++++ b/src/json.c
+@@ -945,7 +945,6 @@ e_failed:
+       state.settings.mem_free (alloc, state.settings.user_data);
+       alloc = top;
+    }
+-
+    if (!state.first_pass)
+       json_value_free_ex (&state.settings, root);
+ 
+@@ -953,9 +952,19 @@ e_failed:
+ }
+ 
+ json_value * json_parse (const json_char * json, size_t length)
+-{
++// FIXME: Crash CWE-125: Out-of-bounds Read
++ {
++   // Rationale: null-terminate a local copy so parser never reads past buffer end
++   json_char *buffer = (json_char *)malloc(length + 1);
++   if (!buffer)
++      return NULL;
++   memcpy(buffer, json, length);
++   buffer[length] = '\0';
++
+    json_settings settings = { 0 };
+-   return json_parse_ex (&settings, json, length, 0);
++   json_value *result = json_parse_ex (&settings, buffer, length, 0);
++   free(buffer);
++   return result;
+ }
+ 
+ void json_value_free_ex (json_settings * settings, json_value * value)
+@@ -966,7 +975,6 @@ void json_value_free_ex (json_settings * settings, json_value * value)
+       return;
+ 
+    value->parent = 0;
+-
+    while (value)
+    {
+       switch (value->type)

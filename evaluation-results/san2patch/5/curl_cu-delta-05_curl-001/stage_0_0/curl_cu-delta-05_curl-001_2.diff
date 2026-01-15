@@ -1,0 +1,36 @@
+diff --git a/lib/mprintf.c b/lib/mprintf.c
+index 35e40e302..2a11c1c11 100644
+--- a/lib/mprintf.c
++++ b/lib/mprintf.c
+@@ -874,6 +874,9 @@ number:
+     case FORMAT_STRING: {
+       const char *str;
+       size_t len;
++      /* Rationale: format into a bounded temporary buffer via vsnprintf */
++      static const size_t BUF_SIZE = 1024;
++      char tmp[BUF_SIZE + 1];
+ 
+       str = (char *)iptr->val.str;
+       if(!str) {
+@@ -889,12 +892,15 @@ number:
+           len = 0;
+         }
+       }
+-      else if(prec != -1)
+-        len = (size_t)prec;
+-      else if(*str == '\0')
+-        len = 0;
+-      else
+-        len = strlen(str);
++      else {
++        int written = vsnprintf(tmp, BUF_SIZE + 1, "%.*s", prec, str);
++        if(written < 0) {
++          /* encoding error, skip output */
++          break;
++        }
++        len = (size_t)(written > (int)BUF_SIZE ? BUF_SIZE : written);
++        str = tmp;
++      }
+ 
+       width -= (len > INT_MAX) ? INT_MAX : (int)len;
+ 

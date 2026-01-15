@@ -1,0 +1,75 @@
+diff --git a/HTMLparser.c b/HTMLparser.c
+index 9c34e9e8..962ed6ee 100644
+--- a/HTMLparser.c
++++ b/HTMLparser.c
+@@ -5797,7 +5797,7 @@ htmlCreateFileParserCtxt(const char *filename, const char *encoding)
+  * @userData: if using SAX, this pointer will be provided on callbacks.
+  *
+  * DEPRECATED: Use htmlNewSAXParserCtxt and htmlCtxtReadFile.
+- *
++/*
+  * parse an HTML file and build a tree. Automatic support for ZLIB/Compress
+  * compressed document is provided by default if found at compile-time.
+  * It use the given SAX function block to handle the parsing callback.
+@@ -5810,15 +5810,53 @@ htmlCreateFileParserCtxt(const char *filename, const char *encoding)
+ htmlDocPtr
+ htmlSAXParseFile(const char *filename, const char *encoding, htmlSAXHandlerPtr sax,
+                  void *userData) {
+-    htmlDocPtr ret;
+-    htmlParserCtxtPtr ctxt;
+-    htmlSAXHandlerPtr oldsax = NULL;
++	htmlDocPtr ret;
++	htmlParserCtxtPtr ctxt;
++	htmlSAXHandlerPtr oldsax = NULL;
++
++	/* create the context */
++	ctxt = htmlCreateFileParserCtxt(filename, encoding);
++	if (ctxt == NULL) return(NULL);
++
++	/* if a custom SAX handler is provided, wrap htmlSecureComment to use realloc */
++	if (sax != NULL) {
++		oldsax = ctxt->sax;
++		ctxt->sax = oldsax;
++		ctxt->sax->comment = reallocating_htmlSecureComment;
++	}
+ 
+-    ctxt = htmlCreateFileParserCtxt(filename, encoding);
+-    if (ctxt == NULL) return(NULL);
+-    if (sax != NULL) {
+-	oldsax = ctxt->sax;
+-        ctxt->sax = sax;
++	/* perform parsing */
++	ret = htmlSAXParseDoc(ctxt, filename, encoding, userData);
++
++	/* restore original SAX handlers */
++	if (oldsax)
++		ctxt->sax = oldsax;
++
++	/* clean up */
++	htmlFreeParserCtxt(ctxt);
++	return(ret);
++}
++
++/* htmlSecureComment using realloc to adjust buffer size */
++static void
++reallocating_htmlSecureComment(void *ctx, const xmlChar *value) {
++	size_t len = xmlStrlen(value);
++	/* start with small buffer, then grow */
++	xmlChar *buf = xmlMalloc(16);
++	if (!buf) return;
++	if (len + 1 > 16) {
++		xmlChar *tmp = xmlRealloc(buf, (len + 1) * sizeof(xmlChar));
++		if (tmp == NULL) {
++			xmlFree(buf);
++			return;
++		}
++		buf = tmp;
++	}
++	memcpy(buf, value, len);
++	buf[len] = 0;
++	htmlSAX2Comment(ctx, buf);
++	xmlFree(buf);
++}        ctxt->sax = sax;
+         ctxt->userData = userData;
+     }
+ 

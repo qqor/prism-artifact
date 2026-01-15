@@ -1,0 +1,24 @@
+diff --git a/epan/dissectors/packet-telnet.c b/epan/dissectors/packet-telnet.c
+index 9f003e3e61..0af50799ad 100644
+--- a/epan/dissectors/packet-telnet.c
++++ b/epan/dissectors/packet-telnet.c
+@@ -2206,11 +2206,14 @@ telnet_add_text(proto_tree *tree, tvbuff_t *tvb, int offset, int len)
+        If this subopt is set then a method for storing the data in a given window
+        is necessary.
+     */
+-   if ( hf_telnet_naws_subopt_set ) {
+-    int start_offset = hf_telnet_width * hf_telnet_line;
+-    tvb_get_raw_bytes_as_stringz(tvb, offset, (linelen < hf_telnet_width) ? linelen : hf_telnet_width, hf_naws_data + start_offset);
+-    hf_telnet_line = (hf_telnet_line + 1) % hf_telnet_height;
+-  }
++// FIXED: Guard use of hf_naws_data to ensure we never write to freed memory
++    if (hf_telnet_naws_subopt_set && hf_naws_data) {
++        int start_offset = hf_telnet_width * hf_telnet_line;
++        int copy_len = (linelen < hf_telnet_width) ? linelen : hf_telnet_width;
++        /* Safely copy into the already-allocated buffer */
++        tvb_get_raw_bytes_as_stringz(tvb, offset, copy_len, hf_naws_data + start_offset);
++        hf_telnet_line = (hf_telnet_line + 1) % hf_telnet_height;
++    }
+ 
+     /*
+      * In Telnet, CR NUL is the way you send a CR by itself in the

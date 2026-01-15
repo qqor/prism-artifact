@@ -1,0 +1,50 @@
+diff --git a/epan/dissectors/packet-netbios.c b/epan/dissectors/packet-netbios.c
+index 5ea85c7df4..8081dbc797 100644
+--- a/epan/dissectors/packet-netbios.c
++++ b/epan/dissectors/packet-netbios.c
+@@ -1131,28 +1131,33 @@ dissect_netbios(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data
+ 		ti = proto_tree_add_item(tree, proto_netbios, tvb, 0, hdr_len, ENC_NA);
+ 		netb_tree = proto_item_add_subtree(ti, ett_netb);
+ 
+-		proto_tree_add_uint_format_value(netb_tree, hf_netb_hdr_len, tvb, offset, 2, hdr_len,
+-			"%d bytes", hdr_len);
++	proto_tree_add_uint_format_value(netb_tree, hf_netb_hdr_len, tvb, offset, 2, hdr_len,
++		"%d bytes", hdr_len);
+ 
+-		proto_tree_add_uint_format_value(netb_tree, hf_netb_delimiter, tvb, offset + 2, 2,
+-			tvb_get_letohs(tvb, offset + 2), "EFFF (NetBIOS)");
++	proto_tree_add_uint_format_value(netb_tree, hf_netb_delimiter, tvb, offset + 2, 2,
++		tvb_get_letohs(tvb, offset + 2), "EFFF (NetBIOS)");
+ 
+-		proto_tree_add_uint(netb_tree, hf_netb_cmd, tvb, offset + NB_COMMAND, 1, command);
++	proto_tree_add_uint(netb_tree, hf_netb_cmd, tvb, offset + NB_COMMAND, 1, command);
++	}
++	// FIXME: Crash CWE-125: Out-of-bounds Read
++ 
++		/* branch to handle commands */
++	/* inline bounds check without macro */
++	if (command < 0 || (unsigned int)command >= (sizeof(dissect_netb)/sizeof(dissect_netb[0]))) {
++		expert_info(pinfo, NULL, "Out-of-range NetBIOS command (%d), ignored\n", command);
++		session_id = 0;  /* no-op handler index */
++	} else {
++		session_id = (dissect_netb[command])(tvb, pinfo, offset, netb_tree);
+ 	}
+ 
+-				/* branch to handle commands */
+-	session_id = (dissect_netb[ command])( tvb, pinfo, offset, netb_tree);
+-
+-	offset += hdr_len;			/* move past header */
++	offset += hdr_len;            /* move past header */
+ 
+ 	save_fragmented = pinfo->fragmented;
+ 
+ 	/*
+ 	 * Process user data in frames that have it.
+ 	 */
+-	switch (command) {
+-
+-	case NB_DATAGRAM:
++	switch (command) {	case NB_DATAGRAM:
+ 	case NB_DATAGRAM_BCAST:
+ 		/*
+ 		 * No fragmentation here.

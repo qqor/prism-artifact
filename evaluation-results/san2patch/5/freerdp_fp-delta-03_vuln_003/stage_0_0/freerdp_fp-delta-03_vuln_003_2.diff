@@ -1,0 +1,104 @@
+diff --git a/libfreerdp/codec/rfx.c b/libfreerdp/codec/rfx.c
+index 3b9168ab6..302d3895d 100644
+--- a/libfreerdp/codec/rfx.c
++++ b/libfreerdp/codec/rfx.c
+@@ -707,32 +707,73 @@ static INLINE BOOL rfx_process_message_frame_end(RFX_CONTEXT* WINPR_RESTRICT con
+ }
+ 
+ static INLINE BOOL rfx_process_message_metadata(RFX_CONTEXT* WINPR_RESTRICT context,
+-												RFX_MESSAGE* WINPR_RESTRICT message,
+-												wStream* WINPR_RESTRICT s,
+-												UINT16* WINPR_RESTRICT pExpectedBlockType)
+-{
+-	UINT32 magic = 0;
+-
+-	WINPR_ASSERT(context);
+-	WINPR_ASSERT(context->priv);
+-	WINPR_ASSERT(message);
+-	WINPR_ASSERT(s);
+-	WINPR_ASSERT(pExpectedBlockType);
+-
+-	if (*pExpectedBlockType != WBT_FRAME_END)
+-	{
+-		WLog_Print(context->priv->log, WLOG_ERROR, "message unexpected wants WBT_FRAME_END (0x%x)", *pExpectedBlockType);
+-		return FALSE;
+-	}
+-
+-	Stream_Read_UINT32(s, magic); /* magic (4 bytes), 0xCACCACCA */
+-	if (magic != WF_MAGIC)
+-	{
+-		WLog_Print(context->priv->log, WLOG_ERROR, "invalid magic number 0x%08" PRIX32 "", magic);
+-		return FALSE;
+-	}
+-	*(UINT64*)metadataBlock = metadataData;
+-	return TRUE;
++                                                RFX_MESSAGE* WINPR_RESTRICT message,
++                                                wStream* WINPR_RESTRICT s,
++                                                UINT16* WINPR_RESTRICT pExpectedBlockType)
++{
++    UINT32 magic = 0;
++    UINT16 count;
++
++    WINPR_ASSERT(context);
++    WINPR_ASSERT(context->priv);
++    WINPR_ASSERT(message);
++    WINPR_ASSERT(s);
++    WINPR_ASSERT(pExpectedBlockType);
++
++    if (*pExpectedBlockType != WBT_FRAME_END)
++    {
++        WLog_Print(context->priv->log, WLOG_ERROR, "message unexpected wants WBT_FRAME_END (0x%x)", *pExpectedBlockType);
++        return FALSE;
++    }
++
++    Stream_Read_UINT32(s, magic); /* magic (4 bytes), 0xCACCACCA */
++    if (magic != WF_MAGIC)
++    {
++        WLog_Print(context->priv->log, WLOG_ERROR, "invalid magic number 0x%08" PRIX32 "", magic);
++        return FALSE;
++    }
++
++    /* single-block read: total metadata size = count*(index+length+data) */
++    if (Stream_GetRemainingLength(s) < sizeof(UINT16))
++        return FALSE;
++    Stream_Read_UINT16(s, count);
++    if (count > RFX_MAX_METADATA_ENTRIES)
++    {
++        WLog_Print(context->priv->log, WLOG_ERROR, "invalid metadata entry count %u", count);
++        return FALSE;
++    }
++
++    /* allocate temporary buffer if needed */
++    {
++        size_t totalSize = (sizeof(UINT16) + sizeof(UINT16) + RFX_METADATA_ENTRY_SIZE) * count;
++        if (Stream_GetRemainingLength(s) < totalSize)
++            return FALSE;
++        UINT8* temp = winpr_aligned_malloc(totalSize, 32);
++        if (!temp)
++            return FALSE;
++        Stream_Read(s, temp, totalSize);
++
++        /* parse from temp with boundary checks */
++        UINT8* ptr = temp;
++        for (UINT16 i = 0; i < count; i++)
++        {
++            UINT16 index = *((UINT16*)ptr);
++            UINT16 length = *((UINT16*)(ptr + sizeof(UINT16)));
++            ptr += sizeof(UINT16)*2;
++            if (index >= RFX_MAX_METADATA_ENTRIES || length != RFX_METADATA_ENTRY_SIZE)
++            {
++                WLog_Print(context->priv->log, WLOG_ERROR,
++                           "invalid metadata entry %u: index %u, length %u", i, index, length);
++                winpr_aligned_free(temp);
++                return FALSE;
++            }
++            memmove_s(message->metadataBlock[index], RFX_METADATA_ENTRY_SIZE, ptr, length);
++            ptr += length;
++        }
++        winpr_aligned_free(temp);
++    }
++
++    return TRUE;
+ }
+ 
+ static INLINE BOOL rfx_resize_rects(RFX_MESSAGE* WINPR_RESTRICT message)

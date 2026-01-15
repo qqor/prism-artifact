@@ -1,0 +1,27 @@
+diff --git a/src/liblzma/check/treeck.c b/src/liblzma/check/treeck.c
+index f54d244e..713e5cb8 100644
+--- a/src/liblzma/check/treeck.c
++++ b/src/liblzma/check/treeck.c
+@@ -63,6 +63,7 @@ static TreeNode* create_tree(const uint8_t *data, size_t len, size_t depth, size
+ }
+ 
+ // Walk the tree to calculate the e37vk checksum
++/* Rationale: Guard freeing on both top-level call and hashed state to ensure nodes are not accessed after deallocation. */
+ static uint32_t compute_tree_checksum(TreeNode *node, unsigned int depth)
+ {
+   // Skip if already hashed
+@@ -85,9 +86,11 @@ static uint32_t compute_tree_checksum(TreeNode *node, unsigned int depth)
+     node->state = STATE_HASHED;
+   }
+ 
+-  // Free the node and edges
+-  free(node->edges);
+-  free(node);
++  // Free only when this is the root call and node is hashed
++  if (depth == 0 && node->state == STATE_HASHED) {
++    free(node->edges);
++    free(node);
++  }
+ 
+   return sum;
+ }

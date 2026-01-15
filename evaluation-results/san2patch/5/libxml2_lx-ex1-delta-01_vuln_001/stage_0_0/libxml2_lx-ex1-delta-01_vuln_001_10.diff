@@ -1,0 +1,59 @@
+diff --git a/HTMLparser.c b/HTMLparser.c
+index 9c34e9e8..48d64e90 100644
+--- a/HTMLparser.c
++++ b/HTMLparser.c
+@@ -5797,7 +5797,7 @@ htmlCreateFileParserCtxt(const char *filename, const char *encoding)
+  * @userData: if using SAX, this pointer will be provided on callbacks.
+  *
+  * DEPRECATED: Use htmlNewSAXParserCtxt and htmlCtxtReadFile.
+- *
++/*
+  * parse an HTML file and build a tree. Automatic support for ZLIB/Compress
+  * compressed document is provided by default if found at compile-time.
+  * It use the given SAX function block to handle the parsing callback.
+@@ -5810,15 +5810,37 @@ htmlCreateFileParserCtxt(const char *filename, const char *encoding)
+ htmlDocPtr
+ htmlSAXParseFile(const char *filename, const char *encoding, htmlSAXHandlerPtr sax,
+                  void *userData) {
+-    htmlDocPtr ret;
+-    htmlParserCtxtPtr ctxt;
+-    htmlSAXHandlerPtr oldsax = NULL;
++	htmlDocPtr ret;
++	htmlParserCtxtPtr ctxt;
++	htmlSAXHandlerPtr oldsax = NULL;
++
++	/* create the context */
++	ctxt = htmlCreateFileParserCtxt(filename, encoding);
++	if (ctxt == NULL) return(NULL);
++
++	/* if the user supplied a handler, override only the comment callback
++	   with a safer version that allocates exactly as much as needed */
++	if (sax != NULL) {
++		oldsax = ctxt->sax;
++		ctxt->sax = oldsax;
++		/* wrap only the comment callback */
++		ctxt->sax->comment =
++		  /* safer callback doing dynamic allocation */
++		  (void (*)(void *, const xmlChar *))
++		  xmlSAX2Comment;
++	}
+ 
+-    ctxt = htmlCreateFileParserCtxt(filename, encoding);
+-    if (ctxt == NULL) return(NULL);
+-    if (sax != NULL) {
+-	oldsax = ctxt->sax;
+-        ctxt->sax = sax;
++	/* proceed with parsing */
++	ret = htmlSAXParseDoc(ctxt, filename, encoding, userData);
++
++	/* restore original handlers */
++	if (oldsax != NULL)
++		ctxt->sax = oldsax;
++
++	/* cleanup and return document */
++	htmlFreeParserCtxt(ctxt);
++	return(ret);
++}        ctxt->sax = sax;
+         ctxt->userData = userData;
+     }
+ 

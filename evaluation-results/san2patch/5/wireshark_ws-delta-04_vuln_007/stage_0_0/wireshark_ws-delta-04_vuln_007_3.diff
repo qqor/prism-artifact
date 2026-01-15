@@ -1,0 +1,103 @@
+diff --git a/epan/dissectors/packet-json.c b/epan/dissectors/packet-json.c
+index fbf7776431..dfd29ce270 100644
+--- a/epan/dissectors/packet-json.c
++++ b/epan/dissectors/packet-json.c
+@@ -351,36 +351,43 @@ json_string_unescape(wmem_allocator_t *scope, const char *string, size_t *length
+ 						}
+ 						
+ 						else if (current_character == 'U') {
+-							uint16_t lead_surrogate = code_point;
+-							uint16_t trail_surrogate = 0;
+-	
+-							read_index++;
+-	
+-							for (int i = 0; i < 8; i++)
+-							{
+-								current_character = string[read_index];
+-								read_index++;
+-	
+-								int nibble = ws_xton(current_character);
+-	
+-								trail_surrogate <<= 4;
+-								trail_surrogate |= nibble;
+-							}
+-	
+-							if ((IS_TRAIL_SURROGATE(trail_surrogate)))
+-							{	
+-								code_point = SURROGATE_VALUE(lead_surrogate, trail_surrogate);
+-							}
+-							else
+-							{
+-								is_valid_unicode_character = false;
+-							}
+-						}
+-						else
+-						{
+-							read_index++;
+-							is_valid_unicode_character = false;
+-						}
++    uint16_t lead_surrogate = code_point;
++    uint16_t trail_surrogate = 0;
++
++    read_index++;
++
++    // Iterative check inside loop, break on error
++    for (int i = 0; i < 8; i++)
++    {
++        if (read_index >= src_len) {
++            is_valid_unicode_character = false;
++            break;
++        }
++        current_character = string[read_index];
++        read_index++;
++
++        int nibble = ws_xton(current_character);
++
++        trail_surrogate <<= 4;
++        trail_surrogate |= nibble;
++    }
++    if (!is_valid_unicode_character)
++        goto unescape_error;
++
++    if ((IS_TRAIL_SURROGATE(trail_surrogate)))
++    {   
++        code_point = SURROGATE_VALUE(lead_surrogate, trail_surrogate);
++    }
++    else
++    {
++        is_valid_unicode_character = false;
++    }
++}
++else
++{
++    read_index++;
++    is_valid_unicode_character = false;
++}
+ 					}
+ 					else
+ 					{
+@@ -562,11 +569,20 @@ get_json_string(wmem_allocator_t *scope, tvbparse_elem_t *tok, bool remove_quote
+ 	size_t length;
+ 
+ 	string = tvb_get_string_enc(scope, tok->tvb, tok->offset, tok->len, ENC_UTF_8);
+-
++// FIXME: Crash CWE-125: Out-of-bounds Read
++	
+ 	if (unescape_strings) {
+-		string = json_string_unescape(scope, string, &length);
+-	}
+-	else {
++		// Attempt unescape, but detect unexpected expansion
++		char *tmp = json_string_unescape(scope, string, &length);
++		// If expansion is absurdly large compared to input, abort unescape
++		size_t orig_len = strlen(string);
++		if (length > orig_len * 2) {
++			// fallback: skip unescape
++			length = orig_len;
++		} else {
++			string = tmp;
++		}
++	} else {
+ 		length = strlen(string);
+ 	}
+ 

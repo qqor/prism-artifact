@@ -1,0 +1,57 @@
+diff --git a/parser.c b/parser.c
+index 836b4a4f..0b95a08a 100644
+--- a/parser.c
++++ b/parser.c
+@@ -4000,17 +4000,20 @@ xmlExpandPEsInEntityValue(xmlParserCtxtPtr ctxt, xmlSBuf *buf,
+                     return;
+                 }
+ 
+-                // Grow the buffer to handle the input
+-                xmlSBufGrow(buf, str - chunk);
+-                xmlSBufAddEntitySecure(buf, ent->name, ent->length);
+-
++                // Add expanded entity content safely via xmlBufferAdd
++                if (ent->content) {
++                    if (xmlBufferAdd(buf->buffer, ent->content, ent->length) == NULL) {
++                        return;
++                    }
++                }
+                 chunk = str;
+             } else {
+                 /* Normal ASCII char */
+                 if (!IS_BYTE_CHAR(c)) {
+                     xmlFatalErrMsg(ctxt, XML_ERR_INVALID_CHAR,
+                             "invalid character in entity value\n");
+-                    if (chunk < str)
++// FIXME: Crash CWE-787: Out-of-bounds Write
++                     if (chunk < str)
+                         xmlSBufAddEntity(buf, chunk, str - chunk);
+                     xmlSBufAddReplChar(buf);
+                     str += 1;
+@@ -4020,13 +4023,22 @@ xmlExpandPEsInEntityValue(xmlParserCtxtPtr ctxt, xmlSBuf *buf,
+                 }
+             }
+         } else {
+-            /* Normal ASCII char */
++// FIXME: Crash CWE-787: Out-of-bounds Write
++             /* Normal ASCII char */
+             if (!IS_BYTE_CHAR(c)) {
+                 xmlFatalErrMsg(ctxt, XML_ERR_INVALID_CHAR,
+                         "invalid character in entity value\n");
+-                if (chunk < str)
+-                    xmlSBufAddString(buf, chunk, str - chunk);
+-                xmlSBufAddReplChar(buf);
++                if (chunk < str) {
++                    size_t len = (size_t)(str - chunk);
++                    /* ensure buffer for raw add */
++                    if (xmlBufferEnsureSize(buf->buffer, buf->buffer->use + len) < 0)
++                        return;
++                    xmlBufferAdd(buf->buffer, chunk, len);
++                }
++                /* ensure buffer for replacement char */
++                if (xmlBufferEnsureSize(buf->buffer, buf->buffer->use + 1) < 0)
++                    return;
++                xmlBufferAddChar(buf->buffer, xmlReplChar);
+                 str += 1;
+                 chunk = str;
+             } else {

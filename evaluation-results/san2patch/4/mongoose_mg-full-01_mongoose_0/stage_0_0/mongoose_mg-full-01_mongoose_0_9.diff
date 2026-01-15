@@ -1,0 +1,27 @@
+diff --git a/mongoose.c b/mongoose.c
+index 3508b21e..5cd48d0b 100644
+--- a/mongoose.c
++++ b/mongoose.c
+@@ -2747,6 +2747,8 @@ int mg_json_get(struct mg_str json, const char *path, int *toklen) {
+ #define MG_EOO(x)                                            \
+   do {                                                       \
+     if (depth == ed && ci != ei) return MG_JSON_NOT_FOUND;   \
++    /* ensure depth is within bounds before reading */       \
++    if (depth <= 0 || depth > MG_JSON_MAX_NESTING) return MG_JSON_INVALID; \
+     if (c != nesting[depth - 1] + 2) return MG_JSON_INVALID; \
+     depth--;                                                 \
+     MG_CHECKRET(x);                                          \
+@@ -2760,10 +2762,10 @@ int mg_json_get(struct mg_str json, const char *path, int *toklen) {
+         // p("V %s [%.*s] %d %d %d %d\n", path, pos, path, depth, ed, ci, ei);
+         if (depth == ed) j = i;
+         if (c == '{') {
+-          if (depth > MG_JSON_MAX_NESTING) return MG_JSON_TOO_DEEP;
++          /* combined size-based and constant guard */
++          if (depth + 1 >= (int)(sizeof(nesting) / sizeof(nesting[0])) || depth + 1 > MG_JSON_MAX_NESTING) return MG_JSON_TOO_DEEP;
+           if (depth == ed && path[pos] == '.' && ci == ei) {
+-            // If we start the object, reset array indices
+-            ed++, pos++, ci = ei = -1;
++            // If we start the object, reset array indices            ed++, pos++, ci = ei = -1;
+           }
+           nesting[depth++] = c;
+           expecting = S_KEY;

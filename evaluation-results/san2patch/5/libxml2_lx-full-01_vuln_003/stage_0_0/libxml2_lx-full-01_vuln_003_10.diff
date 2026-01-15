@@ -1,0 +1,77 @@
+diff --git a/SAX2.c b/SAX2.c
+index 21a6b4e0..1b8d36ae 100644
+--- a/SAX2.c
++++ b/SAX2.c
+@@ -533,6 +533,20 @@ xmlSAX2EntityDecl(void *ctx, const xmlChar *name, int type,
+     if ((ctxt == NULL) || (ctxt->myDoc == NULL))
+         return;
+ 
++    /* Rationale: Prevent overly large entity expansions from triggering
++     * the OOB read in xmlSBufAddEntitySecure by enforcing a maximum length
++     */
++    {
++        const size_t ENTITY_MAX_LEN = 1024;
++        size_t len = xmlStrlen(content);
++        if (len > ENTITY_MAX_LEN) {
++            xmlFatalErr(ctxt, XML_ERR_RESOURCE_LIMIT,
++                       "Entity content too large (%lu > %lu)",
++                       (unsigned long)len, (unsigned long)ENTITY_MAX_LEN);
++            return;
++        }
++    }
++
+     extSubset = ctxt->inSubset == 2;
+     res = xmlAddEntity(ctxt->myDoc, extSubset, name, type, publicId, systemId,
+                        content, &ent);
+@@ -553,10 +567,6 @@ xmlSAX2EntityDecl(void *ctx, const xmlChar *name, int type,
+             }
+             return;
+         case XML_ERR_REDECL_PREDEF_ENTITY:
+-            /*
+-             * Technically an error but it's a common mistake to get double
+-             * escaping according to "4.6 Predefined Entities" wrong.
+-             */
+             xmlWarnMsg(ctxt, res, "Invalid redeclaration of predefined"
+                        " entity '%s'", name);
+             return;
+@@ -579,10 +589,6 @@ xmlSAX2EntityDecl(void *ctx, const xmlChar *name, int type,
+             }
+         }
+ 
+-        /*
+-         * We don't really need the 'directory' struct member, but some
+-         * users set it manually to a base URI for memory streams.
+-         */
+         if (base == NULL)
+             base = ctxt->directory;
+ 
+diff --git a/entities.c b/entities.c
+index a5c814c3..1b046af6 100644
+--- a/entities.c
++++ b/entities.c
+@@ -150,8 +150,14 @@ xmlCreateEntity(xmlDocPtr doc, const xmlChar *name, int type,
+             goto error;
+     }
+     if (content != NULL) {
+-        ret->length = xmlStrlen(content);
+-	ret->content = xmlStrndup(content, ret->length);
++        /* Rationale: Prevent overly large entity content */
++        size_t content_len = xmlStrlen(content);
++        if (content_len > ENTITY_MAX_LEN) {
++            /* content too long, fail gracefully */
++            goto error;
++        }
++        ret->length = content_len;
++	re­t->content = xmlStrndup(content, ret->length);
+         if (ret->content == NULL)
+             goto error;
+      } else {
+@@ -159,7 +165,7 @@ xmlCreateEntity(xmlDocPtr doc, const xmlChar *name, int type,
+         ret->content = NULL;
+     }
+     ret->URI = NULL; /* to be computed by the layer knowing
+-			the defining entity */
++					the defining entity */
+     ret->orig = NULL;
+ 
+     return(ret);

@@ -1,0 +1,40 @@
+diff --git a/src/cmsps2.c b/src/cmsps2.c
+index cb2db85..75e51ea 100644
+--- a/src/cmsps2.c
++++ b/src/cmsps2.c
+@@ -1593,11 +1593,31 @@ cmsUInt32Number CMSEXPORT cmsGetPostScriptCSA(cmsContext ContextID,
+ 
+     if (!mem) return 0;
+ 
+-    dwBytesUsed =  cmsGetPostScriptColorResource(ContextID, cmsPS_RESOURCE_CSA, hProfile, Intent, dwFlags, mem);
++    // Primary generation call
++    dwBytesUsed = cmsGetPostScriptColorResource(ContextID,
++                                               cmsPS_RESOURCE_CSA,
++                                               hProfile,
++                                               Intent,
++                                               dwFlags,
++                                               mem);
++    // If the above failed, construct a basic pipeline with an identity stage
++    if (dwBytesUsed == 0) {
++        cmsPipeline* pipe = cmsPipelineAlloc(ContextID, cmsGetColorSpaceChannels(ContextID, cmsGetColorSpace(hProfile)));
++        if (pipe) {
++            cmsStage* id = cmsStageAllocIdentityLUT(ContextID, cmsAT_END, NULL);
++            if (id) {
++                cmsPipelineInsertStage(pipe, cmsAT_END, id);
++                dwBytesUsed = cmsWritePipeline(ContextID, pipe, mem);
++            }
++            cmsPipelineFree(pipe);
++        }
++    }
+ 
+-    // Get rid of memory stream
+     cmsCloseIOhandler(mem);
+-
+     return dwBytesUsed;
+-
+ }
++
++/* Rationale:
++ * We detect a failed resource generation when dwBytesUsed == 0,
++ * then explicitly build a one-stage pipeline with an identity LUT
++ * to guarantee non-null behaviour downstream. */

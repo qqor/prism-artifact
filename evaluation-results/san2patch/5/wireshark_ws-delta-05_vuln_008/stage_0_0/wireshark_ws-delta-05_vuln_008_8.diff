@@ -1,0 +1,37 @@
+diff --git a/epan/dissectors/packet-netbios.c b/epan/dissectors/packet-netbios.c
+index 5ea85c7df4..e26cfa9b10 100644
+--- a/epan/dissectors/packet-netbios.c
++++ b/epan/dissectors/packet-netbios.c
+@@ -428,21 +428,26 @@ static void
+ netbios_add_session_init_flags( tvbuff_t *tvb, proto_tree *tree, int offset)
+ 
+ {
++	/* Rationale: explicitly read byte safely then add boolean flags */
+ 	proto_tree *field_tree;
+ 	proto_item *tf;
++	guint8 flags = 0;
++
++	if (tvb_bytes_exist(tvb, offset, 1))
++		flags = tvb_get_guint8(tvb, offset);
+ 
+ 	/* decode the flag field for Session Init packet */
+-	tf = proto_tree_add_item(tree, hf_netb_flags, tvb, offset, 1, ENC_LITTLE_ENDIAN);
++	tf = proto_tree_add_uint(tree, hf_netb_flags, tvb, offset, 1, flags);
+ 	field_tree = proto_item_add_subtree(tf, ett_netb_flags);
+ 
+-	proto_tree_add_item( field_tree, hf_netb_flags_send_no_ack, tvb, offset, 1, ENC_LITTLE_ENDIAN);
+-
+-	proto_tree_add_item( field_tree, hf_netb_largest_frame, tvb, offset, 1, ENC_LITTLE_ENDIAN);
+-
+-	proto_tree_add_item( field_tree, hf_netb_version, tvb, offset, 1, ENC_LITTLE_ENDIAN);
++	/* individual flag bits */
++	proto_tree_add_boolean(field_tree, hf_netb_flags_send_no_ack, tvb, offset, 1, (flags & 0x01));
++	proto_tree_add_boolean(field_tree, hf_netb_largest_frame, tvb, offset, 1, (flags & 0x02));
++	proto_tree_add_boolean(field_tree, hf_netb_version, tvb, offset, 1, (flags & 0x04));
+ }
+ 
+ 
++
+ static void
+ netbios_no_receive_flags( tvbuff_t *tvb, proto_tree *tree, int offset)
+ 

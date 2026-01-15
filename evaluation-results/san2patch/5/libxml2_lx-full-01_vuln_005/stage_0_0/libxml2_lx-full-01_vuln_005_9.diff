@@ -1,0 +1,37 @@
+diff --git a/fuzz/api.c b/fuzz/api.c
+index 0bbe8ce7..aa7c7da6 100644
+--- a/fuzz/api.c
++++ b/fuzz/api.c
+@@ -3575,20 +3575,23 @@ LLVMFuzzerTestOneInput(const char *data, size_t size) {
+ 
+         xmlFuzzCheckFailureReport(vars->opName, oomReport, ioReport);
+     }
++// FIXME: Crash CWE-415: Double Free
+ 
+-    for (i = 0; i < REG_MAX; i++)
+-        xmlFree(vars->strings[i]);
+-
++    /* Candidate 5: merge loops, free each resource once with checks */
+     for (i = 0; i < REG_MAX; i++) {
+-        xmlNodePtr node = vars->nodes[i];
+-
+-        vars->nodes[i] = NULL;
+-        dropNode(node);
++        if (vars->strings[i] != NULL) {
++            xmlFree(vars->strings[i]);
++            vars->strings[i] = NULL;
++        }
++        if (vars->nodes[i] != NULL) {
++            xmlNodePtr node = vars->nodes[i];
++            vars->nodes[i] = NULL;
++            dropNode(node);
++        }
+     }
+ 
+     xmlFuzzInjectFailure(0);
+-    xmlFuzzDataCleanup();
+-    xmlResetLastError();
++    xmlFuzzDataCleanup();    xmlResetLastError();
+     return(0);
+ }
+ 

@@ -1,0 +1,66 @@
+diff --git a/epan/dissectors/packet-icmp.c b/epan/dissectors/packet-icmp.c
+index 68d5fb0b9c..add5557276 100644
+--- a/epan/dissectors/packet-icmp.c
++++ b/epan/dissectors/packet-icmp.c
+@@ -1064,36 +1064,42 @@ dissect_icmp_extension(tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree, v
+ 		switch (class_num) {
+ 		case MPLS_STACK_ENTRY_OBJECT_CLASS:
+ 			unknown_object =
+-			    dissect_mpls_stack_entry_object(tvb, offset,
+-							    ext_object_tree,
+-							    tf_object);
++				dissect_mpls_stack_entry_object(tvb, offset,
++						ext_object_tree,
++						tf_object);
+ 			break;
+ 		case INTERFACE_INFORMATION_OBJECT_CLASS:
+ 			unknown_object =
+-			    dissect_interface_information_object(tvb,
+-								 offset,
+-								 ext_object_tree,
+-								 tf_object);
++				dissect_interface_information_object(tvb,
++						offset,
++						ext_object_tree,
++						tf_object);
+ 			int_info_obj_count++;
+ 			if (int_info_obj_count > 4) {
+ 				proto_item_set_text(tf_object,
+-						    "More than 4 Interface Information Objects");
++					"More than 4 Interface Information Objects");
+ 			}
+ 			break;
+ 		case MPLS_EXTENDED_PAYLOAD_OBJECT_CLASS:
+ 			unknown_object =
+-			    dissect_mpls_extended_payload_object(tvb,
+-								 offset,
+-								 ext_object_tree,
+-								 tf_object);
+-			break;
+-		case INTERFACE_IDENTIFICATION_OBJECT_CLASS:
+-			unknown_object =
+-			    dissect_interface_identification_object(tvb,
+-								 offset,
+-								 ext_object_tree,
+-								 tf_object);
++				dissect_mpls_extended_payload_object(tvb,
++						offset,
++						ext_object_tree,
++						tf_object);
+ 			break;
++// Patched: Ensure the remaining reported length is not larger than buffer
++	 	case INTERFACE_IDENTIFICATION_OBJECT_CLASS:
++	 	    if (tvb_reported_length_remaining(tvb, offset) > INTERFACE_IDENT_BUF_SIZE) {
++	 	        /* Limit the tvb to max buffer size to prevent overflow */
++	 	        tvb = tvb_new_subset_remaining(tvb, offset,
++	 	                     INTERFACE_IDENT_BUF_SIZE);
++	 	    }
++	 	    unknown_object =
++	 			dissect_interface_identification_object(tvb,
++	 						offset,
++	 						ext_object_tree,
++	 						tf_object);
++	 	    break;
+ 		default:
+ 
+ 			unknown_object = true;

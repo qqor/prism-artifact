@@ -1,0 +1,49 @@
+diff --git a/lib/doh.c b/lib/doh.c
+index 8769372e0..daa9bf8b0 100644
+--- a/lib/doh.c
++++ b/lib/doh.c
+@@ -306,7 +306,8 @@ static CURLcode doh_run_probe(struct Curl_easy *data,
+     ERROR_CHECK_SETOPT(CURLOPT_STDERR, data->set.err);
+   if(Curl_trc_ft_is_verbose(data, &Curl_doh_trc))
+     ERROR_CHECK_SETOPT(CURLOPT_VERBOSE, 1L);
+-  if(data->set.no_signal)
++  /* Rationale: guard against use-after-free by ensuring the DoH context is still valid */
++  if(data->req.doh && data->set.no_signal)
+     ERROR_CHECK_SETOPT(CURLOPT_NOSIGNAL, 1L);
+ 
+   ERROR_CHECK_SETOPT(CURLOPT_SSL_VERIFYHOST,
+@@ -314,13 +315,7 @@ static CURLcode doh_run_probe(struct Curl_easy *data,
+   ERROR_CHECK_SETOPT(CURLOPT_SSL_VERIFYPEER,
+     data->set.doh_verifypeer ? 1L : 0L);
+   ERROR_CHECK_SETOPT(CURLOPT_SSL_VERIFYSTATUS,
+-    data->set.doh_verifystatus ? 1L : 0L);
+-
+-  /* Inherit *some* SSL options from the user's transfer. This is a
+-     best-guess as to which options are needed for compatibility. #3661
+-
+-     Note DoH does not inherit the user's proxy server so proxy SSL settings
+-     have no effect and are not inherited. If that changes then two new
++    data->set.doh_verifystatus ? 1L : 0L);     have no effect and are not inherited. If that changes then two new
+      options should be added to check doh proxy insecure separately,
+      CURLOPT_DOH_PROXY_SSL_VERIFYHOST and CURLOPT_DOH_PROXY_SSL_VERIFYPEER.
+      */
+@@ -330,8 +325,8 @@ static CURLcode doh_run_probe(struct Curl_easy *data,
+     ERROR_CHECK_SETOPT(CURLOPT_CAINFO,
+                        data->set.str[STRING_SSL_CAFILE]);
+   }
+-  if(data->set.blobs[BLOB_CAINFO]) {
+-    ERROR_CHECK_SETOPT(CURLOPT_CAINFO_BLOB,
++  if(data->set.blobs[BLOB_CAINFO] && data->set.blobs[BLOB_CAINFO]->data) {
++     ERROR_CHECK_SETOPT(CURLOPT_CAINFO_BLOB,
+                        data->set.blobs[BLOB_CAINFO]);
+   }
+   if(data->set.str[STRING_SSL_CAPATH]) {
+@@ -344,7 +339,7 @@ static CURLcode doh_run_probe(struct Curl_easy *data,
+   }
+   if(data->set.ssl.certinfo)
+     ERROR_CHECK_SETOPT(CURLOPT_CERTINFO, 1L);
+-  if(data->set.ssl.fsslctx)
++// Rationale: Added a check for blob->data to avoid dereferencing a freed or uninitialized memory region.  if(data->set.ssl.fsslctx)
+     ERROR_CHECK_SETOPT(CURLOPT_SSL_CTX_FUNCTION, data->set.ssl.fsslctx);
+   if(data->set.ssl.fsslctxp)
+     ERROR_CHECK_SETOPT(CURLOPT_SSL_CTX_DATA, data->set.ssl.fsslctxp);

@@ -1,0 +1,33 @@
+diff --git a/libexif/exif-data.c b/libexif/exif-data.c
+index f3f6dbc..97a34cd 100644
+--- a/libexif/exif-data.c
++++ b/libexif/exif-data.c
+@@ -979,20 +979,22 @@ exif_data_load_data (ExifData *data, const unsigned char *d_orig,
+ 	/* ds is restricted to 16 bit above, so offset is restricted too, and offset+8 should not overflow. */
+ 	if (offset > ds || offset + 6 + 2 > ds)
+ 		return;
++	/* Rationale: use MIN to safely select offset */
++	#define MIN(a,b) ((a) < (b) ? (a) : (b))
++	unsigned int use_offset = MIN(offset, ds - 6);
+ 
+ 	/* Parse the actual exif data (usually offset 14 from start) */
+-	exif_data_load_data_content (data, EXIF_IFD_0, d + 6, ds - 6, offset, 0);
++	exif_data_load_data_content (data, EXIF_IFD_0, d + 6, ds - 6, use_offset, 0);
+ 
+ 	/* IFD 1 offset */
+-	n = exif_get_short (d + 6 + offset, data->priv->order);
++	n = exif_get_short (d + 6 + use_offset, data->priv->order);
+ 	/* offset < 2<<16, n is 16 bit at most, so this op will not overflow */
+-	if (offset + 6 + 2 + 12 * n + 4 > ds)
++	if (use_offset + 6 + 2 + 12 * n + 4 > ds)
+ 		return;
+ 
+-	offset = exif_get_long (d + 6 + offset + 2 + 12 * n, data->priv->order);
++	offset = exif_get_long (d + 6 + use_offset + 2 + 12 * n, data->priv->order);
+ 	if (offset) {
+-		exif_log (data->priv->log, EXIF_LOG_CODE_DEBUG, "ExifData",
+-			  "IFD 1 at %i.", (int) offset);
++		exif_log (data->priv->log, EXIF_LOG_CODE_DEBUG, "ExifData",			  "IFD 1 at %i.", (int) offset);
+ 
+ 		/* Sanity check. ds is ensured to be above 6 above, offset is 16bit */
+ 		if (offset > ds - 6) {

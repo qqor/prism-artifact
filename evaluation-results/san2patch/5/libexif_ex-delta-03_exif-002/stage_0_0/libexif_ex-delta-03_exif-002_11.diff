@@ -1,0 +1,78 @@
+diff --git a/libexif/exif-data.c b/libexif/exif-data.c
+index f3f6dbc..67e730c 100644
+--- a/libexif/exif-data.c
++++ b/libexif/exif-data.c
+@@ -146,15 +146,15 @@ exif_data_new_mem (ExifMem *mem)
+ 
+ 	/* Default data type: none */
+ 	exif_data_set_data_type (data, EXIF_DATA_TYPE_COUNT);
+-
+-	return (data);
++    return (data);
+ }
+ 
+ ExifData *
+ exif_data_new_from_data (const unsigned char *data, unsigned int size)
+ {
+ 	ExifData *edata;
+-
++// FIXME: Crash CWE-125: Out-of-bounds Read
++ 
+ 	edata = exif_data_new ();
+ 	exif_data_load_data (edata, data, size);
+ 	return (edata);
+@@ -162,12 +162,21 @@ exif_data_new_from_data (const unsigned char *data, unsigned int size)
+ 
+ static int
+ exif_data_load_data_entry (ExifData *data, ExifEntry *entry,
+-			   const unsigned char *d,
+-			   unsigned int size, unsigned int offset)
++                           const unsigned char *d,
++                           unsigned int size, unsigned int offset)
+ {
+ 	unsigned int s, doff;
+ 
+-	entry->tag        = exif_get_short (d + offset + 0, data->priv->order);
++	/* Determine safe copy length; clamp or skip invalid entries */
++	s = entry->components * entry->format_size;
++	if (offset > size || s > size - offset) {
++		/* skip this entry without memcpy */
++		return 1;
++	}
++
++	doff = offset;
++	memcpy (entry->data, d + doff, s);
++	/* rest of original code follows... */	entry->tag        = exif_get_short (d + offset + 0, data->priv->order);
+ 	entry->format     = exif_get_short (d + offset + 2, data->priv->order);
+ 	entry->components = exif_get_long  (d + offset + 4, data->priv->order);
+ 
+@@ -233,6 +242,7 @@ exif_data_load_data_entry (ExifData *data, ExifEntry *entry,
+ 		data->priv->offset_mnote = doff;
+ 	}
+ 	return 1;
++// FIXME: Crash CWE-125: Out-of-bounds Read
+ }
+ 
+ static void
+@@ -243,9 +253,20 @@ exif_data_save_data_entry (ExifData *data, ExifEntry *e,
+ 	unsigned int doff, s;
+ 	unsigned int ts;
+ 
+-	if (!data || !data->priv) 
++	if (!data || !data->priv)
+ 		return;
+ 
++	/* Candidate 2: clamp length to available space */
++	if (offset > *ds) {
++		return;
++	}
++	s = e->size;
++	/* clamp s so offset + s <= *ds */
++	if (s > *ds - offset) {
++		s = *ds - offset;
++	}
++	doff = offset;
++	/* now safe to copy up to s bytes */
+ 	/*
+ 	 * Each entry is 12 bytes long. The memory for the entry has
+ 	 * already been allocated.

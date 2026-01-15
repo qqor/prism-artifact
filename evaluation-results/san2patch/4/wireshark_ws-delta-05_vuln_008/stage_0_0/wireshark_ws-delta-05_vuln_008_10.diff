@@ -1,0 +1,40 @@
+diff --git a/epan/dissectors/packet-netbios.c b/epan/dissectors/packet-netbios.c
+index 5ea85c7df4..4e600ed611 100644
+--- a/epan/dissectors/packet-netbios.c
++++ b/epan/dissectors/packet-netbios.c
+@@ -1139,20 +1139,26 @@ dissect_netbios(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data
+ 
+ 		proto_tree_add_uint(netb_tree, hf_netb_cmd, tvb, offset + NB_COMMAND, 1, command);
+ 	}
++// FIXME: Crash CWE-125: Out-of-bounds Read
+ 
+-				/* branch to handle commands */
+-	session_id = (dissect_netb[ command])( tvb, pinfo, offset, netb_tree);
++		/* Rationale: Ensure 'command' is within bounds before indexing dissect_netb */
++		if ((size_t)command >= (sizeof(dissect_netb)/sizeof(dissect_netb[0]))) {
++			expert_add_info_format(pinfo, netb_tree, &ei_netb_err,
++				"Invalid NetBIOS command %u", command);
++			return tvb_captured_length(tvb);
++		}
+ 
+-	offset += hdr_len;			/* move past header */
++			/* branch to handle commands */
++session_id = (dissect_netb[ command ])( tvb, pinfo, offset, netb_tree);
+ 
+-	save_fragmented = pinfo->fragmented;
++offset += hdr_len;            /* move past header */
+ 
+-	/*
+-	 * Process user data in frames that have it.
+-	 */
+-	switch (command) {
++save_fragmented = pinfo->fragmented;
+ 
+-	case NB_DATAGRAM:
++/*
++ * Process user data in frames that have it.
++ */
++switch (command) {	case NB_DATAGRAM:
+ 	case NB_DATAGRAM_BCAST:
+ 		/*
+ 		 * No fragmentation here.

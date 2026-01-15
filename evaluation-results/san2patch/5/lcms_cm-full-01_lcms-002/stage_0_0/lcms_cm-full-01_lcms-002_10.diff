@@ -1,0 +1,76 @@
+diff --git a/src/cmspack.c b/src/cmspack.c
+index 3e9d23f..f16d15f 100644
+--- a/src/cmspack.c
++++ b/src/cmspack.c
+@@ -99,6 +99,8 @@ cmsUInt8Number* UnrollChunkyBytes(CMSREGISTER _cmsTRANSFORM* info,
+                                   CMSREGISTER cmsUInt32Number Stride)
+ {
+     cmsUInt32Number nChan      = T_CHANNELS(info -> InputFormat);
++    /* Clamp to avoid reading past original 32-byte buffer */
++    if (nChan > 32) nChan = 32;
+     cmsUInt32Number DoSwap     = T_DOSWAP(info ->InputFormat);
+     cmsUInt32Number Reverse    = T_FLAVOR(info ->InputFormat);
+     cmsUInt32Number SwapFirst  = T_SWAPFIRST(info -> InputFormat);
+@@ -111,7 +113,6 @@ cmsUInt8Number* UnrollChunkyBytes(CMSREGISTER _cmsTRANSFORM* info,
+     cmsUInt32Number alpha_factor = 1;
+ 
+     if (ExtraFirst) {
+-        
+         if (Premul && Extra)
+             alpha_factor = _cmsToFixedDomain(FROM_8_TO_16(accum[0]));
+ 
+@@ -124,7 +125,6 @@ cmsUInt8Number* UnrollChunkyBytes(CMSREGISTER _cmsTRANSFORM* info,
+     }
+ 
+     for (i=0; i < nChan; i++) {
+-
+         cmsUInt32Number index = DoSwap ? (nChan - i - 1) : i;
+ 
+         v = FROM_8_TO_16(*accum);
+@@ -155,10 +155,10 @@ cmsUInt8Number* UnrollChunkyBytes(CMSREGISTER _cmsTRANSFORM* info,
+ 
+     cmsUNUSED_PARAMETER(info);
+     cmsUNUSED_PARAMETER(Stride);
+-
+ }
+ 
+ 
++
+ // Extra channels are just ignored because come in the next planes
+ static
+ cmsUInt8Number* UnrollPlanarBytes(CMSREGISTER _cmsTRANSFORM* info,
+diff --git a/src/cmsxform.c b/src/cmsxform.c
+index 97a556a..112f678 100644
+--- a/src/cmsxform.c
++++ b/src/cmsxform.c
+@@ -195,15 +195,22 @@ void CMSEXPORT cmsDoTransform(cmsHTRANSFORM  Transform,
+                               cmsUInt32Number Size)
+ 
+ {
+-    _cmsTRANSFORM* p = (_cmsTRANSFORM*) Transform;
+-    cmsStride stride;
+-
+-    stride.BytesPerLineIn = 0;  // Not used
+-    stride.BytesPerLineOut = 0;
+-    stride.BytesPerPlaneIn = Size * PixelSize(p->InputFormat);
+-    stride.BytesPerPlaneOut = Size * PixelSize(p->OutputFormat);
++	_cmsTRANSFORM* p = (_cmsTRANSFORM*) Transform;
++	cmsStride stride;
++
++	// Rationale: Clamp Size to avoid triggering out-of-bounds read in UnrollChunkyBytes
++	size_t bytesPerPixel = PixelSize(p->InputFormat);
++	size_t maxPixels = 32 / bytesPerPixel;
++	if (Size > (cmsUInt32Number) maxPixels) {
++	    Size = (cmsUInt32Number) maxPixels;
++	}
++
++	stride.BytesPerLineIn = 0;  // Not used
++	stride.BytesPerLineOut = 0;
++	stride.BytesPerPlaneIn = Size * bytesPerPixel;
++	stride.BytesPerPlaneOut = Size * PixelSize(p->OutputFormat);
+            
+-    p -> xform(p, InputBuffer, OutputBuffer, Size, 1, &stride);
++	p->xform(p, InputBuffer, OutputBuffer, Size, 1, &stride);
+ }
+ 
+ 

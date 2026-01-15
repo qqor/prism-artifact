@@ -1,0 +1,46 @@
+diff --git a/src/cmsps2.c b/src/cmsps2.c
+index cb2db85..7ae86ff 100644
+--- a/src/cmsps2.c
++++ b/src/cmsps2.c
+@@ -1593,11 +1593,37 @@ cmsUInt32Number CMSEXPORT cmsGetPostScriptCSA(cmsContext ContextID,
+ 
+     if (!mem) return 0;
+ 
+-    dwBytesUsed =  cmsGetPostScriptColorResource(ContextID, cmsPS_RESOURCE_CSA, hProfile, Intent, dwFlags, mem);
++    // Check for unsupported or malformed profile early
++    if (cmsGetDeviceClass(ContextID, hProfile) != cmsSigDisplayClass &&
++        cmsGetDeviceClass(ContextID, hProfile) != cmsSigInputClass &&
++        cmsGetDeviceClass(ContextID, hProfile) != cmsSigOutputClass) {
++        // Fallback to NULL profile (identity)
++        cmsHPROFILE idProf = cmsCreateNULLProfile(ContextID);
++        if (idProf) {
++            dwBytesUsed = cmsGetPostScriptColorResource(ContextID,
++                                                       cmsPS_RESOURCE_CSA,
++                                                       idProf,
++                                                       Intent,
++                                                       dwFlags,
++                                                       mem);
++            cmsCloseProfile(ContextID, idProf);
++        }
++    }
++    else {
++        // Normal flow for supported classes
++        dwBytesUsed = cmsGetPostScriptColorResource(ContextID,
++                                                   cmsPS_RESOURCE_CSA,
++                                                   hProfile,
++                                                   Intent,
++                                                   dwFlags,
++                                                   mem);
++    }
+ 
+-    // Get rid of memory stream
+     cmsCloseIOhandler(mem);
+-
+     return dwBytesUsed;
+-
+ }
++
++/* Rationale:
++ * We pre-emptively detect profiles of unsupported classes and substitute
++ * a NULL (identity) profile to avoid passing malformed stage definitions
++ * into cmsGetPostScriptColorResource, thus preventing NULL dereference. */

@@ -1,0 +1,49 @@
+diff --git a/epan/dissectors/packet-gvcp.c b/epan/dissectors/packet-gvcp.c
+index d49324a429..01d5af2a7b 100644
+--- a/epan/dissectors/packet-gvcp.c
++++ b/epan/dissectors/packet-gvcp.c
+@@ -293,7 +293,8 @@ static int hf_gvcp_custom_register_addr;
+ static int hf_gvcp_custom_memory_addr;
+ 
+ /*
+-\brief IDs used for bootstrap dissection
++// FIXME: Crash CWE-787: Out-of-bounds Write
++ \brief IDs used for bootstrap dissection
+ */
+ 
+ static int hf_gvcp_message_key_code;
+@@ -306,7 +307,33 @@ static int hf_gvcp_request_id;
+ static int hf_gvcp_status;
+ static int hf_gvcp_acknowledge;
+ static int hf_gvcp_spec_version_major;
+-static int hf_gvcp_spec_version_minor;
++
++/* Dissector for GVCP Register command, with protocol-tree error reporting */
++static int
++dissect_gvcp_register(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
++{
++    guint offset = 0;
++    guint32 idx;
++    guint32 val;
++
++    idx = tvb_get_ntohl(tvb, offset);
++    offset += 4;
++
++    /* fix: guard against invalid register index */
++    if (idx > 63) {
++        /* report error in the protocol tree */
++        proto_tree_add_text(tree, tvb, offset-4, 4,
++            "GVCP: invalid register index %u", idx);
++        expert_add_info(pinfo, pinfo->fd->num, &ei_gvcp_invalid_reg_index);
++        return 0;
++    }
++
++    gvcp_register_number[idx] = idx;
++    val = tvb_get_ntohl(tvb, offset);
++    offset += 4;
++    gvcp_register_value[idx] = val;
++    return offset;
++}static int hf_gvcp_spec_version_minor;
+ static int hf_gvcp_devicemodediscovery;
+ static int hf_gvcp_device_mac_address;
+ static int hf_gvcp_ip_config_persistent_ip;

@@ -1,0 +1,49 @@
+diff --git a/epan/dissectors/packet-gvcp.c b/epan/dissectors/packet-gvcp.c
+index d49324a429..589afb47d3 100644
+--- a/epan/dissectors/packet-gvcp.c
++++ b/epan/dissectors/packet-gvcp.c
+@@ -293,7 +293,8 @@ static int hf_gvcp_custom_register_addr;
+ static int hf_gvcp_custom_memory_addr;
+ 
+ /*
+-\brief IDs used for bootstrap dissection
++// FIXME: Crash CWE-787: Out-of-bounds Write
++ \brief IDs used for bootstrap dissection
+ */
+ 
+ static int hf_gvcp_message_key_code;
+@@ -306,7 +307,33 @@ static int hf_gvcp_request_id;
+ static int hf_gvcp_status;
+ static int hf_gvcp_acknowledge;
+ static int hf_gvcp_spec_version_major;
+-static int hf_gvcp_spec_version_minor;
++
++/* Dissector for GVCP Register using switch to detect invalid */
++static int
++dissect_gvcp_register(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
++{
++    guint offset = 0;
++    guint32 n;
++    guint32 v;
++
++    n = tvb_get_ntohl(tvb, offset);
++    offset += 4;
++
++    switch (n) {
++    case 0 ... 63:
++        /* valid range */
++        gvcp_register_number[n] = n;
++        break;
++    default:
++        expert_add_info(pinfo, pinfo->fd->num, &ei_gvcp_invalid_reg_index);
++        return 0;
++    }
++
++    v = tvb_get_ntohl(tvb, offset);
++    offset += 4;
++    gvcp_register_value[n] = v;
++    return offset;
++}static int hf_gvcp_spec_version_minor;
+ static int hf_gvcp_devicemodediscovery;
+ static int hf_gvcp_device_mac_address;
+ static int hf_gvcp_ip_config_persistent_ip;

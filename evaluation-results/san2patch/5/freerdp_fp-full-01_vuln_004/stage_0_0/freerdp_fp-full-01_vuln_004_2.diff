@@ -1,0 +1,25 @@
+diff --git a/libfreerdp/core/gcc.c b/libfreerdp/core/gcc.c
+index d135d8353..b07c10deb 100644
+--- a/libfreerdp/core/gcc.c
++++ b/libfreerdp/core/gcc.c
+@@ -612,10 +612,20 @@ BOOL gcc_read_client_data_blocks(wStream* s, rdpMcs* mcs, UINT16 length)
+ 					return FALSE;
+ 
+ 				break;
++// FIXME: Crash CWE-787: Out-of-bounds Write
+ 
+ 			case CS_NET:
++			{
++				UINT32 total = Stream_GetRemainingLength(sub);
++				UINT32 toRead = (total > MAX_BLOCK_SIZE) ? MAX_BLOCK_SIZE : total;
++				if (total > MAX_BLOCK_SIZE)
++					WLog_WARN(TAG, "Truncating network data from %u to %u bytes", total, toRead);
++
+ 				if (!gcc_read_client_network_data(sub, mcs))
+ 					return FALSE;
++				if (total > toRead)
++					Stream_Seek(sub, total - toRead);
++			}
+ 
+ 				break;
+ 

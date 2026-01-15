@@ -1,0 +1,37 @@
+diff --git a/libfreerdp/crypto/certificate.c b/libfreerdp/crypto/certificate.c
+index 2568bab9f..425dbbd91 100644
+--- a/libfreerdp/crypto/certificate.c
++++ b/libfreerdp/crypto/certificate.c
+@@ -1329,6 +1329,32 @@ rdpCertificate* freerdp_certificate_new_from_x509(const X509* xcert, const STACK
+ {
+ 	WINPR_ASSERT(xcert);
+ 
++	/* Candidate 1: Pre-duplication SAN length validation on the original X509 certificate */
++	{
++	#define MAX_SAN_NAME_LEN 4096
++		STACK_OF(GENERAL_NAME)* san = X509_get_ext_d2i(xcert, NID_subject_alt_name, NULL, NULL);
++		if (san)
++		{
++			int i;
++			for (i = 0; i < sk_GENERAL_NAME_num(san); i++)
++			{
++				GENERAL_NAME* gen = sk_GENERAL_NAME_value(san, i);
++				if (gen->type == GEN_DNS || gen->type == GEN_URI || gen->type == GEN_EMAIL)
++				{
++					ASN1_IA5STRING* str = gen->d.ia5;
++					size_t len = ASN1_STRING_length(str);
++					if (len == 0 || len > MAX_SAN_NAME_LEN)
++					{
++						sk_GENERAL_NAME_pop_free(san, GENERAL_NAME_free);
++						return NULL;
++					}
++				}
++			}
++			sk_GENERAL_NAME_pop_free(san, GENERAL_NAME_free);
++		}
++	#undef MAX_SAN_NAME_LEN
++	}
++
+ 	rdpCertificate* cert = freerdp_certificate_new();
+ 	if (!cert)
+ 		return NULL;

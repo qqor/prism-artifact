@@ -1,0 +1,28 @@
+diff --git a/epan/dissectors/packet-netbios.c b/epan/dissectors/packet-netbios.c
+index 9d55d615db..ea79407b23 100644
+--- a/epan/dissectors/packet-netbios.c
++++ b/epan/dissectors/packet-netbios.c
+@@ -309,6 +309,7 @@ process_netbios_name(const unsigned char *name_ptr, char *name_ret, int name_ret
+ 	unsigned char name_char;
+ 	char  *name_ret_orig = name_ret;
+ 	static const char hex_digits[16] = {'0','1','2','3','4','5','6','7','8','9','a','b','c','d','e','f'};
++	// Rationale: leave name_ret_len unchanged but ensure terminator never OOB
+ 
+ 	for (i = 0; i < NETBIOS_NAME_LEN - 1; i++) {
+ 		name_char = *name_ptr++;
+@@ -328,7 +329,14 @@ process_netbios_name(const unsigned char *name_ptr, char *name_ret, int name_ret
+ 				*name_ret++ = '>';
+ 		}
+ 	}
+-	*name_ret = '\0';
++	// Rationale: conditional terminator placement to avoid writing past buffer
++	if (name_ret_len > 0) {
++		*name_ret = '\0';
++	} else {
++		// no room: back up one and write terminator in last valid slot
++		name_ret--;
++		*name_ret = '\0';
++	}
+ 
+ 	/* Remove trailing space characters from name. */
+ 

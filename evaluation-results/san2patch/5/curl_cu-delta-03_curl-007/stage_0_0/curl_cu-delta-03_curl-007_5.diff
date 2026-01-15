@@ -1,0 +1,41 @@
+diff --git a/lib/alliswellprotocoll.c b/lib/alliswellprotocoll.c
+index 5be67405e..6b02ef18f 100644
+--- a/lib/alliswellprotocoll.c
++++ b/lib/alliswellprotocoll.c
+@@ -93,7 +93,12 @@ static CURLcode alliswellprotocoll_done(struct Curl_easy *data,
+ }
+ 
+ static CURLcode alliswellprotocoll_do_more(struct Curl_easy *data, int *c)
+-{
++// FIXME: Crash CWE-476: NULL Pointer Dereference
++ {
++  if(!c) {
++    /* no counter provided, nothing to do */
++    return CURLE_OK;
++  }
+   *c = -1;
+   return CURLE_OK;
+ }
+diff --git a/lib/multi.c b/lib/multi.c
+index 1851dc731..1f9df610a 100644
+--- a/lib/multi.c
++++ b/lib/multi.c
+@@ -1730,7 +1730,8 @@ static CURLcode protocol_connecting(struct Curl_easy *data, bool *done)
+   CURLcode result = CURLE_OK;
+   struct connectdata *conn = data->conn;
+ 
+-  if(conn && conn->handler->connecting) {
++  /* Ensure conn->handler is not NULL before calling its function pointer */
++  if(conn && conn->handler && conn->handler->connecting) {
+     *done = FALSE;
+     result = conn->handler->connecting(data, done);
+   }
+@@ -1740,6 +1741,8 @@ static CURLcode protocol_connecting(struct Curl_easy *data, bool *done)
+   return result;
+ }
+ 
++/* Rationale: Added conn->handler NULL check to prevent dereferencing a NULL handler pointer. */
++
+ /*
+  * We are DOING this is being called over and over from the multi interface
+  * until the DOING phase is done on protocol layer.

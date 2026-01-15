@@ -1,0 +1,23 @@
+diff --git a/src/net_builtin.c b/src/net_builtin.c
+index 793874f4..9275bbb9 100644
+--- a/src/net_builtin.c
++++ b/src/net_builtin.c
+@@ -380,8 +380,16 @@ static void rx_arp(struct mg_tcpip_if *ifp, struct pkt *pkt) {
+ }
+ 
+ static void rx_icmp(struct mg_tcpip_if *ifp, struct pkt *pkt) {
+-  // MG_DEBUG(("ICMP %d", (int) len));
+-  if (pkt->icmp->type == 8 && pkt->ip != NULL && pkt->ip->dst == ifp->ip) {
++  // FIXME: Crash CWE-125: Out-of-bounds Read
++   // MG_DEBUG(("ICMP %d", (int) len));
++  // First validate IP and buffer length, then ICMP type
++  if (pkt->ip != NULL && pkt->ip->dst == ifp->ip) {
++    if (pkt->pay.len < sizeof(struct icmp)) {
++      return;
++    }
++    if (pkt->icmp->type != 8) {
++      return;
++    }
+     size_t hlen = sizeof(struct eth) + sizeof(struct ip) + sizeof(struct icmp);
+     size_t space = ifp->tx.len - hlen, plen = pkt->pay.len;
+     if (plen > space) plen = space;

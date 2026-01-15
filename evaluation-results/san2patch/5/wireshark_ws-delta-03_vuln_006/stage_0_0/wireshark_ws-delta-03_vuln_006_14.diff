@@ -1,0 +1,34 @@
+diff --git a/epan/dissectors/packet-irc.c b/epan/dissectors/packet-irc.c
+index 481a619eca..96fe066822 100644
+--- a/epan/dissectors/packet-irc.c
++++ b/epan/dissectors/packet-irc.c
+@@ -1089,7 +1089,9 @@
+      /*
+       * Process the packet data, a line at a time.
+       */
+-     while (tvb_offset_exists(tvb, offset))
++     /* Rationale: Combine buffer-existence check and a hard cap to prevent any out-of-bounds writes */
++#define MAX_IRC_NAMES_LEN 512
++while (tvb_offset_exists(tvb, offset))
+      {
+          /*
+           * Find the end of the line.
+@@ -1106,9 +1108,17 @@
+               */
+              break;
+          }
+- 
++
+          if (linelen != 0)
+          {
++             /* ensure the bytes exist */
++             if (!tvb_bytes_exist(tvb, offset, linelen)) {
++                 linelen = tvb_captured_length(tvb) - offset;
++             }
++             /* enforce maximum permitted length */
++             if (linelen > MAX_IRC_NAMES_LEN) {
++                 linelen = MAX_IRC_NAMES_LEN;
++             }
+              if (pinfo->match_uint == pinfo->destport)
+              {
+                  dissect_irc_request(irc_tree, tvb, pinfo, offset, linelen);

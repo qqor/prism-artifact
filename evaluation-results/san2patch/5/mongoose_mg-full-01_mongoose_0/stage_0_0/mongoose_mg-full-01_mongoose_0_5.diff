@@ -1,0 +1,30 @@
+diff --git a/mongoose.c b/mongoose.c
+index 3508b21e..124f5653 100644
+--- a/mongoose.c
++++ b/mongoose.c
+@@ -1813,12 +1813,15 @@ void mg_http_reply(struct mg_connection *c, int code, const char *headers,
+   if (c->send.len > 16) {
+     size_t n = mg_snprintf((char *) &c->send.buf[len - 15], 11, "%-10lu",
+                            (unsigned long) (c->send.len - len));
+-    c->send.buf[len - 15 + n] = ' ';  // Change ending 0 to space
++    /* Rationale: guard against out-of-bounds write by checking n */
++    if (n < 11) {
++      c->send.buf[len - 15 + n] = ' ';  // Change ending 0 to space
++    }
+   }
+   c->is_resp = 0;
+ }
+ 
+-static void http_cb(struct mg_connection *, int, void *);
++ static void http_cb(struct mg_connection *, int, void *);
+ static void restore_http_cb(struct mg_connection *c) {
+   mg_fs_close((struct mg_fd *) c->pfn_data);
+   c->pfn_data = NULL;
+@@ -1831,7 +1834,6 @@ char *mg_http_etag(char *buf, size_t len, size_t size, time_t mtime) {
+   mg_snprintf(buf, len, "\"%lld.%lld\"", (int64_t) mtime, (int64_t) size);
+   return buf;
+ }
+-
+ static void static_cb(struct mg_connection *c, int ev, void *ev_data) {
+   if (ev == MG_EV_WRITE || ev == MG_EV_POLL) {
+     struct mg_fd *fd = (struct mg_fd *) c->pfn_data;

@@ -1,0 +1,66 @@
+diff --git a/HTMLparser.c b/HTMLparser.c
+index 9c34e9e8..f05b2847 100644
+--- a/HTMLparser.c
++++ b/HTMLparser.c
+@@ -5797,7 +5797,7 @@ htmlCreateFileParserCtxt(const char *filename, const char *encoding)
+  * @userData: if using SAX, this pointer will be provided on callbacks.
+  *
+  * DEPRECATED: Use htmlNewSAXParserCtxt and htmlCtxtReadFile.
+- *
++/*
+  * parse an HTML file and build a tree. Automatic support for ZLIB/Compress
+  * compressed document is provided by default if found at compile-time.
+  * It use the given SAX function block to handle the parsing callback.
+@@ -5810,15 +5810,44 @@ htmlCreateFileParserCtxt(const char *filename, const char *encoding)
+ htmlDocPtr
+ htmlSAXParseFile(const char *filename, const char *encoding, htmlSAXHandlerPtr sax,
+                  void *userData) {
+-    htmlDocPtr ret;
+-    htmlParserCtxtPtr ctxt;
+-    htmlSAXHandlerPtr oldsax = NULL;
++	htmlDocPtr ret;
++	htmlParserCtxtPtr ctxt;
++	htmlSAXHandlerPtr oldsax = NULL;
++
++	/* create parsing context */
++	ctxt = htmlCreateFileParserCtxt(filename, encoding);
++	if (ctxt == NULL) return(NULL);
++
++	/* if handler present, replace comment with buffer-based version */
++	if (sax != NULL) {
++		oldsax = ctxt->sax;
++		ctxt->sax = oldsax;
++		ctxt->sax->comment = buffered_htmlSecureComment;
++	}
+ 
+-    ctxt = htmlCreateFileParserCtxt(filename, encoding);
+-    if (ctxt == NULL) return(NULL);
+-    if (sax != NULL) {
+-	oldsax = ctxt->sax;
+-        ctxt->sax = sax;
++	/* parse document */
++	ret = htmlSAXParseDoc(ctxt, filename, encoding, userData);
++
++	/* restore handlers */
++	if (oldsax)
++		ctxt->sax = oldsax;
++
++	/* free context */
++	htmlFreeParserCtxt(ctxt);
++	return(ret);
++}
++
++/* version that uses an internal xmlBuf to avoid fixed buffers */
++static void
++buffered_htmlSecureComment(void *ctx, const xmlChar *value) {
++	xmlBufPtr buf = xmlBufCreateSize(0);
++	if (!buf) return;
++	/* xmlBuf will grow as needed */
++	xmlBufAdd(buf, value, xmlStrlen(value));
++	/* default handler will consume from xmlBuf */
++	htmlSAX2Comment(ctx, xmlBufContent(buf));
++	xmlBufFree(buf);
++}        ctxt->sax = sax;
+         ctxt->userData = userData;
+     }
+ 

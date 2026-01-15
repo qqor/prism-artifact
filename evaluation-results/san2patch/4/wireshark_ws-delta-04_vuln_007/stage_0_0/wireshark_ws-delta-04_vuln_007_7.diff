@@ -1,0 +1,31 @@
+diff --git a/epan/dissectors/packet-json.c b/epan/dissectors/packet-json.c
+index fbf7776431..1a7009fea4 100644
+--- a/epan/dissectors/packet-json.c
++++ b/epan/dissectors/packet-json.c
+@@ -1290,20 +1290,21 @@ init_json_parser(void) {
+ 	tvbparse_wanted_t *want_member;
+ 	tvbparse_wanted_t *want_string;
+ 	tvbparse_wanted_t *want_number, *want_int;
+-	tvbparse_wanted_t *want_value;
++// FIXME: Crash CWE-125: Out-of-bounds Read
++		tvbparse_wanted_t *want_value;
+ 	tvbparse_wanted_t *want_value_separator;
+ 
+-#define tvbparse_optional(id, private_data, before_cb, after_cb, wanted) \
+-	tvbparse_some(id, 0, 1, private_data, before_cb, after_cb, wanted)
++	#define tvbparse_optional(id, private_data, before_cb, after_cb, wanted) \
++		tvbparse_some(id, 0, 1, private_data, before_cb, after_cb, wanted)
+ 
+ 	tvbparse_wanted_t *want_quot = tvbparse_char(-1,"\"",NULL,NULL,NULL);
+ 
++	/* Exclude '\u' from raw runs to force explicit handling */
+ 	want_string = tvbparse_set_seq(JSON_TOKEN_STRING, NULL, NULL, NULL,
+ 			want_quot,
+ 			tvbparse_some(-1, 0, INT_MAX, NULL, NULL, NULL,
+ 				tvbparse_set_oneof(-1, NULL, NULL, NULL,
+-					tvbparse_not_chars(-1, 0, 0, "\"" "\\", NULL, NULL, NULL), /* XXX, without invalid unicode characters */
+-					tvbparse_set_seq(-1, NULL, NULL, NULL,
++					tvbparse_not_chars(-1, 0, 0, "\"" "\\u", NULL, NULL, NULL), /* Rationale: do not include '\u' in fast path */					tvbparse_set_seq(-1, NULL, NULL, NULL,
+ 						tvbparse_char(-1, "\\", NULL, NULL, NULL),
+ 						tvbparse_set_oneof(-1, NULL, NULL, NULL,
+ 							tvbparse_chars(-1, 0, 1, "\"" "\\" "/bfnrt", NULL, NULL, NULL),

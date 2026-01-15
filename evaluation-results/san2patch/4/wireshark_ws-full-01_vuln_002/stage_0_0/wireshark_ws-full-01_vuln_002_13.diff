@@ -1,0 +1,56 @@
+diff --git a/epan/dissectors/packet-telnet.c b/epan/dissectors/packet-telnet.c
+index 9f003e3e61..39d51fd83f 100644
+--- a/epan/dissectors/packet-telnet.c
++++ b/epan/dissectors/packet-telnet.c
+@@ -2313,11 +2313,26 @@ dissect_telnet(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _
+         } else if (is_tn5250) {
+           next_tvb = tvb_new_subset_length(tvb, offset, data_len);
+           call_dissector(tn5250_handle, next_tvb, pinfo, telnet_tree);
+-        } else
+-          telnet_add_text(telnet_tree, tvb, offset, data_len);
++        } else {
++          /* Stack-copy small payload to avoid heap UAF */
++          #define MAX_STACK_COPY 256
++          if (data_len <= MAX_STACK_COPY) {
++            char buf[MAX_STACK_COPY + 1];
++            tvb_memcpy(tvb, offset, data_len, buf);
++            buf[data_len] = '\0';
++            tvbuff_t *dup_tvb = tvb_new_real_data((guchar *)buf, data_len, data_len);
++            telnet_add_text(telnet_tree, dup_tvb, 0, data_len);
++          } else {
++            /* Fallback to heap copy */
++            guchar *data_copy = tvb_memdup(tvb, offset, data_len);
++            tvbuff_t *dup_tvb = tvb_new_real_data(data_copy, data_len, data_len);
++            telnet_add_text(telnet_tree, dup_tvb, 0, data_len);
++            g_free(data_copy);
++          }
++        }
+       }
+       /*
+-       * Now interpret the command.
++        * Now interpret the command.
+        */
+       offset = telnet_command(pinfo, telnet_tree, tvb, iac_offset, &num_info_items);
+     } else {
+@@ -2334,7 +2349,20 @@ dissect_telnet(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _
+        */
+       if (len > 0) {
+         add_telnet_data_bytes_str(pinfo, &num_info_items, len);
+-        telnet_add_text(telnet_tree, tvb, offset, len);
++        /* Stack-copy small payload to avoid heap UAF */
++        #define MAX_STACK_COPY 256
++        if (len <= MAX_STACK_COPY) {
++          char buf[MAX_STACK_COPY + 1];
++          tvb_memcpy(tvb, offset, len, buf);
++          buf[len] = '\0';
++          tvbuff_t *dup_tvb = tvb_new_real_data((guchar *)buf, len, len);
++          telnet_add_text(telnet_tree, dup_tvb, 0, len);
++        } else {
++          guchar *data_copy = tvb_memdup(tvb, offset, len);
++          tvbuff_t *dup_tvb = tvb_new_real_data(data_copy, len, len);
++          telnet_add_text(telnet_tree, dup_tvb, 0, len);
++          g_free(data_copy);
++        }
+       }
+       break;
+     }

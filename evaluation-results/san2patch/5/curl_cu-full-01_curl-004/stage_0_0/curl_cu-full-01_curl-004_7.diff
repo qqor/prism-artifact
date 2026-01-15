@@ -1,0 +1,47 @@
+diff --git a/lib/mprintf.c b/lib/mprintf.c
+index 35e40e302..408ee7428 100644
+--- a/lib/mprintf.c
++++ b/lib/mprintf.c
+@@ -1067,26 +1067,30 @@ int curl_mvsnprintf(char *buffer, size_t maxlength, const char *format,
+ {
+   int retcode;
+   struct nsprintf info;
++  /* Rationale: Format into a heap buffer and then copy/truncate to avoid overrunning the stack buffer */
++  char *tempbuf = malloc(maxlength + 1);
++  if(!tempbuf)
++    return -1;
+ 
+-  info.buffer = buffer;
++  info.buffer = tempbuf;
+   info.length = 0;
+   info.max = maxlength;
+ 
+   retcode = formatf(&info, addbyter, format, ap_save);
+-  if(info.max) {
+-    /* we terminate this with a zero byte */
+-    if(info.max == info.length) {
+-      /* we are at maximum, scrap the last letter */
+-      info.buffer[-1] = 0;
+-      DEBUGASSERT(retcode);
+-      retcode--; /* do not count the nul byte */
+-    }
+-    else
+-      info.buffer[0] = 0;
+-  }
++  /* ensure null termination and clamp length */
++  if(info.length >= maxlength)
++    tempbuf[maxlength] = '\0';
++  else
++    tempbuf[info.length] = '\0';
++
++  /* copy back into original buffer with truncation */
++  memcpy(buffer, tempbuf, strlen(tempbuf) + 1);
++  free(tempbuf);
++
+   return retcode;
+ }
+ 
++
+ int curl_msnprintf(char *buffer, size_t maxlength, const char *format, ...)
+ {
+   int retcode;

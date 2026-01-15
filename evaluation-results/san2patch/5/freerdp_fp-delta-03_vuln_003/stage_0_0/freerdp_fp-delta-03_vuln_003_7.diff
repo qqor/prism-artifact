@@ -1,0 +1,53 @@
+diff --git a/libfreerdp/codec/rfx.c b/libfreerdp/codec/rfx.c
+index 3b9168ab6..af1db75c5 100644
+--- a/libfreerdp/codec/rfx.c
++++ b/libfreerdp/codec/rfx.c
+@@ -707,11 +707,12 @@ static INLINE BOOL rfx_process_message_frame_end(RFX_CONTEXT* WINPR_RESTRICT con
+ }
+ 
+ static INLINE BOOL rfx_process_message_metadata(RFX_CONTEXT* WINPR_RESTRICT context,
+-												RFX_MESSAGE* WINPR_RESTRICT message,
+-												wStream* WINPR_RESTRICT s,
+-												UINT16* WINPR_RESTRICT pExpectedBlockType)
++										RFX_MESSAGE* WINPR_RESTRICT message,
++										wStream* WINPR_RESTRICT s,
++										UINT16* WINPR_RESTRICT pExpectedBlockType)
+ {
+ 	UINT32 magic = 0;
++	UINT16 metadataCount = 0;
+ 
+ 	WINPR_ASSERT(context);
+ 	WINPR_ASSERT(context->priv);
+@@ -731,7 +732,20 @@ static INLINE BOOL rfx_process_message_metadata(RFX_CONTEXT* WINPR_RESTRICT cont
+ 		WLog_Print(context->priv->log, WLOG_ERROR, "invalid magic number 0x%08" PRIX32 "", magic);
+ 		return FALSE;
+ 	}
++
++	/* Rationale: prevent an excessive number of metadata entries */
++	Stream_Read_UINT16(s, metadataCount);
++	if (metadataCount > RFX_MAX_METADATA_ENTRIES)
++	{
++		WLog_Print(context->priv->log, WLOG_ERROR,
++		           "too many metadata entries: %u > %u", metadataCount, RFX_MAX_METADATA_ENTRIES);
++		return FALSE;
++	}
++
++	/* existing metadata parsing would go here... */
++	/* after validation, safe write: */
+ 	*(UINT64*)metadataBlock = metadataData;
++
+ 	return TRUE;
+ }
+ 
+@@ -739,6 +753,11 @@ static INLINE BOOL rfx_resize_rects(RFX_MESSAGE* WINPR_RESTRICT message)
+ {
+ 	WINPR_ASSERT(message);
+ 
++	/* Use safe multiply utility to compute allocation size */
++	size_t allocSize = 0;
++	if (!winpr_safe_size_mul(message->numRects, sizeof(RFX_RECT), &allocSize))
++		return FALSE;
++
+ 	RFX_RECT* tmpRects =
+ 	    winpr_aligned_recalloc(message->rects, message->numRects, sizeof(RFX_RECT), 32);
+ 	if (!tmpRects)

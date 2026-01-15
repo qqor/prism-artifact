@@ -1,0 +1,25 @@
+diff --git a/libexif/exif-data.c b/libexif/exif-data.c
+index f3f6dbc..292cd93 100644
+--- a/libexif/exif-data.c
++++ b/libexif/exif-data.c
+@@ -979,9 +979,18 @@ exif_data_load_data (ExifData *data, const unsigned char *d_orig,
+ 	/* ds is restricted to 16 bit above, so offset is restricted too, and offset+8 should not overflow. */
+ 	if (offset > ds || offset + 6 + 2 > ds)
+ 		return;
+-
++// Rationale: use safer copy routine in deeper parser to enforce bounds
+ 	/* Parse the actual exif data (usually offset 14 from start) */
+-	exif_data_load_data_content (data, EXIF_IFD_0, d + 6, ds - 6, offset, 0);
++	if (exif_data_load_data_content_safe (data,
++	                                     EXIF_IFD_0,
++	                                     d + 6,
++	                                     ds - 6,
++	                                     offset,
++	                                     0) != 0) {
++		exif_log (data->priv->log, EXIF_LOG_CODE_WARNING, "ExifData",
++		  "Malformed EXIF IFD0 entry, skipped");
++		return;
++	}
+ 
+ 	/* IFD 1 offset */
+ 	n = exif_get_short (d + 6 + offset, data->priv->order);

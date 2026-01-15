@@ -1,0 +1,38 @@
+diff --git a/epan/dissectors/packet-netbios.c b/epan/dissectors/packet-netbios.c
+index 5ea85c7df4..b67ae10f66 100644
+--- a/epan/dissectors/packet-netbios.c
++++ b/epan/dissectors/packet-netbios.c
+@@ -428,21 +428,27 @@ static void
+ netbios_add_session_init_flags( tvbuff_t *tvb, proto_tree *tree, int offset)
+ 
+ {
++	/* Rationale: compute safe length and skip subfields if insufficient */
++	guint remaining = 0, len = 0;
+ 	proto_tree *field_tree;
+ 	proto_item *tf;
+ 
++	remaining = (tvb_reported_length(tvb) > offset) ? (tvb_reported_length(tvb) - offset) : 0;
++	len = (remaining >= 1) ? 1 : 0;
++
+ 	/* decode the flag field for Session Init packet */
+-	tf = proto_tree_add_item(tree, hf_netb_flags, tvb, offset, 1, ENC_LITTLE_ENDIAN);
++	tf = proto_tree_add_item(tree, hf_netb_flags, tvb, offset, len, ENC_LITTLE_ENDIAN);
+ 	field_tree = proto_item_add_subtree(tf, ett_netb_flags);
+ 
+-	proto_tree_add_item( field_tree, hf_netb_flags_send_no_ack, tvb, offset, 1, ENC_LITTLE_ENDIAN);
+-
+-	proto_tree_add_item( field_tree, hf_netb_largest_frame, tvb, offset, 1, ENC_LITTLE_ENDIAN);
+-
+-	proto_tree_add_item( field_tree, hf_netb_version, tvb, offset, 1, ENC_LITTLE_ENDIAN);
++	if (len) {
++		proto_tree_add_item(field_tree, hf_netb_flags_send_no_ack, tvb, offset, 1, ENC_LITTLE_ENDIAN);
++		proto_tree_add_item(field_tree, hf_netb_largest_frame, tvb, offset, 1, ENC_LITTLE_ENDIAN);
++		proto_tree_add_item(field_tree, hf_netb_version, tvb, offset, 1, ENC_LITTLE_ENDIAN);
++	}
+ }
+ 
+ 
++
+ static void
+ netbios_no_receive_flags( tvbuff_t *tvb, proto_tree *tree, int offset)
+ 

@@ -1,0 +1,93 @@
+diff --git a/libexif/apple/exif-mnote-data-apple.c b/libexif/apple/exif-mnote-data-apple.c
+index 83a9cb1..c40d1f6 100644
+--- a/libexif/apple/exif-mnote-data-apple.c
++++ b/libexif/apple/exif-mnote-data-apple.c
+@@ -54,23 +54,21 @@ exif_mnote_data_apple_free(ExifMnoteData *md) {
+ }
+ 
+ static void
+-exif_mnote_data_apple_load(ExifMnoteData *md, const unsigned char *buf, unsigned int buf_size) {
++// FIXME: Crash CWE-125: Out-of-bounds Read
++// Rationale: Truncate data size to available buffer region rather than overread
++ exif_mnote_data_apple_load(ExifMnoteData *md, const unsigned char *buf, unsigned int buf_size) {
+     ExifMnoteDataApple *d = (ExifMnoteDataApple *) md;
+     unsigned int tcount, i;
+     unsigned int dsize;
+     unsigned int ofs, dofs;
+ 
+-    /*printf("%s\n", __FUNCTION__);*/
+-
+     if (!d || !buf || (buf_size < 6 + 16)) {
+         exif_log(md->log, EXIF_LOG_CODE_CORRUPT_DATA,
+                  "ExifMnoteDataApple", "Short MakerNote");
+         return;
+     }
+ 
+-    /* Start of interesting data */
+     ofs = d->offset + 6;
+-
+     if ((buf[ofs + 12] == 'M') && (buf[ofs + 13] == 'M')) {
+         d->order = EXIF_BYTE_ORDER_MOTOROLA;
+     } else if ((buf[ofs + 12] == 'I') && (buf[ofs + 13] == 'I')) {
+@@ -78,31 +76,21 @@ exif_mnote_data_apple_load(ExifMnoteData *md, const unsigned char *buf, unsigned
+     } else {
+         exif_log(md->log, EXIF_LOG_CODE_CORRUPT_DATA,
+                 "ExifMnoteDataApple", "Unrecognized byte order");
+-        /*printf("%s(%d)\n", __FUNCTION__, __LINE__);*/
+         return;
+     }
+ 
+     tcount = (unsigned int) exif_get_short(buf + ofs + 14, d->order);
+-
+-    /* Sanity check the offset */
+     if (buf_size < 6 + 16 + tcount * 6 + 4) {
+         exif_log(md->log, EXIF_LOG_CODE_CORRUPT_DATA,
+                  "ExifMnoteDataApple", "Short MakerNote");
+-        /*printf("%s(%d)\n", __FUNCTION__, __LINE__);*/
+         return;
+     }
+ 
+-    /* printf("%s(%d): total %d tags\n", __FUNCTION__, __LINE__, tcount); */
+-
+     ofs += 16;
+-
+     exif_mnote_data_apple_free(md);
+-
+-    /* Reserve enough space for all the possible MakerNote tags */
+     d->entries = exif_mem_alloc(md->mem, sizeof(MnoteAppleEntry) * tcount);
+     if (!d->entries) {
+         EXIF_LOG_NO_MEMORY(md->log, "ExifMnoteApple", sizeof(MnoteAppleEntry) * tcount);
+-        /*printf("%s(%d)\n", __FUNCTION__, __LINE__);*/
+         return;
+     }
+ 
+@@ -117,11 +105,16 @@ exif_mnote_data_apple_load(ExifMnoteData *md, const unsigned char *buf, unsigned
+         } else {
+             dofs = ofs + 8;
+         }
+-	if (dofs > buf_size) {
+-		exif_log (md->log, EXIF_LOG_CODE_CORRUPT_DATA,
+-                                  "ExifMnoteApplet", "Tag size overflow detected (%u vs size %u)", dofs, buf_size);
+-		continue;
+-	}
++        if (dofs >= buf_size) {
++            exif_log(md->log, EXIF_LOG_CODE_CORRUPT_DATA,
++                     "ExifMnoteApple", "Tag offset %u beyond buffer %u", dofs, buf_size);
++            continue;
++        }
++        /* Rationale: limit dsize to available bytes */
++        unsigned int avail = buf_size - dofs;
++        if (dsize > avail) {
++            dsize = avail;
++        }
+         ofs += 12;
+         d->entries[i].data = exif_mem_alloc(md->mem, dsize);
+         if (!d->entries[i].data) {
+@@ -132,7 +125,6 @@ exif_mnote_data_apple_load(ExifMnoteData *md, const unsigned char *buf, unsigned
+         d->entries[i].size = dsize;
+     }
+     d->count = tcount;
+-
+     return;
+ }
+ 

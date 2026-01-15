@@ -1,0 +1,57 @@
+diff --git a/libfreerdp/codec/rfx.c b/libfreerdp/codec/rfx.c
+index 3b9168ab6..a28782612 100644
+--- a/libfreerdp/codec/rfx.c
++++ b/libfreerdp/codec/rfx.c
+@@ -707,11 +707,13 @@ static INLINE BOOL rfx_process_message_frame_end(RFX_CONTEXT* WINPR_RESTRICT con
+ }
+ 
+ static INLINE BOOL rfx_process_message_metadata(RFX_CONTEXT* WINPR_RESTRICT context,
+-												RFX_MESSAGE* WINPR_RESTRICT message,
+-												wStream* WINPR_RESTRICT s,
+-												UINT16* WINPR_RESTRICT pExpectedBlockType)
++										RFX_MESSAGE* WINPR_RESTRICT message,
++										wStream* WINPR_RESTRICT s,
++										UINT16* WINPR_RESTRICT pExpectedBlockType)
+ {
+ 	UINT32 magic = 0;
++	UINT16 index = 0;
++	UINT16 length = 0;
+ 
+ 	WINPR_ASSERT(context);
+ 	WINPR_ASSERT(context->priv);
+@@ -731,7 +733,19 @@ static INLINE BOOL rfx_process_message_metadata(RFX_CONTEXT* WINPR_RESTRICT cont
+ 		WLog_Print(context->priv->log, WLOG_ERROR, "invalid magic number 0x%08" PRIX32 "", magic);
+ 		return FALSE;
+ 	}
+-	*(UINT64*)metadataBlock = metadataData;
++
++	/* Rationale: validate index and length from metadata before writing */
++	Stream_Read_UINT16(s, index);   /* offset into metadataBlock */
++	Stream_Read_UINT16(s, length);  /* number of bytes to write */
++	if ((size_t)index + (size_t)length > RFX_METADATA_BLOCK_SIZE)
++	{
++		WLog_Print(context->priv->log, WLOG_ERROR,
++		           "metadata entry out-of-bounds: index=%u, length=%u", index, length);
++		return FALSE;
++	}
++	/* write exactly length bytes from metadataData to metadataBlock at index */
++	memcpy(&metadataBlock[index], &metadataData, length);
++
+ 	return TRUE;
+ }
+ 
+@@ -739,6 +753,14 @@ static INLINE BOOL rfx_resize_rects(RFX_MESSAGE* WINPR_RESTRICT message)
+ {
+ 	WINPR_ASSERT(message);
+ 
++	/* Enforce a reasonable upper limit on number of rectangles */
++	const size_t MAX_RFX_RECTS = 1024;
++	if (message->numRects > MAX_RFX_RECTS)
++	{
++		WLog_Print(WLOG_WARN, "rfx_resize_rects: requested %zu rects exceeds maximum %zu", message->numRects, MAX_RFX_RECTS);
++		return FALSE;
++	}
++
+ 	RFX_RECT* tmpRects =
+ 	    winpr_aligned_recalloc(message->rects, message->numRects, sizeof(RFX_RECT), 32);
+ 	if (!tmpRects)

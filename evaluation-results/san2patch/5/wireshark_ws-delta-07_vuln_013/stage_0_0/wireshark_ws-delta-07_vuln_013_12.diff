@@ -1,0 +1,46 @@
+diff --git a/epan/dissectors/packet-gvcp.c b/epan/dissectors/packet-gvcp.c
+index d49324a429..711c2c2cb1 100644
+--- a/epan/dissectors/packet-gvcp.c
++++ b/epan/dissectors/packet-gvcp.c
+@@ -293,7 +293,8 @@ static int hf_gvcp_custom_register_addr;
+ static int hf_gvcp_custom_memory_addr;
+ 
+ /*
+-\brief IDs used for bootstrap dissection
++// FIXME: Crash CWE-787: Out-of-bounds Write
++ \brief IDs used for bootstrap dissection
+ */
+ 
+ static int hf_gvcp_message_key_code;
+@@ -306,7 +307,30 @@ static int hf_gvcp_request_id;
+ static int hf_gvcp_status;
+ static int hf_gvcp_acknowledge;
+ static int hf_gvcp_spec_version_major;
+-static int hf_gvcp_spec_version_minor;
++
++/* Dissector for GVCP Register: clamp out-of-range index */
++static int
++dissect_gvcp_register(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
++{
++    guint offset = 0;
++    guint32 reg_idx;
++    guint32 reg_val;
++
++    reg_idx = tvb_get_ntohl(tvb, offset);
++    offset += 4;
++
++    /* fix: clamp index to valid range and log if clipped */
++    if (reg_idx >= 64) {
++        expert_add_info(pinfo, pinfo->fd->num, &ei_gvcp_invalid_reg_index);
++        reg_idx = 63;
++    }
++
++    gvcp_register_number[reg_idx] = reg_idx;
++    reg_val = tvb_get_ntohl(tvb, offset);
++    offset += 4;
++    gvcp_register_value[reg_idx] = reg_val;
++    return offset;
++}static int hf_gvcp_spec_version_minor;
+ static int hf_gvcp_devicemodediscovery;
+ static int hf_gvcp_device_mac_address;
+ static int hf_gvcp_ip_config_persistent_ip;

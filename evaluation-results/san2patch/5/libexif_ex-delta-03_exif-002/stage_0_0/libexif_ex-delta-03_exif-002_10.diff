@@ -1,0 +1,84 @@
+diff --git a/libexif/exif-data.c b/libexif/exif-data.c
+index f3f6dbc..f9bc0ed 100644
+--- a/libexif/exif-data.c
++++ b/libexif/exif-data.c
+@@ -146,15 +146,15 @@ exif_data_new_mem (ExifMem *mem)
+ 
+ 	/* Default data type: none */
+ 	exif_data_set_data_type (data, EXIF_DATA_TYPE_COUNT);
+-
+-	return (data);
++    return (data);
+ }
+ 
+ ExifData *
+ exif_data_new_from_data (const unsigned char *data, unsigned int size)
+ {
+ 	ExifData *edata;
+-
++// FIXME: Crash CWE-125: Out-of-bounds Read
++ 
+ 	edata = exif_data_new ();
+ 	exif_data_load_data (edata, data, size);
+ 	return (edata);
+@@ -162,12 +162,23 @@ exif_data_new_from_data (const unsigned char *data, unsigned int size)
+ 
+ static int
+ exif_data_load_data_entry (ExifData *data, ExifEntry *entry,
+-			   const unsigned char *d,
+-			   unsigned int size, unsigned int offset)
++                           const unsigned char *d,
++                           unsigned int size, unsigned int offset)
+ {
+ 	unsigned int s, doff;
+ 
+-	entry->tag        = exif_get_short (d + offset + 0, data->priv->order);
++	/* Reject entries with invalid offset */
++	if (offset > size)
++		return 1;
++
++	/* Compute length and guard against overflow/out-of-bounds */
++	s = entry->components * entry->format_size;
++	if (s > size - offset)
++		return 1;
++
++	doff = offset;
++	memcpy (entry->data, d + doff, s);
++	/* rest of original code follows... */	entry->tag        = exif_get_short (d + offset + 0, data->priv->order);
+ 	entry->format     = exif_get_short (d + offset + 2, data->priv->order);
+ 	entry->components = exif_get_long  (d + offset + 4, data->priv->order);
+ 
+@@ -233,6 +244,7 @@ exif_data_load_data_entry (ExifData *data, ExifEntry *entry,
+ 		data->priv->offset_mnote = doff;
+ 	}
+ 	return 1;
++// FIXME: Crash CWE-125: Out-of-bounds Read
+ }
+ 
+ static void
+@@ -243,9 +255,24 @@ exif_data_save_data_entry (ExifData *data, ExifEntry *e,
+ 	unsigned int doff, s;
+ 	unsigned int ts;
+ 
+-	if (!data || !data->priv) 
++	if (!data || !data->priv)
+ 		return;
+ 
++	/* Candidate 1: simple range check and early return */
++	/* verify offset within buffer */
++	if (offset > *ds) {
++		return;
++	}
++
++	/* read expected data size */
++	s = e->size;
++	/* ensure no out-of-bounds copy */
++	if (s > *ds - offset) {
++		return;
++	}
++
++	doff = offset;
++	/* original logic continues here... */
+ 	/*
+ 	 * Each entry is 12 bytes long. The memory for the entry has
+ 	 * already been allocated.

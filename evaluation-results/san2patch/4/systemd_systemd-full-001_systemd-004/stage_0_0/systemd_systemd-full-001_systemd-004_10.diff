@@ -1,0 +1,36 @@
+diff --git a/src/udev/net/link-config.c b/src/udev/net/link-config.c
+index 7787f66981..3ed978d891 100644
+--- a/src/udev/net/link-config.c
++++ b/src/udev/net/link-config.c
+@@ -71,28 +71,16 @@ static LinkConfig* link_config_free(LinkConfig *config) {
+         free(config->name);
+         strv_free(config->alternative_names);
+         free(config->alternative_names_policy);
+-        free(config->alias);
+-        free(config->wol_password_file);
+-        erase_and_free(config->wol_password);
+-        cpu_set_free(config->rps_cpu_mask);
+-
+-        ordered_hashmap_free_with_destructor(config->sr_iov_by_section, sr_iov_free);
+-
+-        return mfree(config);
+-}
+-
+-DEFINE_TRIVIAL_CLEANUP_FUNC(LinkConfig*, link_config_free);
+-
+ static void link_configs_free(LinkConfigContext *ctx) {
+         if (!ctx)
+                 return;
+ 
+         ctx->stats_by_path = hashmap_free(ctx->stats_by_path);
+-
+-        LIST_FOREACH(configs, config, ctx->configs)
++        // Use LIST_FOREACH_SAFE to capture next pointer before freeing to avoid use-after-free
++        struct LinkConfig *config, *tmp;
++        LIST_FOREACH_SAFE(configs, config, tmp, ctx->configs)
+                 link_config_free(config);
+ }
+-
+ LinkConfigContext *link_config_ctx_free(LinkConfigContext *ctx) {
+         if (!ctx)
+                 return NULL;

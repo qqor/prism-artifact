@@ -1,0 +1,35 @@
+diff --git a/libexif/exif-data.c b/libexif/exif-data.c
+index f3f6dbc..ce94fb8 100644
+--- a/libexif/exif-data.c
++++ b/libexif/exif-data.c
+@@ -537,11 +537,19 @@ exif_data_load_data_content (ExifData *data, ExifIfd ifd,
+ 	}
+ }
+ 
++// Rationale: Copy two bytes into a local buffer to avoid reading beyond allowed memory
+ static int
+ cmp_func (const unsigned char *p1, const unsigned char *p2, ExifByteOrder o)
+ {
+-	ExifShort tag1 = exif_get_short (p1, o);
+-	ExifShort tag2 = exif_get_short (p2, o);
++	unsigned char buf1[sizeof(ExifShort)] = {0};
++	unsigned char buf2[sizeof(ExifShort)] = {0};
++
++	// Copy only up to sizeof(ExifShort) bytes
++	memcpy (buf1, p1, sizeof(buf1));
++	memcpy (buf2, p2, sizeof(buf2));
++
++	ExifShort tag1 = exif_get_short (buf1, o);
++	ExifShort tag2 = exif_get_short (buf2, o);
+ 
+ 	return (tag1 < tag2) ? -1 : (tag1 > tag2) ? 1 : 0;
+ }
+@@ -558,7 +566,7 @@ cmp_func_motorola (const void *elem1, const void *elem2)
+ {
+ 	return cmp_func ((const unsigned char *) elem1,
+ 			 (const unsigned char *) elem2, EXIF_BYTE_ORDER_MOTOROLA);
+-}
++}}
+ 
+ static void
+ exif_data_save_data_content (ExifData *data, ExifContent *ifd,
